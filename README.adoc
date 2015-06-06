@@ -1,0 +1,4 @@
+= jscomp
+Tzvetan Mikov <tmikov@gmail.com>
+
+An "ahead-of-time" compiler for the JavaScript programming language.
