@@ -33,20 +33,19 @@ function main (argv: string[]): void
     var reporter: compiler.IErrorReporter = {
         error: (loc: ESTree.SourceLocation, msg: string) => {
             if (loc)
-                console.error(`${loc.source}:${loc.start.line}:${loc.start.column}: error: ${msg}`);
+                console.error(`${loc.source}:${loc.start.line}:${loc.start.column + 1}: error: ${msg}`);
             else
                 console.error(`error: ${msg}`);
         },
         warning: (loc: ESTree.SourceLocation, msg: string) => {
             if (loc)
-                console.warn(`${loc.source}:${loc.start.line}:${loc.start.column}: warning: ${msg}`);
+                console.warn(`${loc.source}:${loc.start.line}:${loc.start.column + 1}: warning: ${msg}`);
             else
                 console.warn(`warning: ${msg}`);
         }
     };
 
-    var comp = new compiler.Compiler(fname, reporter);
-    comp.compile();
+    compiler.compile(fname, reporter, new compiler.Options());
 }
 
 main(process.argv.slice(1));
