@@ -42,6 +42,12 @@ function main (argv: string[]): void
                 console.warn(`${loc.source}:${loc.start.line}:${loc.start.column + 1}: warning: ${msg}`);
             else
                 console.warn(`warning: ${msg}`);
+        },
+        note: (loc: ESTree.SourceLocation, msg: string) => {
+            if (loc)
+                console.warn(`${loc.source}:${loc.start.line}:${loc.start.column + 1}: note: ${msg}`);
+            else
+                console.warn(`note: ${msg}`);
         }
     };
 

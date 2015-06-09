@@ -28,6 +28,11 @@ class StringMap<V>
         return key in this.map;
     }
 
+    remove (key: string): void
+    {
+        delete this.map[key];
+    }
+
     forEach (cb: (val: V, key: string)=> void): void
     {
         for (var k in this.map)
