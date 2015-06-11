@@ -1,5 +1,5 @@
 TSC=tsc
-TSFLAGS=--module commonjs --target ES5 --sourceMap --noImplicitAny
+TSFLAGS=--module commonjs --target ES5 --sourceMap --noImplicitAny --noEmitOnError
 
 %.js : %.ts
 	$(TSC) $(TSFLAGS) $<

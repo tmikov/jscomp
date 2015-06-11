@@ -5,20 +5,14 @@
 /// <reference path="../typings/tsd.d.ts" />
 
 import fs = require("fs");
+import assert = require("assert");
 
 import acorn = require("acorn/dist/acorn_csp");
 
 import StringMap = require("../lib/StringMap");
 import AssertionError = require("../lib/AssertionError");
 
-function assert (cond: boolean, msg?: string): void
-{
-    if (!cond) {
-        var message = "assertion failed:" + (msg ? msg : "");
-        console.error(message);
-        throw new AssertionError(message);
-    }
-}
+import hir = require("./hir");
 
 interface AcornNode extends ESTree.Node
 {
@@ -111,10 +105,14 @@ class Variable
     ctx: FunctionContext;
     name: string;
     declared: boolean = false;
+    initialized: boolean = false; //< function declarations and built-in values like 'this'
     assigned: boolean = false;
     accessed: boolean = false;
     escapes: boolean = false;
-    functionDeclaration: ESTree.FunctionDeclaration = null;
+    functionDeclaration: ESTree.FunctionDeclaration;
+
+    hparam: hir.Param = null;
+    hvar: hir.Var = null;
 
     constructor (ctx: FunctionContext, name: string)
     {
@@ -142,6 +140,7 @@ class Scope
     {
         var variable = new Variable(this.ctx, name);
         this.vars.set(name, variable);
+        variable.hvar = this.ctx.builder.newVar(name);
         return variable;
     }
 
@@ -157,7 +156,7 @@ class Scope
     }
 }
 
-enum LabelKind
+const enum LabelKind
 {
     LOOP,
     SWITCH,
@@ -180,17 +179,31 @@ class FunctionContext
     strictMode: boolean;
 
     funcScope: Scope;
+    thisParam: hir.Param;
+    argumentsVar: Variable;
 
     labelList: Label = null;
     labels = new StringMap<Label>();
 
-    constructor (parent: FunctionContext, parentScope: Scope, name: string)
+    builder: hir.FunctionBuilder = null;
+
+    temporaries: hir.Local[] = [];
+
+    constructor (parent: FunctionContext, parentScope: Scope, name: string, moduleBuilder: hir.ModuleBuilder)
     {
         this.parent = parent;
         this.name = name || null;
         this.strictMode = parent && parent.strictMode;
 
+        this.builder = moduleBuilder.newFunction(name);
         this.funcScope = new Scope(this, parentScope);
+
+        // Generate a param binding for 'this'
+        this.thisParam = this.builder.newParam("this");
+
+        this.argumentsVar = this.funcScope.newVariable("arguments");
+        this.argumentsVar.declared = true;
+        this.argumentsVar.initialized = true;
     }
 
     findLabel (name: string): Label
@@ -223,12 +236,50 @@ class FunctionContext
         this.labelList = label.prev;
         label.prev = null; // Facilitate GC
     }
+
+    public allocTemp (): hir.Local
+    {
+        if (!this.temporaries.length)
+        {
+            var t = this.builder.newLocal();
+            t.isTemp = true;
+            this.temporaries.push(t );
+        }
+        var tmp = this.temporaries.pop();
+        //console.log(`allocTemp = ${tmp.id}`);
+        return tmp;
+    }
+
+    public allocSpecific (t: hir.Local): void
+    {
+        assert(t.isTemp);
+        for ( var i = this.temporaries.length - 1; i >= 0; --i )
+            if (this.temporaries[i] === t) {
+                //console.log(`allocSpecific = ${t.id}`);
+                this.temporaries.splice(i, 1);
+                return;
+            }
+        assert(false, "specific temporary is not available");
+        return null;
+    }
+
+    public releaseTemp (t: hir.RValue ): void
+    {
+        var l: hir.Local;
+        if (l = hir.isTempLocal(t)) {
+            //console.log(`releaseTemp ${l.id}`);
+            this.temporaries.push(l);
+        }
+    }
 }
 
+// NOTE: since we have a very dumb backend (for now), we have to perform some optimizations
+// that wouldn't normally be necessary
 export function compile (m_fileName: string, m_reporter: IErrorReporter, m_options: Options): boolean
 {
     var m_globalContext: FunctionContext;
     var m_input: string;
+    var m_moduleBuilder = new hir.ModuleBuilder();
 
     return compileIt();
 
@@ -324,8 +375,63 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
 
     function compileProgram (prog: ESTree.Program): void
     {
-        m_globalContext = new FunctionContext(null, null, "<module>");
-        compileBody(m_globalContext.funcScope, prog.body);
+        m_globalContext = new FunctionContext(null, null, "<module>", m_moduleBuilder);
+        var ast: ESTree.Function = {
+            type: "Function",
+            params: [],
+            body: { type: NT.BlockStatement.name, body: prog.body },
+            generator: false
+        };
+        compileFunction(m_globalContext.funcScope, ast);
+    }
+
+
+    /**
+     * Declare a variable at the function-level scope with letrec semantics.
+     * @param ctx
+     * @param ident
+     * @returns {Variable}
+     */
+    function varDeclaration (ctx: FunctionContext, ident: ESTree.Identifier): Variable
+    {
+        var scope = ctx.funcScope;
+        var name = ident.name;
+        var v: Variable;
+        if (!(v = scope.vars.get(name)))
+            v = scope.newVariable(name);
+        v.declared = true;
+        return v;
+    }
+
+    function compileFunction (parentScope: Scope, ast: ESTree.Function): void
+    {
+        var funcCtx = new FunctionContext(parentScope.ctx, parentScope, ast.id && ast.id.name, m_moduleBuilder);
+        var funcScope = funcCtx.funcScope;
+
+        // Declare the parameters
+        // Create a HIR param+var binding for each of them
+        ast.params.forEach( (pat: ESTree.Pattern): void => {
+            var ident = NT.Identifier.cast(pat);
+
+            var param = funcCtx.builder.newParam(ident.name);
+            var v: Variable;
+
+            if (v = funcScope.vars.get(ident.name)) {
+                (funcCtx.strictMode ? error : warning)(location(ident), `parameter '${ident.name}' already declared`);
+            } else {
+                v = varDeclaration(funcCtx, ident);
+            }
+
+            v.hparam = param;
+        });
+
+        var bodyBlock: ESTree.BlockStatement;
+        if (bodyBlock = NT.BlockStatement.isTypeOf(ast.body))
+            compileBody(funcScope, bodyBlock.body);
+        else
+            assert(false, "TODO: implement ES6");
+
+        funcCtx.builder.log();
     }
 
     function compileBody (scope: Scope, body: ESTree.Statement[]): void
@@ -343,24 +449,7 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
 
         // Bind
         for (var i = startIndex, e = body.length; i < e; ++i)
-            bindStatement(scope, body[i], null);
-    }
-
-    /**
-     * Declare a variable at the function-level scope with letrec semantics.
-     * @param ctx
-     * @param ident
-     * @returns {Variable}
-     */
-    function varDeclaration (ctx: FunctionContext, ident: ESTree.Identifier): Variable
-    {
-        var scope = ctx.funcScope;
-        var name = ident.name;
-        var v: Variable;
-        if (!(v = scope.vars.get(name)))
-            v = scope.newVariable(name);
-        v.declared = true;
-        return v;
+            compileStatement(scope, body[i], null);
     }
 
     function scanStatementForDeclarations (scope: Scope, stmt: ESTree.Statement): void
@@ -446,13 +535,15 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
             case "VariableDeclaration":
                 var variableDeclaration: ESTree.VariableDeclaration = NT.VariableDeclaration.cast(stmt);
                 variableDeclaration.declarations.forEach((vd: ESTree.VariableDeclarator) => {
-                    varDeclaration(scope.ctx, NT.Identifier.cast(vd.id));
+                    var variable = varDeclaration(scope.ctx, NT.Identifier.cast(vd.id));
+                    if (!variable.hvar)
+                        variable.hvar = scope.ctx.builder.newVar(variable.name);
                 });
                 break;
         }
     }
 
-    function bindStatement (scope: Scope, stmt: ESTree.Statement, parent: ESTree.Node): void
+    function compileStatement (scope: Scope, stmt: ESTree.Statement, parent: ESTree.Node): void
     {
         if (!stmt)
             return;
@@ -460,20 +551,15 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
             case "BlockStatement":
                 var blockStatement: ESTree.BlockStatement = NT.BlockStatement.cast(stmt);
                 blockStatement.body.forEach((s: ESTree.Statement) => {
-                    bindStatement(scope, s, stmt);
+                    compileStatement(scope, s, stmt);
                 });
                 break;
             case "ExpressionStatement":
                 var expressionStatement: ESTree.ExpressionStatement = NT.ExpressionStatement.cast(stmt);
-                bindExpression(scope, expressionStatement.expression);
+                compileExpression(scope, expressionStatement.expression);
                 break;
             case "IfStatement":
-                var ifStatement: ESTree.IfStatement = NT.IfStatement.cast(stmt);
-                bindExpression(scope, ifStatement.test);
-                if (ifStatement.consequent)
-                    bindStatement(scope, ifStatement.consequent, stmt);
-                if (ifStatement.alternate)
-                    bindStatement(scope, ifStatement.alternate, stmt);
+                compileIfStatement(scope, NT.IfStatement.cast(stmt));
                 break;
             case "LabeledStatement":
                 var labeledStatement: ESTree.LabeledStatement = NT.LabeledStatement.cast(stmt);
@@ -488,7 +574,7 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
                         labeledStatement.body));
                     pushed = true;
                 }
-                bindStatement(scope, labeledStatement.body, stmt);
+                compileStatement(scope, labeledStatement.body, stmt);
                 if (pushed)
                     scope.ctx.popLabel();
                 break;
@@ -527,13 +613,13 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
                 break;
             case "SwitchStatement":
                 var switchStatement: ESTree.SwitchStatement = NT.SwitchStatement.cast(stmt);
-                bindExpression(scope, switchStatement.discriminant);
+                compileExpression(scope, switchStatement.discriminant);
                 scope.ctx.pushLabel(new Label(null, location(switchStatement), LabelKind.SWITCH, switchStatement));
                 switchStatement.cases.forEach((sc: ESTree.SwitchCase) => {
                     if (sc.test)
-                        bindExpression(scope, sc.test);
+                        compileExpression(scope, sc.test);
                     sc.consequent.forEach((s: ESTree.Statement) => {
-                        bindStatement(scope, s, stmt);
+                        compileStatement(scope, s, stmt);
                     });
                 });
                 scope.ctx.popLabel();
@@ -541,38 +627,40 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
             case "ReturnStatement":
                 var returnStatement: ESTree.ReturnStatement = NT.ReturnStatement.cast(stmt);
                 if (returnStatement.argument)
-                    bindExpression(scope, returnStatement.argument);
+                    compileExpression(scope, returnStatement.argument);
                 break;
             case "ThrowStatement":
                 var throwStatement: ESTree.ThrowStatement = NT.ThrowStatement.cast(stmt);
-                bindExpression(scope, throwStatement.argument);
+                compileExpression(scope, throwStatement.argument);
                 break;
             case "TryStatement":
                 var tryStatement: ESTree.TryStatement = NT.TryStatement.cast(stmt);
-                bindStatement(scope, tryStatement.block, stmt);
+                compileStatement(scope, tryStatement.block, stmt);
                 if (tryStatement.handler) {
                     var catchIdent: ESTree.Identifier = NT.Identifier.cast(tryStatement.handler.param);
                     assert( !tryStatement.handler.guard, "catch guards not supported in ES5");
 
                     var catchScope = new Scope(scope.ctx, scope);
-                    catchScope.newVariable(catchIdent.name).declared = true;
-                    bindStatement(catchScope, tryStatement.handler.body, stmt);
+                    var catchVar = catchScope.newVariable(catchIdent.name);
+                    catchVar.declared = true;
+                    catchVar.initialized = true;
+                    compileStatement(catchScope, tryStatement.handler.body, stmt);
                 }
                 if (tryStatement.finalizer)
-                    bindStatement(scope, tryStatement.finalizer, stmt);
+                    compileStatement(scope, tryStatement.finalizer, stmt);
                 break;
             case "WhileStatement":
                 var whileStatement: ESTree.WhileStatement = NT.WhileStatement.cast(stmt);
-                bindExpression(scope, whileStatement.test);
+                compileExpression(scope, whileStatement.test);
                 scope.ctx.pushLabel(new Label(null, location(whileStatement), LabelKind.LOOP, whileStatement));
-                bindStatement(scope, whileStatement.body, stmt);
+                compileStatement(scope, whileStatement.body, stmt);
                 scope.ctx.popLabel();
                 break;
             case "DoWhileStatement":
                 var doWhileStatement: ESTree.DoWhileStatement = NT.DoWhileStatement.cast(stmt);
-                bindExpression(scope, doWhileStatement.test);
+                compileExpression(scope, doWhileStatement.test);
                 scope.ctx.pushLabel(new Label(null, location(doWhileStatement), LabelKind.LOOP, doWhileStatement));
-                bindStatement(scope, doWhileStatement.body, stmt);
+                compileStatement(scope, doWhileStatement.body, stmt);
                 scope.ctx.popLabel();
                 break;
             case "ForStatement":
@@ -580,37 +668,37 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
                 var forStatementInitDecl: ESTree.VariableDeclaration;
                 if (forStatement.init)
                     if (forStatementInitDecl = NT.VariableDeclaration.isTypeOf(forStatement.init))
-                        bindStatement(scope, forStatementInitDecl, stmt);
+                        compileStatement(scope, forStatementInitDecl, stmt);
                     else
-                        bindExpression(scope, forStatement.init);
+                        compileExpression(scope, forStatement.init);
                 if (forStatement.test)
-                    bindExpression(scope, forStatement.test);
+                    compileExpression(scope, forStatement.test);
                 if (forStatement.update)
-                    bindExpression(scope, forStatement.update);
+                    compileExpression(scope, forStatement.update);
                 scope.ctx.pushLabel(new Label(null, location(forStatement), LabelKind.LOOP, forStatement));
-                bindStatement(scope, forStatement.body, stmt);
+                compileStatement(scope, forStatement.body, stmt);
                 scope.ctx.popLabel();
                 break;
             case "ForInStatement":
                 var forInStatement: ESTree.ForInStatement = NT.ForInStatement.cast(stmt);
                 var forInStatementLeftDecl: ESTree.VariableDeclaration;
                 if (forInStatementLeftDecl = NT.VariableDeclaration.isTypeOf(forInStatement.left))
-                    bindStatement(scope, forInStatementLeftDecl, stmt);
+                    compileStatement(scope, forInStatementLeftDecl, stmt);
                 else
-                    bindExpression(scope, forInStatement.left);
+                    compileExpression(scope, forInStatement.left);
                 scope.ctx.pushLabel(new Label(null, location(forInStatement), LabelKind.LOOP, forInStatement));
-                bindStatement(scope, forInStatement.body, stmt);
+                compileStatement(scope, forInStatement.body, stmt);
                 scope.ctx.popLabel();
                 break;
             case "ForOfStatement":
                 var forOfStatement: ESTree.ForOfStatement = NT.ForOfStatement.cast(stmt);
                 var forOfStatementLeftDecl: ESTree.VariableDeclaration;
                 if (forOfStatementLeftDecl = NT.VariableDeclaration.isTypeOf(forOfStatement.left))
-                    bindStatement(scope, forOfStatementLeftDecl, stmt);
+                    compileStatement(scope, forOfStatementLeftDecl, stmt);
                 else
-                    bindExpression(scope, forOfStatement.left);
+                    compileExpression(scope, forOfStatement.left);
                 scope.ctx.pushLabel(new Label(null, location(forOfStatement), LabelKind.LOOP, forOfStatement));
-                bindStatement(scope, forOfStatement.body, stmt);
+                compileStatement(scope, forOfStatement.body, stmt);
                 scope.ctx.popLabel();
                 break;
 
@@ -624,14 +712,18 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
                 if (variable.functionDeclaration)
                     warning( location(functionDeclaration),  `hiding previous declaration of function '${variable.name}'` );
 
+                variable.initialized = true;
                 variable.functionDeclaration = functionDeclaration;
-                bindFunction(scope, functionDeclaration);
+                compileFunction(scope, functionDeclaration);
                 break;
             case "VariableDeclaration":
                 var variableDeclaration: ESTree.VariableDeclaration = NT.VariableDeclaration.cast(stmt);
                 variableDeclaration.declarations.forEach((vd: ESTree.VariableDeclarator) => {
-                    if (vd.init)
-                        bindExpression(scope, vd.init);
+                    if (vd.init) {
+                        var identifier = NT.Identifier.cast(vd.id);
+                        scope.lookup(identifier.name).assigned = true;
+                        compileExpression(scope, vd.init);
+                    }
                 });
                 break;
             default:
@@ -640,112 +732,115 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
         }
     }
 
-    function bindExpression (scope: Scope, e: ESTree.Expression)
+    function compileIfStatement (scope: Scope, ifStatement: ESTree.IfStatement)
+    {
+        var thenLabel: hir.Label = scope.ctx.builder.newLabel();
+        var elseLabel: hir.Label = scope.ctx.builder.newLabel();
+        var endLabel: hir.Label = null;
+
+        if (ifStatement.alternate)
+            endLabel = scope.ctx.builder.newLabel();
+
+        compileExpression(scope, ifStatement.test, true, thenLabel, elseLabel);
+
+        scope.ctx.builder.genLabel(thenLabel);
+        compileStatement(scope, ifStatement.consequent, ifStatement);
+        if (ifStatement.alternate)
+            scope.ctx.builder.genGoto(endLabel);
+
+        scope.ctx.builder.genLabel(elseLabel);
+        if (ifStatement.alternate) {
+            compileStatement(scope, ifStatement.alternate, ifStatement);
+            scope.ctx.builder.genLabel(endLabel);
+        }
+    }
+
+    function compileExpression (
+        scope: Scope, e: ESTree.Expression, need: boolean=true, onTrue?: hir.Label, onFalse?: hir.Label
+    ): hir.RValue
+    {
+        return compileSubExpression(scope, e, need, onTrue, onFalse);
+    }
+
+    function compileSubExpression (
+        scope: Scope, e: ESTree.Expression, need: boolean=true, onTrue?: hir.Label, onFalse?: hir.Label
+    ): hir.RValue
     {
         if (!e)
             return;
         switch (e.type) {
             case "Literal":
-                var literal: ESTree.Literal = NT.Literal.cast(e);
-                break;
+                return toLogical(scope, e, compileLiteral(scope, NT.Literal.cast(e), need), need, onTrue, onFalse);
             case "Identifier":
-                var identifier: ESTree.Identifier = NT.Identifier.cast(e);
-                var variable: Variable = scope.lookup(identifier.name);
-                if (!variable) {
-                    if (scope.ctx.strictMode) {
-                        error(location(e), `undefined identifier '${identifier.name}'`);
-                        // Declare a dummy variable at function level to decrease noise
-                        variable = scope.ctx.funcScope.newVariable(identifier.name);
-                    } else {
-                        warning(location(e), `undefined identifier '${identifier.name}'`);
-                        variable = m_globalContext.funcScope.newVariable(identifier.name);
-                    }
-                } else if (!scope.ctx.strictMode && !variable.declared) {
-                    warning(location(e), `undefined identifier '${identifier.name}'`);
-                }
-                // If the current function context is not where the variable was declared, then it escapes
-                if (variable.ctx !== scope.ctx)
-                    variable.escapes = true;
-                break;
+                return toLogical(scope, e, compileIdentifier(scope, NT.Identifier.cast(e), need), need, onTrue, onFalse);
             case "ThisExpression":
-                var thisExpression: ESTree.ThisExpression = NT.ThisExpression.cast(e);
-                break;
+                return toLogical(scope, e, compileThisExpression(scope, NT.ThisExpression.cast(e), need), need, onTrue, onFalse);
             case "ArrayExpression":
                 var arrayExpression: ESTree.ArrayExpression = NT.ArrayExpression.cast(e);
                 arrayExpression.elements.forEach((elem) => {
                     if (elem && elem.type !== "SpreadElement")
-                        bindExpression(scope, elem);
+                        compileSubExpression(scope, elem);
                 });
                 break;
             case "ObjectExpression":
                 var objectExpression: ESTree.ObjectExpression = NT.ObjectExpression.cast(e);
                 objectExpression.properties.forEach((prop: ESTree.Property) => {
-                    bindExpression(scope, prop.value);
+                    compileSubExpression(scope, prop.value);
                 });
                 break;
             case "FunctionExpression":
                 var functionExpression: ESTree.FunctionExpression = NT.FunctionExpression.cast(e);
-                bindFunction(scope, functionExpression);
+                compileFunction(scope, functionExpression);
                 break;
             case "SequenceExpression":
                 var sequenceExpression: ESTree.SequenceExpression = NT.SequenceExpression.cast(e);
                 sequenceExpression.expressions.forEach((e: ESTree.Expression) => {
-                    bindExpression(scope, e);
+                    compileSubExpression(scope, e);
                 });
                 break;
             case "UnaryExpression":
-                var unaryExpression: ESTree.UnaryExpression = NT.UnaryExpression.cast(e);
-                bindExpression(scope, unaryExpression.argument);
-                break;
+                return compileUnaryExpression(scope, NT.UnaryExpression.cast(e), need, onTrue, onFalse);
             case "BinaryExpression":
-                var binaryExpression: ESTree.BinaryExpression = NT.BinaryExpression.cast(e);
-                bindExpression(scope, binaryExpression.left);
-                bindExpression(scope, binaryExpression.right);
-                break;
+                return compileBinaryExpression(scope, NT.BinaryExpression.cast(e), need, onTrue, onFalse);
             case "AssignmentExpression":
-                var assignmentExpression: ESTree.AssignmentExpression = NT.AssignmentExpression.cast(e);
-                var assignmentIdentifier: ESTree.Identifier;
-                if (assignmentIdentifier = NT.Identifier.isTypeOf(assignmentExpression.left)) {
-                    bindExpression(scope, assignmentExpression.left);
-                } else {
-                    bindExpression(scope, assignmentExpression.left);
-                }
-                bindExpression(scope, assignmentExpression.right);
-                break;
+                return toLogical(
+                    scope, e,
+                    compileAssigmentExpression(scope, NT.AssignmentExpression.cast(e), need),
+                    need, onTrue, onFalse
+                );
             case "UpdateExpression":
-                var updateExpression: ESTree.UpdateExpression = NT.UpdateExpression.cast(e);
-                bindExpression(scope, updateExpression.argument);
-                break;
+                return toLogical(
+                    scope, e,
+                    compileUpdateExpression(scope, NT.UpdateExpression.cast(e), need),
+                    need, onTrue, onFalse
+                );
             case "LogicalExpression":
-                var logicalExpression: ESTree.LogicalExpression = NT.LogicalExpression.cast(e);
-                bindExpression(scope, logicalExpression.left);
-                bindExpression(scope, logicalExpression.right);
-                break;
+                return compileLogicalExpression(scope,  NT.LogicalExpression.cast(e), need, onTrue, onFalse);
             case "ConditionalExpression":
                 var conditionalExpression: ESTree.ConditionalExpression = NT.ConditionalExpression.cast(e);
-                bindExpression(scope, conditionalExpression.test);
-                bindExpression(scope, conditionalExpression.alternate);
-                bindExpression(scope, conditionalExpression.consequent);
+                compileSubExpression(scope, conditionalExpression.test);
+                compileSubExpression(scope, conditionalExpression.alternate);
+                compileSubExpression(scope, conditionalExpression.consequent);
                 break;
             case "CallExpression":
                 var callExpression: ESTree.CallExpression = NT.CallExpression.cast(e);
-                bindExpression(scope, callExpression.callee);
+                compileSubExpression(scope, callExpression.callee);
                 callExpression.arguments.forEach((e: ESTree.Expression) => {
-                    bindExpression(scope, e);
+                    compileSubExpression(scope, e);
                 });
                 break;
             case "NewExpression":
                 var newExpression: ESTree.NewExpression = NT.NewExpression.cast(e);
-                bindExpression(scope, newExpression.callee);
+                compileSubExpression(scope, newExpression.callee);
                 newExpression.arguments.forEach((e: ESTree.Expression) => {
-                    bindExpression(scope, e);
+                    compileSubExpression(scope, e);
                 });
                 break;
             case "MemberExpression":
                 var memberExpression: ESTree.MemberExpression = NT.MemberExpression.cast(e);
-                bindExpression(scope, memberExpression.object);
+                compileSubExpression(scope, memberExpression.object);
                 if (memberExpression.computed)
-                    bindExpression(scope, memberExpression.property);
+                    compileSubExpression(scope, memberExpression.property);
                 break;
             default:
                 assert(false, `unsupported expression '${e.type}'`);
@@ -753,25 +848,527 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
         }
     }
 
-    function bindFunction (parentScope: Scope, ast: ESTree.Function): void
+    function toLogical (
+        scope: Scope, node: ESTree.Node, value: hir.RValue, need: boolean, onTrue: hir.Label, onFalse: hir.Label
+    ): hir.RValue
     {
-        var funcCtx = new FunctionContext(parentScope.ctx, parentScope, ast.id && ast.id.name);
-        var funcScope = funcCtx.funcScope;
-
-        // Declare the parameters
-        ast.params.forEach( (pat: ESTree.Pattern): void => {
-            var ident = NT.Identifier.cast(pat);
-            if (funcScope.vars.get(ident.name))
-                (funcCtx.strictMode ? error : warning)(location(ident), `parameter '${ident.name}' already declared`);
-            else
-                varDeclaration(funcCtx, ident);
-        });
-
-        var bodyBlock: ESTree.BlockStatement;
-        if (bodyBlock = NT.BlockStatement.isTypeOf(ast.body))
-            compileBody(funcScope, bodyBlock.body);
-        else
-            assert(false, "TODO: implement ES6");
+        if (need) {
+            if (onTrue) {
+                scope.ctx.releaseTemp(value);
+                if (hir.isImmediate(value)) {
+                    var boolv = hir.isImmediateTrue(value);
+                    warning(location(node), `condition is always ${boolv?'true':'false'}`);
+                    scope.ctx.builder.genGoto(boolv ? onTrue : onFalse);
+                } else {
+                    scope.ctx.builder.genIfTrue(value, onTrue, onFalse);
+                }
+                return null;
+            } else {
+                return value;
+            }
+        } else {
+            scope.ctx.releaseTemp(value);
+            return null;
+        }
     }
 
+    function compileLiteral (scope: Scope, literal: ESTree.Literal, need: boolean): hir.RValue
+    {
+        if (need) {
+            // Most literal values we just pass through, but regex and null need special handling
+            if ((<any>literal).regex) {
+                var regex = (<ESTree.RegexLiteral>literal).regex;
+                return new hir.Regex(regex.pattern, regex.flags);
+            } else if (literal.value === null){
+                return hir.nullValue;
+            } else {
+                return literal.value;
+            }
+        } else {
+            return null;
+        }
+    }
+
+    function compileThisExpression (scope: Scope, thisExp: ESTree.ThisExpression, need: boolean): hir.RValue
+    {
+        return need ? scope.ctx.thisParam : null;
+    }
+
+    function findVariable (scope: Scope, identifier: ESTree.Identifier, need: boolean): Variable
+    {
+        var variable: Variable = scope.lookup(identifier.name);
+        if (!variable) {
+            if (scope.ctx.strictMode) {
+                error(location(identifier), `undefined identifier '${identifier.name}'`);
+                // Declare a dummy variable at function level to decrease noise
+                variable = scope.ctx.funcScope.newVariable(identifier.name);
+            } else {
+                warning(location(identifier), `undefined identifier '${identifier.name}'`);
+                variable = m_globalContext.funcScope.newVariable(identifier.name);
+            }
+        } else if (!scope.ctx.strictMode && !variable.declared) {
+            // Report all warnings in non-strict mode
+            warning(location(identifier), `undefined identifier '${identifier.name}'`);
+        }
+
+        if (need) {
+            // If the current function context is not where the variable was declared, then it escapes
+            if (variable.ctx !== scope.ctx)
+                variable.escapes = true;
+        }
+
+        return variable;
+    }
+
+    function compileIdentifier (scope: Scope, identifier: ESTree.Identifier, need: boolean): hir.RValue
+    {
+        var variable = findVariable(scope, identifier, need);
+        if (need) {
+            variable.accessed = true;
+            return variable.hvar;
+        } else {
+            return null;
+        }
+    }
+
+    function compileUnaryExpression (
+        scope: Scope, e: ESTree.UnaryExpression,
+        need: boolean, onTrue: hir.Label, onFalse: hir.Label
+    ): hir.RValue
+    {
+        if (!need) {
+            scope.ctx.releaseTemp(compileSubExpression(scope, e.argument, false, null, null));
+            return null;
+        }
+
+        var ctx = scope.ctx;
+
+        switch (e.operator) {
+            case "-":
+                return toLogical(scope, e, compileSimpleUnary(scope, hir.OpCode.NEG, e.argument), true, onTrue, onFalse);
+            case "+":
+                return toLogical(scope, e, compileSimpleUnary(scope, hir.OpCode.UPLUS, e.argument), true, onTrue, onFalse);
+            case "~":
+                return toLogical(scope, e, compileSimpleUnary(scope, hir.OpCode.BIN_NOT, e.argument), true, onTrue, onFalse);
+            case "delete":
+                assert(false, "FIXME"); // FIXME
+                return toLogical(scope, e, compileSimpleUnary(scope, hir.OpCode.DELETE, e.argument), true, onTrue, onFalse);
+
+            case "!":
+                if (onTrue)
+                    return compileSubExpression(scope, e.argument, true, onFalse, onTrue);
+                else
+                    return compileSimpleUnary(scope, hir.OpCode.LOG_NOT, e.argument);
+
+            case "typeof":
+                if (onTrue) {
+                    ctx.releaseTemp(compileSubExpression(scope, e.argument, false, null, null));
+                    warning(location(e), "condition is always true");
+                    ctx.builder.genGoto(onTrue);
+                } else {
+                    return compileSimpleUnary(scope, hir.OpCode.TYPEOF, e.argument);
+                }
+                break;
+
+            case "void":
+                ctx.releaseTemp(compileSubExpression(scope, e.argument, false, null, null));
+                if (onTrue) {
+                    warning(location(e), "condition is always false");
+                    ctx.builder.genGoto(onFalse);
+                } else {
+                    return hir.undefinedValue;
+                }
+                break;
+
+            default:
+                assert(false, `unknown unary operator '${e.operator}'`);
+                return null;
+        }
+
+        return null;
+
+        function compileSimpleUnary (scope: Scope, op: hir.OpCode, e: ESTree.Expression): hir.RValue
+        {
+            var v = compileSubExpression(scope, e, true, null, null);
+            scope.ctx.releaseTemp(v);
+
+            var folded = hir.foldUnary(op, v);
+            if (folded !== null) {
+                return folded;
+            } else {
+                var dest = scope.ctx.allocTemp();
+                scope.ctx.builder.genUnop(op, dest, v);
+                return dest;
+            }
+        }
+    }
+
+
+    // This performs only very primitive constant folding.
+    // TODO: real constant folding and expression reshaping
+    function compileBinaryExpression (
+        scope: Scope, e: ESTree.BinaryExpression,
+        need: boolean, onTrue: hir.Label, onFalse: hir.Label
+    ): hir.RValue
+    {
+        var ctx = scope.ctx;
+
+        if (!need) {
+            ctx.releaseTemp(compileSubExpression(scope, e.left, false, null, null));
+            ctx.releaseTemp(compileSubExpression(scope, e.right, false, null, null));
+            return null;
+        }
+
+        // TODO: re-order based on number of temporaries needed by each sub-tree
+        var v1 = compileSubExpression(scope, e.left, true);
+        var v2 = compileSubExpression(scope, e.right, true);
+        ctx.releaseTemp(v1);
+        ctx.releaseTemp(v2);
+
+        switch (e.operator) {
+            case "==":
+                warning(location(e), "operator '==' is not recommended");
+                return compileLogBinary(ctx, e, hir.OpCode.LOOSE_EQ, v1, v2, onTrue, onFalse);
+            case "!=":
+                warning(location(e), "operator '!=' is not recommended");
+                return compileLogBinary(ctx, e, hir.OpCode.LOOSE_NE, v1, v2, onTrue, onFalse);
+            case "===": return compileLogBinary(ctx, e, hir.OpCode.STRICT_EQ, v1, v2, onTrue, onFalse);
+            case "!==": return compileLogBinary(ctx, e, hir.OpCode.STRICT_NE, v1, v2, onTrue, onFalse);
+            case "<":   return compileLogBinary(ctx, e, hir.OpCode.LT, v1, v2, onTrue, onFalse);
+            case "<=":  return compileLogBinary(ctx, e, hir.OpCode.LE, v1, v2, onTrue, onFalse);
+            case ">":   return compileLogBinary(ctx, e, hir.OpCode.LT, v2, v1, onTrue, onFalse);
+            case ">=":  return compileLogBinary(ctx, e, hir.OpCode.LE, v2, v1, onTrue, onFalse);
+            case "in":  return compileLogBinary(ctx, e, hir.OpCode.IN, v1, v2, onTrue, onFalse);
+            case "instanceof": return compileLogBinary(ctx, e, hir.OpCode.INSTANCEOF, v1, v2, onTrue, onFalse);
+
+            case "<<":  return toLogical(scope, e, compileArithBinary(ctx, hir.OpCode.SHL, v1, v2), true, onTrue, onFalse);
+            case ">>":  return toLogical(scope, e, compileArithBinary(ctx, hir.OpCode.ASR, v1, v2), true, onTrue, onFalse);
+            case ">>>": return toLogical(scope, e, compileArithBinary(ctx, hir.OpCode.SHR, v1, v2), true, onTrue, onFalse);
+            case "+":   return toLogical(scope, e, compileArithBinary(ctx, hir.OpCode.ADD, v1, v2), true, onTrue, onFalse);
+            case "-":   return toLogical(scope, e, compileArithBinary(ctx, hir.OpCode.SUB, v1, v2), true, onTrue, onFalse);
+            case "*":   return toLogical(scope, e, compileArithBinary(ctx, hir.OpCode.MUL, v1, v2), true, onTrue, onFalse);
+            case "/":   return toLogical(scope, e, compileArithBinary(ctx, hir.OpCode.DIV, v1, v2), true, onTrue, onFalse);
+            case "%":   return toLogical(scope, e, compileArithBinary(ctx, hir.OpCode.MOD, v1, v2), true, onTrue, onFalse);
+            case "|":   return toLogical(scope, e, compileArithBinary(ctx, hir.OpCode.OR, v1, v2), true, onTrue, onFalse);
+            case "^":   return toLogical(scope, e, compileArithBinary(ctx, hir.OpCode.XOR, v1, v2), true, onTrue, onFalse);
+            case "&":   return toLogical(scope, e, compileArithBinary(ctx, hir.OpCode.AND, v1, v2), true, onTrue, onFalse);
+            default:
+                assert(false, `unknown binary operator '${e.operator}'`);
+                break;
+        }
+
+        return null;
+
+        function compileArithBinary (ctx: FunctionContext, op: hir.OpCode, v1: hir.RValue, v2: hir.RValue): hir.RValue
+        {
+            var folded = hir.foldBinary(op, v1, v2);
+            if (folded !== null)
+                return folded;
+
+            var dest = ctx.allocTemp();
+            ctx.builder.genBinop(op, dest, v1, v2);
+            return dest;
+        }
+
+        function compileLogBinary (
+            ctx: FunctionContext, e: ESTree.Node, op: hir.OpCode,
+            v1: hir.RValue, v2: hir.RValue, onTrue: hir.Label, onFalse: hir.Label
+        ): hir.RValue
+        {
+            if (onTrue) {
+                var folded = hir.foldBinary(op, v1, v2);
+                if (folded !== null) {
+                    var boolv = hir.isImmediateTrue(folded);
+                    warning(location(e), `condition is always ${boolv?'true':'false'}`);
+                    ctx.builder.genGoto(boolv ? onTrue : onFalse);
+                } else {
+                    ctx.builder.genIf(hir.binopToBincond(op), v1, v2, onTrue, onFalse);
+                }
+                return null;
+            } else {
+                return compileArithBinary(ctx, op, v1, v2);
+            }
+        }
+    }
+
+
+    function compileLogicalExpression (
+        scope: Scope, e: ESTree.LogicalExpression,
+        need: boolean, onTrue: hir.Label, onFalse: hir.Label
+    ): hir.RValue
+    {
+        switch (e.operator) {
+            case "||": return compileLogicalOr(scope, e, need, onTrue, onFalse);
+            case "&&": return compileLogicalAnd(scope, e, need, onTrue, onFalse);
+            default:
+                assert(false, `unknown logical operator '${e.operator}'`);
+                break;
+        }
+        return null;
+    }
+
+    function compileLogicalOr (
+        scope: Scope, e: ESTree.LogicalExpression,
+        need: boolean, onTrue: hir.Label, onFalse: hir.Label
+    ): hir.RValue
+    {
+        var ctx = scope.ctx;
+        var labLeftFalse: hir.Label;
+        var labLeftTrue: hir.Label;
+        var labEnd: hir.Label;
+
+        if (need) {
+            if (onTrue) {
+                labLeftFalse = ctx.builder.newLabel();
+                compileSubExpression(scope, e.left, true, onTrue, labLeftFalse);
+                ctx.builder.genLabel(labLeftFalse);
+                compileSubExpression(scope, e.right, true, onTrue, onFalse);
+            } else {
+                var v1: hir.RValue;
+                var v2: hir.RValue;
+                var dest: hir.Local;
+
+                labLeftFalse = ctx.builder.newLabel();
+                labEnd = ctx.builder.newLabel();
+
+                v1 = compileSubExpression(scope, e.left, true, null, null);
+                ctx.releaseTemp(v1);
+                dest = ctx.allocTemp();
+                ctx.releaseTemp(dest);
+                if (dest === v1) {
+                    ctx.builder.genIfTrue(v1, labEnd, labLeftFalse);
+                } else {
+                    labLeftTrue = ctx.builder.newLabel();
+                    ctx.builder.genIfTrue(v1, labLeftTrue, labLeftFalse);
+                    ctx.builder.genLabel(labLeftTrue);
+                    ctx.builder.genAssign(dest, v1);
+                    ctx.builder.genGoto(labEnd);
+                }
+                ctx.builder.genLabel(labLeftFalse);
+                v2 = compileSubExpression(scope, e.right, true, null, null);
+                ctx.builder.genLabel(labEnd);
+                ctx.releaseTemp(v2);
+                ctx.allocSpecific(dest);
+                ctx.builder.genAssign(dest, v2);
+                return dest;
+            }
+        } else {
+            labLeftFalse = ctx.builder.newLabel();
+            labEnd = ctx.builder.newLabel();
+            compileSubExpression(scope, e.left, true, labEnd, labLeftFalse);
+            ctx.builder.genLabel(labLeftFalse);
+            compileSubExpression(scope, e.right, false, null, null);
+            ctx.builder.genLabel(labEnd);
+        }
+    }
+
+    function compileLogicalAnd (
+        scope: Scope, e: ESTree.LogicalExpression,
+        need: boolean, onTrue: hir.Label, onFalse: hir.Label
+    ): hir.RValue
+    {
+        var ctx = scope.ctx;
+        var labLeftFalse: hir.Label;
+        var labLeftTrue: hir.Label;
+        var labEnd: hir.Label;
+
+        if (need) {
+            if (onTrue) {
+                labLeftTrue = ctx.builder.newLabel();
+                compileSubExpression(scope, e.left, true, labLeftTrue, onFalse);
+                ctx.builder.genLabel(labLeftTrue);
+                compileSubExpression(scope, e.right, true, onTrue, onFalse);
+            } else {
+                var v1: hir.RValue;
+                var v2: hir.RValue;
+                var dest: hir.Local;
+
+                labLeftTrue = ctx.builder.newLabel();
+                labEnd = ctx.builder.newLabel();
+
+                v1 = compileSubExpression(scope, e.left, true, null, null);
+                ctx.releaseTemp(v1);
+                dest = ctx.allocTemp();
+                ctx.releaseTemp(dest);
+                if (dest === v1) {
+                    ctx.builder.genIfTrue(v1, labLeftTrue, labEnd);
+                } else {
+                    labLeftFalse = ctx.builder.newLabel();
+                    ctx.builder.genIfTrue(v1, labLeftTrue, labLeftFalse);
+                    ctx.builder.genLabel(labLeftFalse);
+                    ctx.builder.genAssign(dest, v1);
+                    ctx.builder.genGoto(labEnd);
+                }
+                ctx.builder.genLabel(labLeftTrue);
+                v2 = compileSubExpression(scope, e.right, true, null, null);
+                ctx.builder.genLabel(labEnd);
+                ctx.releaseTemp(v2);
+                ctx.allocSpecific(dest);
+                ctx.builder.genAssign(dest, v2);
+                return dest;
+            }
+        } else {
+            labLeftTrue = ctx.builder.newLabel();
+            labEnd = ctx.builder.newLabel();
+            compileSubExpression(scope, e.left, true, labLeftTrue, labEnd);
+            ctx.builder.genLabel(labLeftTrue);
+            compileSubExpression(scope, e.right, false, null, null);
+            ctx.builder.genLabel(labEnd);
+        }
+    }
+
+    function compileAssigmentExpression (scope: Scope, e: ESTree.AssignmentExpression, need: boolean): hir.RValue
+    {
+        var identifier: ESTree.Identifier;
+        var memb: ESTree.MemberExpression;
+
+        var rvalue = compileSubExpression(scope, e.right);
+        var variable: Variable;
+
+        if (identifier = NT.Identifier.isTypeOf(e.left)) {
+            variable = findVariable(scope, identifier, true);
+            variable.assigned = true;
+
+            if (e.operator == "=") {
+                scope.ctx.builder.genAssign(variable.hvar, rvalue);
+                return rvalue;
+            } else {
+                scope.ctx.releaseTemp(rvalue);
+                scope.ctx.builder.genBinop(mapAssignmentOperator(e.operator), variable.hvar, variable.hvar, rvalue);
+                return variable.hvar;
+            }
+        } else if(memb = NT.MemberExpression.isTypeOf(e.left)) {
+            var membObject: hir.RValue;
+            var membProp: hir.RValue = null;
+            var membPropName: string;
+
+            if (memb.computed)
+                membProp = compileSubExpression(scope, memb.property, true, null, null);
+            else
+                membPropName = NT.Identifier.cast(memb.property).name;
+            membObject = compileSubExpression(scope, memb.object, true, null, null);
+
+            if (e.operator == "=") {
+                if (memb.computed)
+                    scope.ctx.builder.genComputedPropSet(membObject, membProp, rvalue);
+                else
+                    scope.ctx.builder.genPropSet(membObject, membPropName, rvalue);
+                scope.ctx.releaseTemp(membProp);
+                scope.ctx.releaseTemp(membObject);
+                return rvalue;
+            } else {
+                var res = scope.ctx.allocTemp();
+                if (memb.computed)
+                    scope.ctx.builder.genComputedPropGet(res, membObject, membProp);
+                else
+                    scope.ctx.builder.genPropGet(res, membObject, membPropName);
+
+                scope.ctx.releaseTemp(rvalue);
+                scope.ctx.builder.genBinop(mapAssignmentOperator(e.operator), res, res, rvalue);
+
+                if (memb.computed)
+                    scope.ctx.builder.genComputedPropSet(membObject, membProp, res);
+                else
+                    scope.ctx.builder.genPropSet(membObject, membPropName, res);
+                scope.ctx.releaseTemp(membProp);
+                scope.ctx.releaseTemp(membObject);
+                scope.ctx.releaseTemp(rvalue);
+                return res;
+            }
+        } else {
+            assert(false, `unrecognized assignment target '${e.left.type}'`);
+            return null;
+        }
+
+        function mapAssignmentOperator (operator: string): hir.OpCode
+        {
+            switch (operator) {
+                case "+=":    return hir.OpCode.ADD;
+                case "-=":    return hir.OpCode.SUB;
+                case "*=":    return hir.OpCode.MUL;
+                case "/=":    return hir.OpCode.DIV;
+                case "%=":    return hir.OpCode.MOD;
+                case "<<=":   return hir.OpCode.SHL;
+                case ">>=":   return hir.OpCode.ASR;
+                case ">>>=":  return hir.OpCode.SHR;
+                case "|=":    return hir.OpCode.OR;
+                case "^=":    return hir.OpCode.XOR;
+                case "&=":    return hir.OpCode.AND;
+                default:
+                    assert(false, `unrecognized assignment operator '${operator}'`);
+                    return null;
+            }
+        }
+    }
+
+    function compileUpdateExpression (scope: Scope, e: ESTree.UpdateExpression, need: boolean): hir.RValue
+    {
+        var identifier: ESTree.Identifier;
+        var memb: ESTree.MemberExpression;
+
+        var variable: Variable;
+        var opcode: hir.OpCode = e.operator == "++" ? hir.OpCode.ADD : hir.OpCode.SUB;
+        var immOne = 1;
+        var ctx = scope.ctx;
+
+        if (identifier = NT.Identifier.isTypeOf(e.argument)) {
+            variable = findVariable(scope, identifier, true);
+            variable.assigned = true;
+            var lval = variable.hvar;
+
+            if (!e.prefix && need) { // Postfix? It only matters if we need the result
+                var res = ctx.allocTemp();
+                ctx.builder.genUnop(hir.OpCode.TO_NUMBER, res, lval);
+                ctx.builder.genBinop(opcode, lval, lval, immOne);
+                return res;
+            } else {
+                ctx.builder.genUnop(hir.OpCode.TO_NUMBER, lval, lval);
+                ctx.builder.genBinop(opcode, lval, lval, immOne);
+                return lval;
+            }
+        } else if(memb = NT.MemberExpression.isTypeOf(e.argument)) {
+            var membObject: hir.RValue;
+            var membProp: hir.RValue = null;
+            var membPropName: string;
+
+            if (memb.computed)
+                membProp = compileSubExpression(scope, memb.property, true, null, null);
+            else
+                membPropName = NT.Identifier.cast(memb.property).name;
+            membObject = compileSubExpression(scope, memb.object, true, null, null);
+
+            var val: hir.Local = ctx.allocTemp();
+
+            if (memb.computed)
+                ctx.builder.genComputedPropGet(val, membObject, membProp);
+            else
+                ctx.builder.genPropGet(val, membObject, membPropName);
+            ctx.builder.genUnop(hir.OpCode.TO_NUMBER, val, val);
+
+            if (!e.prefix && need) { // Postfix? It only matters if we need the result
+                var tmp = ctx.allocTemp();
+                ctx.builder.genBinop(opcode, tmp, val, immOne);
+                store(tmp);
+                ctx.releaseTemp(tmp);
+            } else {
+                ctx.builder.genBinop(opcode, val, val, immOne);
+                store(val);
+            }
+
+            function store (src: hir.RValue)
+            {
+                if (memb.computed)
+                    ctx.builder.genComputedPropSet(membObject, membProp, src);
+                else
+                    ctx.builder.genPropSet(membObject, membPropName, src);
+            }
+
+            ctx.releaseTemp(membObject);
+            ctx.releaseTemp(membProp);
+            return val;
+        } else {
+            assert(false, `unrecognized assignment target '${e.argument.type}'`);
+            return null;
+        }
+    }
 }
