@@ -8,7 +8,7 @@
 import fs = require("fs");
 import assert = require("assert");
 
-import acorn = require("acorn/dist/acorn_csp");
+import acorn = require("../js/acorn/acorn_csp");
 
 import StringMap = require("../lib/StringMap");
 import AssertionError = require("../lib/AssertionError");
