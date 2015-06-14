@@ -3,6 +3,7 @@
 // root for complete license information.
 
 /// <reference path="../typings/tsd.d.ts" />
+/// <reference path="./estree-x.d.ts" />
 
 import fs = require("fs");
 import assert = require("assert");
@@ -13,12 +14,6 @@ import StringMap = require("../lib/StringMap");
 import AssertionError = require("../lib/AssertionError");
 
 import hir = require("./hir");
-
-interface AcornNode extends ESTree.Node
-{
-    start: number;
-    end: number;
-}
 
 export interface IErrorReporter
 {
@@ -310,7 +305,7 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
     function location (node: ESTree.Node): ESTree.SourceLocation
     {
         if (!node.loc) {
-            var pos = acorn.getLineInfo(m_input, (<AcornNode>node).start);
+            var pos = acorn.getLineInfo(m_input, node.start);
             return { source: m_fileName, start: pos, end: pos };
         } else {
             return node.loc;
@@ -377,9 +372,11 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
     {
         m_globalContext = new FunctionContext(null, null, "<module>", m_moduleBuilder);
         var ast: ESTree.Function = {
+            start: prog.start,
+            end: prog.end,
             type: "Function",
             params: [],
-            body: { type: NT.BlockStatement.name, body: prog.body },
+            body: { start: prog.start, end: prog.end, type: NT.BlockStatement.name, body: prog.body },
             generator: false
         };
         compileFunction(m_globalContext.funcScope, ast);
