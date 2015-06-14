@@ -648,18 +648,10 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
                     compileStatement(scope, tryStatement.finalizer, stmt);
                 break;
             case "WhileStatement":
-                var whileStatement: ESTree.WhileStatement = NT.WhileStatement.cast(stmt);
-                compileExpression(scope, whileStatement.test);
-                scope.ctx.pushLabel(new Label(null, location(whileStatement), LabelKind.LOOP, whileStatement));
-                compileStatement(scope, whileStatement.body, stmt);
-                scope.ctx.popLabel();
+                compileWhileStatement(scope, NT.WhileStatement.cast(stmt));
                 break;
             case "DoWhileStatement":
-                var doWhileStatement: ESTree.DoWhileStatement = NT.DoWhileStatement.cast(stmt);
-                compileExpression(scope, doWhileStatement.test);
-                scope.ctx.pushLabel(new Label(null, location(doWhileStatement), LabelKind.LOOP, doWhileStatement));
-                compileStatement(scope, doWhileStatement.body, stmt);
-                scope.ctx.popLabel();
+                compileDoWhileStatement(scope, NT.DoWhileStatement.cast(stmt));
                 break;
             case "ForStatement":
                 var forStatement: ESTree.ForStatement = NT.ForStatement.cast(stmt);
@@ -762,6 +754,39 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
             value = hir.undefinedValue;
         scope.ctx.releaseTemp(value);
         scope.ctx.builder.genRet(value);
+    }
+
+    function compileWhileStatement (scope: Scope, stmt: ESTree.WhileStatement): void
+    {
+        var ctx = scope.ctx;
+        var exitLoop = ctx.builder.newLabel();
+        var loop = ctx.builder.newLabel();
+        var body = ctx.builder.newLabel();
+
+        ctx.builder.genLabel(loop);
+        compileExpression(scope, stmt.test, true, body, exitLoop);
+        ctx.builder.genLabel(body);
+        scope.ctx.pushLabel(new Label(null, location(stmt), LabelKind.LOOP, stmt));
+        compileStatement(scope, stmt.body, stmt);
+        scope.ctx.popLabel();
+        ctx.builder.genGoto(loop);
+        ctx.builder.genLabel(exitLoop);
+    }
+
+    function compileDoWhileStatement (scope: Scope, stmt: ESTree.DoWhileStatement): void
+    {
+        var ctx = scope.ctx;
+        var exitLoop = ctx.builder.newLabel();
+        var loop = ctx.builder.newLabel();
+        var body = ctx.builder.newLabel();
+
+        ctx.builder.genLabel(body);
+        scope.ctx.pushLabel(new Label(null, location(stmt), LabelKind.LOOP, stmt));
+        compileStatement(scope, stmt.body, stmt);
+        scope.ctx.popLabel();
+        ctx.builder.genLabel(loop);
+        compileExpression(scope, stmt.test, true, body, exitLoop);
+        ctx.builder.genLabel(exitLoop);
     }
 
     function compileExpression (
