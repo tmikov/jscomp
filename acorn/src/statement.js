@@ -100,14 +100,14 @@ pp.parseBreakContinueStatement = function(node, keyword) {
 
   // Verify that there is an actual destination to break or
   // continue to.
-  for (var i = 0; i < this.labels.length; ++i) {
-    let lab = this.labels[i]
-    if (node.label == null || lab.name === node.label.name) {
-      if (lab.kind != null && (isBreak || lab.kind === "loop")) break
-      if (node.label && isBreak) break
-    }
-  }
-  if (i === this.labels.length) this.raise(node.start, "Unsyntactic " + keyword)
+  //for (var i = 0; i < this.labels.length; ++i) {
+  //  let lab = this.labels[i]
+  //  if (node.label == null || lab.name === node.label.name) {
+  //    if (lab.kind != null && (isBreak || lab.kind === "loop")) break
+  //    if (node.label && isBreak) break
+  //  }
+  //}
+  //if (i === this.labels.length) this.raise(node.start, "Unsyntactic " + keyword)
   return this.finishNode(node, isBreak ? "BreakStatement" : "ContinueStatement")
 }
 
