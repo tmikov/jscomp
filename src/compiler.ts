@@ -625,9 +625,7 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
                 scope.ctx.popLabel();
                 break;
             case "ReturnStatement":
-                var returnStatement: ESTree.ReturnStatement = NT.ReturnStatement.cast(stmt);
-                if (returnStatement.argument)
-                    compileExpression(scope, returnStatement.argument);
+                compileReturnStatement(scope, NT.ReturnStatement.cast(stmt));
                 break;
             case "ThrowStatement":
                 var throwStatement: ESTree.ThrowStatement = NT.ThrowStatement.cast(stmt);
@@ -732,7 +730,7 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
         }
     }
 
-    function compileIfStatement (scope: Scope, ifStatement: ESTree.IfStatement)
+    function compileIfStatement (scope: Scope, ifStatement: ESTree.IfStatement): void
     {
         var thenLabel: hir.Label = scope.ctx.builder.newLabel();
         var elseLabel: hir.Label = scope.ctx.builder.newLabel();
@@ -753,6 +751,17 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
             compileStatement(scope, ifStatement.alternate, ifStatement);
             scope.ctx.builder.genLabel(endLabel);
         }
+    }
+
+    function compileReturnStatement (scope: Scope, stmt: ESTree.ReturnStatement): void
+    {
+        var value: hir.RValue;
+        if (stmt.argument)
+            value = compileExpression(scope, stmt.argument, true, null, null);
+        else
+            value = hir.undefinedValue;
+        scope.ctx.releaseTemp(value);
+        scope.ctx.builder.genRet(value);
     }
 
     function compileExpression (

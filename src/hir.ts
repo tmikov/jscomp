@@ -130,6 +130,7 @@ export const enum OpCode
     ASSIGN,
 
     // Unconditional jumps
+    RET,
     GOTO,
 
     // Conditional jumps
@@ -147,7 +148,7 @@ export const enum OpCode
     _UNOP_LAST = TO_NUMBER,
     _BINCOND_FIRST = IF_STRICT_EQ,
     _BINCOND_LAST = IF_LE,
-    _JUMP_FIRST = GOTO,
+    _JUMP_FIRST = RET,
     _JUMP_LAST = IF_LE,
 }
 
@@ -187,6 +188,7 @@ var g_opcodeName: string[] = [
     "ASSIGN",
 
     // Unconditional jumps
+    "RET",
     "GOTO",
 
     // Conditional jumps
@@ -232,6 +234,7 @@ export function isCommutative (op: OpCode)
 
 export function isJump (op: OpCode)
 {
+    return op >= OpCode._JUMP_FIRST && op <= OpCode._JUMP_LAST;
 }
 
 export function binopToBincond (op: OpCode): OpCode
@@ -279,6 +282,12 @@ class AssignOp extends UnOp {
 
 class JumpInstruction extends Instruction {
     constructor (op: OpCode, public label1: Label, public label2: Label)  { super(op); }
+}
+class RetOp extends JumpInstruction {
+    constructor (label1: Label, public src: RValue) { super(OpCode.RET, label1, null); }
+    toString (): string {
+        return `ret ${this.label1}, ${rv2s(this.src)}`;
+    }
 }
 class GotoOp extends JumpInstruction {
     constructor (target: Label) { super(OpCode.GOTO, target, null); }
@@ -436,25 +445,30 @@ export function foldUnary (op: OpCode, v: RValue): RValue
 
 export class FunctionBuilder
 {
-    id: number;
-    name: string;
+    private id: number;
+    private name: string;
 
-    params: Param[] = [];
+    private params: Param[] = [];
 
-    nextParamIndex = 0;
-    nextVarId = 0;
-    nextLocalId = 0;
-    nextLabelId = 0;
-    nextBBId = 0;
+    private nextParamIndex = 0;
+    private nextVarId = 0;
+    private nextLocalId = 0;
+    private nextLabelId = 0;
+    private nextBBId = 0;
 
-    entryBB: BasicBlock = null;
-    curBB: BasicBlock = null;
+    private closed = false;
+    private curBB: BasicBlock = null;
+    private entryBB: BasicBlock = null;
+    private exitBB: BasicBlock = null;
+    private exitLabel: Label = null;
 
     constructor(id: number, name: string)
     {
         this.id = id;
         this.name = name;
+
         this.entryBB = this.getBB();
+        this.exitLabel = this.newLabel();
     }
     toString() { return `Function(${this.id},${this.name})`; }
 
@@ -501,6 +515,11 @@ export class FunctionBuilder
         assert(false);
     }
 
+    genRet(src: RValue): void
+    {
+        this.getBB().jump(new RetOp(this.exitLabel, src));
+        this.closeBB();
+    }
     genGoto(target: Label): void
     {
         this.getBB().jump(new GotoOp(target));
@@ -593,6 +612,17 @@ export class FunctionBuilder
         assert(false);
     }
 
+    close (): void
+    {
+        if (this.closed)
+            return;
+        this.closed = true;
+        if (this.curBB)
+            this.genRet(undefinedValue);
+        this.genLabel(this.exitLabel);
+        this.exitBB = this.curBB;
+        this.closeBB();
+    }
 
     log (): void
     {
@@ -615,9 +645,18 @@ export class FunctionBuilder
             });
         };
 
+        this.close();
+
+        console.log(`\nFUNC_${this.id}://${this.name}`);
+
+        // Mark the exit node as visited to prevent prematurely generating it
+        visited[this.exitBB.id] = true;
+
         enque(this.entryBB);
         while (queue.length)
             visit( queue.shift() );
+        // Finally generate the exit node
+        visit(this.exitBB);
     }
 }
 
