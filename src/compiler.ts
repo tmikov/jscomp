@@ -151,18 +151,13 @@ class Scope
     }
 }
 
-const enum LabelKind
-{
-    LOOP,
-    SWITCH,
-    OTHER,
-}
-
 class Label
 {
     prev: Label = null;
+
     constructor (
-        public name: string, public loc: ESTree.SourceLocation, public kind: LabelKind, public stmt: ESTree.Statement
+        public name: string, public loc: ESTree.SourceLocation,
+        public breakLab: hir.Label, public continueLab: hir.Label
     )
     {}
 }
@@ -182,7 +177,7 @@ class FunctionContext
 
     builder: hir.FunctionBuilder = null;
 
-    temporaries: hir.Local[] = [];
+    private tempStack: hir.Local[] = [];
 
     constructor (parent: FunctionContext, parentScope: Scope, name: string, moduleBuilder: hir.ModuleBuilder)
     {
@@ -209,7 +204,7 @@ class FunctionContext
     findAnonLabel (loopOnly: boolean): Label
     {
         for ( var label = this.labelList; label; label = label.prev ) {
-            if (label.kind === LabelKind.LOOP || !loopOnly && label.kind === LabelKind.SWITCH)
+            if (!label.name && (!loopOnly || label.continueLab))
                 return label;
         }
         return null;
@@ -234,13 +229,13 @@ class FunctionContext
 
     public allocTemp (): hir.Local
     {
-        if (!this.temporaries.length)
+        if (!this.tempStack.length)
         {
             var t = this.builder.newLocal();
             t.isTemp = true;
-            this.temporaries.push(t );
+            this.tempStack.push(t );
         }
-        var tmp = this.temporaries.pop();
+        var tmp = this.tempStack.pop();
         //console.log(`allocTemp = ${tmp.id}`);
         return tmp;
     }
@@ -248,10 +243,10 @@ class FunctionContext
     public allocSpecific (t: hir.Local): void
     {
         assert(t.isTemp);
-        for ( var i = this.temporaries.length - 1; i >= 0; --i )
-            if (this.temporaries[i] === t) {
+        for ( var i = this.tempStack.length - 1; i >= 0; --i )
+            if (this.tempStack[i] === t) {
                 //console.log(`allocSpecific = ${t.id}`);
-                this.temporaries.splice(i, 1);
+                this.tempStack.splice(i, 1);
                 return;
             }
         assert(false, "specific temporary is not available");
@@ -263,7 +258,7 @@ class FunctionContext
         var l: hir.Local;
         if (l = hir.isTempLocal(t)) {
             //console.log(`releaseTemp ${l.id}`);
-            this.temporaries.push(l);
+            this.tempStack.push(l);
         }
     }
 }
@@ -350,22 +345,6 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
                 if (lit.value === "use strict")
                     return true;
         return false;
-    }
-
-    function classifyLabelStatement (stmt: ESTree.Statement): LabelKind
-    {
-        switch (stmt.type) {
-            case "WhileStatement":
-            case "DoWhileStatement":
-            case "ForStatement":
-            case "ForInStatement":
-            case "ForOfStatement":
-                return LabelKind.LOOP;
-            case "Switch":
-                return LabelKind.SWITCH;
-            default:
-                return LabelKind.OTHER;
-        }
     }
 
     function compileProgram (prog: ESTree.Program): void
@@ -494,9 +473,7 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
                 break;
             case "WhileStatement":
                 var whileStatement: ESTree.WhileStatement = NT.WhileStatement.cast(stmt);
-                scope.ctx.pushLabel(new Label(null, location(whileStatement), LabelKind.LOOP, whileStatement));
                 scanStatementForDeclarations(scope, whileStatement.body);
-                scope.ctx.popLabel();
                 break;
             case "DoWhileStatement":
                 var doWhileStatement: ESTree.DoWhileStatement = NT.DoWhileStatement.cast(stmt);
@@ -559,50 +536,13 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
                 compileIfStatement(scope, NT.IfStatement.cast(stmt));
                 break;
             case "LabeledStatement":
-                var labeledStatement: ESTree.LabeledStatement = NT.LabeledStatement.cast(stmt);
-                var prevLabel: Label;
-                var loc = location(stmt);
-                var pushed = false;
-                if (prevLabel = scope.ctx.findLabel(labeledStatement.label.name)) {
-                    error(loc, `label '${prevLabel.name}' already declared`);
-                    note(prevLabel.loc, `previous declaration of label '${prevLabel.name}'`);
-                } else {
-                    scope.ctx.pushLabel(new Label(labeledStatement.label.name, loc, classifyLabelStatement(labeledStatement.body),
-                        labeledStatement.body));
-                    pushed = true;
-                }
-                compileStatement(scope, labeledStatement.body, stmt);
-                if (pushed)
-                    scope.ctx.popLabel();
+                compileLabeledStatement(scope, NT.LabeledStatement.cast(stmt));
                 break;
             case "BreakStatement":
-                var breakStatement: ESTree.BreakStatement = NT.BreakStatement.cast(stmt);
-                var label: Label = null;
-                if (breakStatement.label) {
-                    if (!(label = scope.ctx.findLabel(breakStatement.label.name)))
-                        error(location(stmt), `label '${breakStatement.label.name}:' is not defined`);
-                } else {
-                    if (!(label = scope.ctx.findAnonLabel(false)))
-                        error(location(stmt), "there is no surrounding loop");
-                }
-                (<any>breakStatement).boundLabel = label;
+                compileBreakStatement(scope, NT.BreakStatement.cast(stmt));
                 break;
             case "ContinueStatement":
-                var continueStatement: ESTree.ContinueStatement = NT.ContinueStatement.cast(stmt);
-                var label: Label = null;
-                if (continueStatement.label) {
-                    if (!(label = scope.ctx.findLabel(continueStatement.label.name)))
-                        error(location(stmt), `label '${continueStatement.label.name}:' is not defined`);
-                    else if (label.kind !== LabelKind.LOOP) {
-                        error(location(stmt), `label '${continueStatement.label.name}:' is not a loop`);
-                        note(label.loc, `label '${continueStatement.label.name}:' defined here`);
-                        label = null;
-                    }
-                } else {
-                    if (!(label = scope.ctx.findAnonLabel(true)))
-                        error(location(stmt), "there is no surrounding loop");
-                }
-                (<any>continueStatement).boundLabel = label;
+                compileContinueStatement(scope, NT.ContinueStatement.cast(stmt));
                 break;
             case "WithStatement":
                 var withStatement: ESTree.WithStatement = NT.WithStatement.cast(stmt);
@@ -611,7 +551,8 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
             case "SwitchStatement":
                 var switchStatement: ESTree.SwitchStatement = NT.SwitchStatement.cast(stmt);
                 compileExpression(scope, switchStatement.discriminant);
-                scope.ctx.pushLabel(new Label(null, location(switchStatement), LabelKind.SWITCH, switchStatement));
+                var breakLab: hir.Label = scope.ctx.builder.newLabel();
+                scope.ctx.pushLabel(new Label(null, location(switchStatement), breakLab, null));
                 switchStatement.cases.forEach((sc: ESTree.SwitchCase) => {
                     if (sc.test)
                         compileExpression(scope, sc.test);
@@ -619,6 +560,7 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
                         compileStatement(scope, s, stmt);
                     });
                 });
+                scope.ctx.builder.genLabel(breakLab);
                 scope.ctx.popLabel();
                 break;
             case "ReturnStatement":
@@ -662,8 +604,11 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
                     compileExpression(scope, forStatement.test);
                 if (forStatement.update)
                     compileExpression(scope, forStatement.update);
-                scope.ctx.pushLabel(new Label(null, location(forStatement), LabelKind.LOOP, forStatement));
+                var breakLab: hir.Label = scope.ctx.builder.newLabel();
+                var continueLab: hir.Label = scope.ctx.builder.newLabel();
+                scope.ctx.pushLabel(new Label(null, location(forStatement), breakLab, continueLab));
                 compileStatement(scope, forStatement.body, stmt);
+                scope.ctx.builder.genLabel(breakLab);
                 scope.ctx.popLabel();
                 break;
             case "ForInStatement":
@@ -673,8 +618,11 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
                     compileStatement(scope, forInStatementLeftDecl, stmt);
                 else
                     compileExpression(scope, forInStatement.left);
-                scope.ctx.pushLabel(new Label(null, location(forInStatement), LabelKind.LOOP, forInStatement));
+                var breakLab: hir.Label = scope.ctx.builder.newLabel();
+                var continueLab: hir.Label = scope.ctx.builder.newLabel();
+                scope.ctx.pushLabel(new Label(null, location(forInStatement), breakLab, continueLab));
                 compileStatement(scope, forInStatement.body, stmt);
+                scope.ctx.builder.genLabel(breakLab);
                 scope.ctx.popLabel();
                 break;
             case "ForOfStatement":
@@ -684,8 +632,11 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
                     compileStatement(scope, forOfStatementLeftDecl, stmt);
                 else
                     compileExpression(scope, forOfStatement.left);
-                scope.ctx.pushLabel(new Label(null, location(forOfStatement), LabelKind.LOOP, forOfStatement));
+                var breakLab: hir.Label = scope.ctx.builder.newLabel();
+                var continueLab: hir.Label = scope.ctx.builder.newLabel();
+                scope.ctx.pushLabel(new Label(null, location(forOfStatement), breakLab, continueLab));
                 compileStatement(scope, forOfStatement.body, stmt);
+                scope.ctx.builder.genLabel(breakLab);
                 scope.ctx.popLabel();
                 break;
 
@@ -717,6 +668,80 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
                 assert(false, `unsupported statement '${stmt.type}'`);
                 break;
         }
+    }
+
+    function compileLabeledStatement (scope: Scope, stmt: ESTree.LabeledStatement): void
+    {
+        var prevLabel: Label;
+        var loc = location(stmt);
+        var breakLab: hir.Label = null;
+
+        if (prevLabel = scope.ctx.findLabel(stmt.label.name)) {
+            error(loc, `label '${prevLabel.name}' already declared`);
+            note(prevLabel.loc, `previous declaration of label '${prevLabel.name}'`);
+        } else {
+            breakLab = scope.ctx.builder.newLabel();
+            // Find the target statement by skipping nested labels (if any)
+            for ( var targetStmt = stmt.body;
+                  NT.LabeledStatement.eq(targetStmt);
+                  targetStmt = NT.LabeledStatement.cast(targetStmt).body )
+            {}
+
+            var label = new Label(stmt.label.name, loc, breakLab, null);
+            scope.ctx.pushLabel(label);
+
+            // Add the label to the label set of the statement.
+            // It is actually only needed by loops to implement 'continue'
+            if (!targetStmt.labels)
+                targetStmt.labels = [label];
+            else
+                targetStmt.labels.push(label);
+        }
+
+        compileStatement(scope, stmt.body, stmt);
+
+        if (breakLab) {
+            scope.ctx.builder.genLabel(breakLab);
+            scope.ctx.popLabel();
+        }
+    }
+
+    function compileBreakStatement (scope: Scope, stmt: ESTree.BreakStatement): void
+    {
+        var label: Label = null;
+        if (stmt.label) {
+            if (!(label = scope.ctx.findLabel(stmt.label.name))) {
+                error(location(stmt), `'break' label '${stmt.label.name}:' is not defined`);
+                return;
+            }
+        } else {
+            if (!(label = scope.ctx.findAnonLabel(false))) {
+                error(location(stmt), "'break': there is no surrounding loop");
+                return;
+            }
+        }
+        scope.ctx.builder.genGoto(label.breakLab);
+    }
+
+    function compileContinueStatement (scope: Scope, stmt: ESTree.ContinueStatement): void
+    {
+        var label: Label = null;
+        if (stmt.label) {
+            if (!(label = scope.ctx.findLabel(stmt.label.name))) {
+                error(location(stmt), `'continue' label '${stmt.label.name}:' is not defined`);
+                return;
+            } else if (!label.continueLab) {
+                error(location(stmt), `'continue' label '${stmt.label.name}:' is not a loop`);
+                note(label.loc, `label '${stmt.label.name}:' defined here`);
+                return;
+            }
+        } else {
+            if (!(label = scope.ctx.findAnonLabel(true))) {
+                error(location(stmt), "'continue': there is no surrounding loop");
+                return;
+            }
+        }
+        scope.ctx.builder.genGoto(label.continueLab);
     }
 
     function compileIfStatement (scope: Scope, ifStatement: ESTree.IfStatement): void
@@ -763,7 +788,7 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
         ctx.builder.genLabel(loop);
         compileExpression(scope, stmt.test, true, body, exitLoop);
         ctx.builder.genLabel(body);
-        scope.ctx.pushLabel(new Label(null, location(stmt), LabelKind.LOOP, stmt));
+        scope.ctx.pushLabel(new Label(null, location(stmt), exitLoop, loop));
         compileStatement(scope, stmt.body, stmt);
         scope.ctx.popLabel();
         ctx.builder.genGoto(loop);
@@ -778,7 +803,7 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
         var body = ctx.builder.newLabel();
 
         ctx.builder.genLabel(body);
-        scope.ctx.pushLabel(new Label(null, location(stmt), LabelKind.LOOP, stmt));
+        scope.ctx.pushLabel(new Label(null, location(stmt), exitLoop, loop));
         compileStatement(scope, stmt.body, stmt);
         scope.ctx.popLabel();
         ctx.builder.genLabel(loop);
