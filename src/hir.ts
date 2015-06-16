@@ -827,12 +827,12 @@ export class FunctionBuilder
         }
     }
 
-    log (): void
+    dump (): void
     {
         assert(this.closed);
 
         this.innerFunctions.forEach((ifb: FunctionBuilder) => {
-            ifb.log();
+            ifb.dump();
         });
 
         console.log(`\nFUNC_${this.fref.id}://${this.fref.name}`);

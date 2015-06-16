@@ -6,29 +6,56 @@
 
 import compiler = require("./src/compiler");
 
-// Special handling for regular expression literal since we need to
-// convert it to a string literal, otherwise it will be decoded
-// as object "{}" and the regular expression would be lost.
-//function adjustRegexLiteral(key: any, value: any)
-//{
-//    if (key === 'value' && value instanceof RegExp) {
-//        value = value.toString();
-//    }
-//    return value;
-//}
 
 function printSyntax (): void
 {
-    console.error("syntax: jscomp filename");
+    console.error(
+"syntax: jscomp [options] filename\n"+
+"   -h           this help\n"+
+"   --dump-ast   dump AST\n"+
+"   --dump-hir   dump HIR\n"
+    );
 }
 
 function main (argv: string[]): void
 {
-    if (argv.length !== 2) {
+    var options = new compiler.Options();
+    var fname: string = null;
+
+    if (argv.length === 1) {
         printSyntax();
         process.exit(1);
     }
-    var fname = argv[1];
+
+    for ( var i = 1; i < argv.length; ++i ) {
+        var arg = argv[i];
+        if (arg[0] === "-") {
+            switch (arg) {
+                case "--dump-ast": options.dumpAST = true; break;
+                case "--dump-hir": options.dumpHIR = true; break;
+                case "--help":
+                case "-h":
+                    printSyntax();
+                    process.exit(0);
+                    break;
+                default:
+                    console.error("error: unknown option '%s'", arg);
+                    process.exit(1);
+                    break;
+            }
+        } else {
+            if (fname) {
+                console.error("error: more than one file name specified");
+                process.exit(1);
+            }
+            fname = arg;
+        }
+    }
+
+    if (!fname) {
+        console.error("error: no filename specified");
+        process.exit(1);
+    }
 
     var reporter: compiler.IErrorReporter = {
         error: (loc: ESTree.SourceLocation, msg: string) => {
@@ -51,7 +78,7 @@ function main (argv: string[]): void
         }
     };
 
-    compiler.compile(fname, reporter, new compiler.Options());
+    compiler.compile(fname, reporter, options);
 }
 
 main(process.argv.slice(1));

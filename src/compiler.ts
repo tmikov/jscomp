@@ -24,6 +24,8 @@ export interface IErrorReporter
 
 export class Options
 {
+    dumpAST = false;
+    dumpHIR = false;
 }
 
 class NT<T extends ESTree.Node>
@@ -349,6 +351,21 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
 
     function compileProgram (prog: ESTree.Program): void
     {
+        if (m_options.dumpAST) {
+            // Special handling for regular expression literal since we need to
+            // convert it to a string literal, otherwise it will be decoded
+            // as object "{}" and the regular expression would be lost.
+            function adjustRegexLiteral(key: any, value: any)
+            {
+                if (key === 'value' && value instanceof RegExp) {
+                    value = value.toString();
+                }
+                return value;
+            }
+
+            console.log(JSON.stringify(prog, adjustRegexLiteral, 4));
+        }
+
         var funcRef = m_moduleBuilder.newFunctionRef(null);
         var builder = m_moduleBuilder.newFunctionBuilder(null, funcRef);
 
@@ -362,7 +379,9 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
             generator: false
         };
         var fctx: FunctionContext = compileFunction(m_globalContext.funcScope, ast, funcRef);
-        fctx.builder.log();
+
+        if (m_options.dumpHIR)
+            fctx.builder.dump();
     }
 
 
