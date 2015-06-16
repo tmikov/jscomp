@@ -50,18 +50,26 @@ export class Param extends MemValue
 
 export class Var extends LValue
 {
+    envLevel: number; //< environment nesting level
+    name: string;
+    funcRef: FunctionRef = null;
     escapes: boolean = false;
     local: Local = null; // The corresponding local to use if it doesn't escape
-    funcRef: FunctionRef = null;
+    envIndex: number = -1; //< index in its environment block, if it escapes
 
-    constructor(id: number, public name: string) {super(id);}
+    constructor(id: number, envLevel: number, name: string)
+    {
+        super(id);
+        this.envLevel = envLevel;
+        this.name = name;
+    }
 
     toString()
     {
         if (this.local)
             return this.local.toString();
         else
-            return `Var(${this.id},${this.name})`;
+            return `Var(env@${this.envLevel}[${this.envIndex}]/*${this.name}*/)`;
     }
 }
 
@@ -558,7 +566,13 @@ export class FunctionBuilder
     private parentBuilder: FunctionBuilder;
     private fref: FunctionRef;
 
+    // The nesting level of this function's environment
+    private envLevel: number;
+
     private params: Param[] = [];
+    private locals: Local[] = [];
+    private vars: Var[] = [];
+    private envSize: number = 0; //< the size of the escaping environment block
 
     private nextParamIndex = 0;
     private nextLocalId = 1;
@@ -578,6 +592,8 @@ export class FunctionBuilder
         this.module = module;
         this.parentBuilder = parentBuilder;
         this.fref = fref;
+
+        this.envLevel = parentBuilder ? parentBuilder.envLevel + 1 : -1;
 
         this.entryBB = this.getBB();
         this.exitLabel = this.newLabel();
@@ -603,13 +619,15 @@ export class FunctionBuilder
 
     newVar(name: string): Var
     {
-        var v = new Var(this.nextLocalId++, name);
+        var v = new Var(this.nextLocalId++, this.envLevel, name);
+        this.vars.push(v);
         return v;
     }
 
     newLocal(): Local
     {
         var loc = new Local(this.nextLocalId++);
+        this.locals.push(loc);
         return loc;
     }
 
@@ -763,26 +781,31 @@ export class FunctionBuilder
 
         this.blockList = buildBlockList(this.entryBB, this.exitBB);
 
-        this.processVars()   ;
+        if (this.envLevel === 0)
+            this.processVars();
+    }
+
+    private processVars (): void
+    {
+        // Assign escaping var indexes
+        this.envSize = 0;
+        this.vars.forEach((v: Var) => {
+            if (v.escapes)
+                v.envIndex = this.envSize++;
+        });
+
+        this.optimizeKnownFuncRefs();
+
+        this.innerFunctions.forEach((ifb: FunctionBuilder) => ifb.processVars());
     }
 
     /**
      * Change CALLIND to CALL for all known functions
-     * @param knownFuncs
      */
-    private processVars (): void
+    private optimizeKnownFuncRefs (): void
     {
-        scanFunction(this);
-
-        function scanFunction (fb: FunctionBuilder): void
-        {
-            for ( var i = 0, e = fb.blockList.length; i < e; ++i )
-                scanBlock(fb.blockList[i]);
-
-            fb.innerFunctions.forEach((ifb: FunctionBuilder) => {
-                scanFunction(ifb)
-            });
-        }
+        for ( var i = 0, e = this.blockList.length; i < e; ++i )
+            scanBlock(this.blockList[i]);
 
         function scanBlock (bb: BasicBlock): void
         {
@@ -813,6 +836,7 @@ export class FunctionBuilder
         });
 
         console.log(`\nFUNC_${this.fref.id}://${this.fref.name}`);
+        console.log(`//locals: ${this.locals.length} env: ${this.envSize}`);
 
         for ( var i = 0, e = this.blockList.length; i < e; ++i ) {
             var bb = this.blockList[i];
