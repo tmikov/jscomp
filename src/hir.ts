@@ -9,16 +9,28 @@ import util = require("util");
 
 export class MemValue
 {
+    constructor(public id: number) {}
 }
 
 export class LValue extends MemValue
 {
 }
 
+export class NullReg extends LValue
+{
+    toString (): string { return "#nullReg"; }
+}
+
 export class Regex
 {
     constructor (public pattern: string, public flags: string) {}
     toString(): string { return `Regex(/${this.pattern}/${this.flags})`; }
+}
+
+export class FunctionRef
+{
+    constructor (public id: number, public name: string) {}
+    toString (): string { return `FunctionRef(${this.id}:${this.name})`; }
 }
 
 /** for null and undefined */
@@ -32,26 +44,38 @@ export type RValue = MemValue | string | boolean | number | Regex | SpecialConst
 
 export class Param extends MemValue
 {
-    constructor(public name: string, public index: number) {super();}
-    toString() { return `Param(${this.index},${this.name})`; }
+    constructor(id: number, public index: number, public name: string) {super(id);}
+    toString() { return `Param(${this.id},${this.index},${this.name})`; }
 }
 
 export class Var extends LValue
 {
-    constructor(public name: string, public id: number) {super();}
-    toString() { return `Var(${this.id},${this.name})`; }
+    escapes: boolean = false;
+    local: Local = null; // The corresponding local to use if it doesn't escape
+    funcRef: FunctionRef = null;
+
+    constructor(id: number, public name: string) {super(id);}
+
+    toString()
+    {
+        if (this.local)
+            return this.local.toString();
+        else
+            return `Var(${this.id},${this.name})`;
+    }
 }
 
 export class Local extends LValue
 {
     isTemp: boolean = false; // for users of the module. Has no meaning internally
 
-    constructor(public id: number) {super();}
+    constructor(id: number) {super(id);}
     toString() { return `Local(${this.id})`; }
 }
 
 export var nullValue = new SpecialConstantClass("null");
 export var undefinedValue = new SpecialConstantClass("undefined");
+export var nullReg = new NullReg(0);
 
 export function isImmediate (v: RValue): boolean
 {
@@ -64,6 +88,22 @@ export function isImmediate (v: RValue): boolean
             return <any>v instanceof SpecialConstantClass || <any>v instanceof Regex;
     }
     return false;
+}
+
+export function isLValue (v: RValue): LValue
+{
+    if (<any>v instanceof LValue)
+        return <LValue>v;
+    else
+        return null;
+}
+
+export function isVar (v: RValue): Var
+{
+    if (<any>v instanceof Var)
+        return <Var>v;
+    else
+        return null;
 }
 
 export function isTempLocal (v: RValue): Local
@@ -95,6 +135,9 @@ export function isTempLocal (v: RValue): Local
 
 export const enum OpCode
 {
+    // Special
+    CLOSURE,
+
     // Binary
     STRICT_EQ,
     STRICT_NE,
@@ -129,6 +172,10 @@ export const enum OpCode
     // Assignment
     ASSIGN,
 
+    // Call
+    CALL,
+    CALLIND,
+
     // Unconditional jumps
     RET,
     GOTO,
@@ -153,6 +200,9 @@ export const enum OpCode
 }
 
 var g_opcodeName: string[] = [
+    // Special
+    "CLOSURE",
+
     // Binary
     "STRICT_EQ",
     "STRICT_NE",
@@ -186,6 +236,10 @@ var g_opcodeName: string[] = [
 
     // Assignment
     "ASSIGN",
+
+    // Call
+    "CALL",
+    "CALLIND",
 
     // Unconditional jumps
     "RET",
@@ -261,6 +315,12 @@ function oc2s (op: OpCode): string
 class Instruction {
     constructor (public op: OpCode) {}
 }
+class ClosureOp extends Instruction {
+    constructor (public dest: LValue, public funcRef: FunctionRef) { super(OpCode.CLOSURE); }
+    toString (): string {
+            return `${rv2s(this.dest)} = ${oc2s(this.op)}(${this.funcRef})`;
+    }
+}
 class BinOp extends Instruction {
     constructor (op: OpCode, public dest: LValue, public src1: RValue, public src2: RValue) { super(op); }
     toString (): string {
@@ -279,7 +339,21 @@ class AssignOp extends UnOp {
         return `${rv2s(this.dest)} = ${rv2s(this.src1)}`;
     }
 }
+class CallOp extends Instruction {
+    constructor(
+        op: OpCode, public dest: LValue, public fref: FunctionRef, public closure: RValue, public args: RValue[]
+    )
+    {
+        super(op);
+    }
 
+    toString (): string {
+        if (this.fref)
+            return `${rv2s(this.dest)} = ${oc2s(this.op)}(${this.fref}, ${this.closure}, [${this.args}])`;
+        else
+            return `${rv2s(this.dest)} = ${oc2s(this.op)}(${this.closure}, [${this.args}])`;
+    }
+}
 class JumpInstruction extends Instruction {
     constructor (op: OpCode, public label1: Label, public label2: Label)  { super(op); }
 }
@@ -443,16 +517,51 @@ export function foldUnary (op: OpCode, v: RValue): RValue
     return wrapImmediate(r);
 }
 
+
+function bfs (entry: BasicBlock, exit: BasicBlock, callback: (bb: BasicBlock)=>void): void
+{
+    var visited: boolean[] = [];
+    var queue: BasicBlock[] = [];
+
+    function enque (bb: BasicBlock): void {
+        if (!visited[bb.id]) {
+            visited[bb.id] = true;
+            queue.push(bb);
+        }
+    }
+    function visit (bb: BasicBlock): void {
+        callback(bb);
+        for (var i = 0, e = bb.succ.length; i < e; ++i)
+            enque(bb.succ[i].bb );
+    }
+
+    // Mark the exit node as visited to guarantee we will visit it last
+    visited[exit.id] = true;
+
+    visit(entry);
+    while (queue.length)
+        visit(queue.shift());
+    // Finally generate the exit node
+    visit(exit);
+}
+
+function buildBlockList (entry: BasicBlock, exit: BasicBlock): BasicBlock[]
+{
+    var blockList: BasicBlock[] = [];
+    bfs(entry, exit, (bb: BasicBlock) => blockList.push(bb));
+    return blockList;
+}
+
 export class FunctionBuilder
 {
-    private id: number;
-    private name: string;
+    private module: ModuleBuilder;
+    private parentBuilder: FunctionBuilder;
+    private fref: FunctionRef;
 
     private params: Param[] = [];
 
     private nextParamIndex = 0;
-    private nextVarId = 0;
-    private nextLocalId = 0;
+    private nextLocalId = 1;
     private nextLabelId = 0;
     private nextBBId = 0;
 
@@ -462,26 +571,39 @@ export class FunctionBuilder
     private exitBB: BasicBlock = null;
     private exitLabel: Label = null;
 
-    constructor(id: number, name: string)
+    private innerFunctions: FunctionBuilder[] = [];
+
+    constructor(module: ModuleBuilder, parentBuilder: FunctionBuilder, fref: FunctionRef)
     {
-        this.id = id;
-        this.name = name;
+        this.module = module;
+        this.parentBuilder = parentBuilder;
+        this.fref = fref;
 
         this.entryBB = this.getBB();
         this.exitLabel = this.newLabel();
+
+        if (parentBuilder)
+            parentBuilder.addInnerFunction(this);
+
+        this.nextLocalId = parentBuilder ? parentBuilder.nextLocalId+1 : 1;
     }
-    toString() { return `Function(${this.id},${this.name})`; }
+    toString() { return `Function(${this.fref})`; }
+
+    private addInnerFunction (f: FunctionBuilder): void
+    {
+        this.innerFunctions.push(f);
+    }
 
     newParam(name: string): Param
     {
-        var param = new Param(name, this.nextParamIndex++);
+        var param = new Param(this.nextLocalId++, this.nextParamIndex++, name);
         this.params.push(param);
         return param;
     }
 
     newVar(name: string): Var
     {
-        var v = new Var(name, this.nextVarId++);
+        var v = new Var(this.nextLocalId++, name);
         return v;
     }
 
@@ -497,6 +619,18 @@ export class FunctionBuilder
         return lab;
     }
 
+    setVarFuncRef (v: Var, funcRef: FunctionRef): void
+    {
+        v.funcRef = funcRef;
+    }
+
+    setVarEscapes (v: Var, escapes: boolean): void
+    {
+        v.escapes = escapes;
+        if (!escapes)
+            v.local = this.newLocal();
+    }
+
     private getBB (): BasicBlock
     {
         if (this.curBB)
@@ -510,9 +644,9 @@ export class FunctionBuilder
         this.curBB = null;
     }
 
-    genClosure(dest: LValue, func: FunctionBuilder): void
+    genClosure(dest: LValue, func: FunctionRef): void
     {
-        assert(false);
+        this.getBB().push(new ClosureOp(dest, func));
     }
 
     genRet(src: RValue): void
@@ -567,8 +701,8 @@ export class FunctionBuilder
 
         // Reorder to make it cleaner. e.g. 'a=a+b' instead of 'a=b+a' and 'a=b+1' instead of 'a=1+b'
         if (isCommutative(op) && (dest === src2 || isImmediate(src1))) {
-            var t = dest;
-            dest = src2;
+            var t = src1;
+            src1 = src2;
             src2 = t;
         }
 
@@ -607,10 +741,14 @@ export class FunctionBuilder
         assert(false);
     }
 
-    genCall(dest: LValue, closure: RValue, args: RValue[]): void
+    genCall(dest: LValue, fref: FunctionRef, closure: RValue, args: RValue[]): void
     {
-        assert(false);
+        if (dest === null)
+            dest = nullReg;
+        this.getBB().push(new CallOp(OpCode.CALLIND, dest, null, closure, args));
     }
+
+    blockList: BasicBlock[] = [];
 
     close (): void
     {
@@ -622,41 +760,67 @@ export class FunctionBuilder
         this.genLabel(this.exitLabel);
         this.exitBB = this.curBB;
         this.closeBB();
+
+        this.blockList = buildBlockList(this.entryBB, this.exitBB);
+
+        this.processVars()   ;
+    }
+
+    /**
+     * Change CALLIND to CALL for all known functions
+     * @param knownFuncs
+     */
+    private processVars (): void
+    {
+        scanFunction(this);
+
+        function scanFunction (fb: FunctionBuilder): void
+        {
+            for ( var i = 0, e = fb.blockList.length; i < e; ++i )
+                scanBlock(fb.blockList[i]);
+
+            fb.innerFunctions.forEach((ifb: FunctionBuilder) => {
+                scanFunction(ifb)
+            });
+        }
+
+        function scanBlock (bb: BasicBlock): void
+        {
+            for ( var i = 0, e = bb.body.length; i < e; ++i ) {
+                var inst = bb.body[i];
+                // Transform CALLIND with a known funcRef into CALL(funcRef)
+                //
+                if (inst.op === OpCode.CALLIND) {
+                    var callInst = <CallOp>inst;
+                    var closure: Var;
+                    if (closure = isVar(callInst.closure))
+                        if (closure.funcRef)
+                        {
+                            callInst.op = OpCode.CALL;
+                            callInst.fref = closure.funcRef;
+                        }
+                }
+            }
+        }
     }
 
     log (): void
     {
-        var visited: boolean[] = [];
-        var queue: BasicBlock[] = [];
+        assert(this.closed);
 
-        var enque = (bb: BasicBlock) => {
-            if (!visited[bb.id]) {
-                visited[bb.id] = true;
-                queue.push(bb);
-            }
-        };
-        var visit = (bb: BasicBlock) => {
+        this.innerFunctions.forEach((ifb: FunctionBuilder) => {
+            ifb.log();
+        });
+
+        console.log(`\nFUNC_${this.fref.id}://${this.fref.name}`);
+
+        for ( var i = 0, e = this.blockList.length; i < e; ++i ) {
+            var bb = this.blockList[i];
             console.log(`B${bb.id}:`);
             bb.body.forEach( (inst: Instruction) => {
                 console.log(`\t${inst}`);
             });
-            bb.succ.forEach( (lab: Label) => {
-                enque(lab.bb);
-            });
-        };
-
-        this.close();
-
-        console.log(`\nFUNC_${this.id}://${this.name}`);
-
-        // Mark the exit node as visited to prevent prematurely generating it
-        visited[this.exitBB.id] = true;
-
-        enque(this.entryBB);
-        while (queue.length)
-            visit( queue.shift() );
-        // Finally generate the exit node
-        visit(this.exitBB);
+        }
     }
 }
 
@@ -664,10 +828,14 @@ export class ModuleBuilder
 {
     nextFunctionId = 0;
 
-    newFunction(name: string): FunctionBuilder
+    newFunctionRef(name: string): FunctionRef
     {
-        var fb = new FunctionBuilder(this.nextFunctionId++, name);
-        console.log(`new ${fb}`);
+        return new FunctionRef(this.nextFunctionId++, name);
+    }
+
+    newFunctionBuilder(parentBuilder: FunctionBuilder, fref: FunctionRef): FunctionBuilder
+    {
+        var fb = new FunctionBuilder(this, parentBuilder, fref);
         return fb;
     }
 }

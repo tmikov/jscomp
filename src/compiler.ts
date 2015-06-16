@@ -104,7 +104,7 @@ class Variable
     assigned: boolean = false;
     accessed: boolean = false;
     escapes: boolean = false;
-    functionDeclaration: ESTree.FunctionDeclaration;
+    funcRef: hir.FunctionRef;
 
     hparam: hir.Param = null;
     hvar: hir.Var = null;
@@ -179,13 +179,13 @@ class FunctionContext
 
     private tempStack: hir.Local[] = [];
 
-    constructor (parent: FunctionContext, parentScope: Scope, name: string, moduleBuilder: hir.ModuleBuilder)
+    constructor (parent: FunctionContext, parentScope: Scope, name: string, builder: hir.FunctionBuilder)
     {
         this.parent = parent;
         this.name = name || null;
-        this.strictMode = parent && parent.strictMode;
+        this.builder = builder;
 
-        this.builder = moduleBuilder.newFunction(name);
+        this.strictMode = parent && parent.strictMode;
         this.funcScope = new Scope(this, parentScope);
 
         // Generate a param binding for 'this'
@@ -349,7 +349,10 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
 
     function compileProgram (prog: ESTree.Program): void
     {
-        m_globalContext = new FunctionContext(null, null, "<module>", m_moduleBuilder);
+        var funcRef = m_moduleBuilder.newFunctionRef(null);
+        var builder = m_moduleBuilder.newFunctionBuilder(null, funcRef);
+
+        m_globalContext = new FunctionContext(null, null, "<module>", builder);
         var ast: ESTree.Function = {
             start: prog.start,
             end: prog.end,
@@ -358,7 +361,8 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
             body: { start: prog.start, end: prog.end, type: NT.BlockStatement.name, body: prog.body },
             generator: false
         };
-        compileFunction(m_globalContext.funcScope, ast);
+        var fctx: FunctionContext = compileFunction(m_globalContext.funcScope, ast, funcRef);
+        fctx.builder.log();
     }
 
 
@@ -379,9 +383,10 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
         return v;
     }
 
-    function compileFunction (parentScope: Scope, ast: ESTree.Function): void
+    function compileFunction (parentScope: Scope, ast: ESTree.Function, funcRef: hir.FunctionRef): FunctionContext
     {
-        var funcCtx = new FunctionContext(parentScope.ctx, parentScope, ast.id && ast.id.name, m_moduleBuilder);
+        var builder = m_moduleBuilder.newFunctionBuilder(parentScope.ctx.builder, funcRef);
+        var funcCtx = new FunctionContext(parentScope.ctx, parentScope, funcRef.name, builder);
         var funcScope = funcCtx.funcScope;
 
         // Declare the parameters
@@ -407,7 +412,15 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
         else
             assert(false, "TODO: implement ES6");
 
-        funcCtx.builder.log();
+        funcScope.vars.forEach( (v: Variable) => {
+            if (v.funcRef && v.initialized && !v.assigned)
+                builder.setVarFuncRef(v.hvar, v.funcRef);
+                v.hvar.funcRef = v.funcRef;
+            builder.setVarEscapes(v.hvar, v.escapes);
+        });
+
+        funcCtx.builder.close();
+        return funcCtx;
     }
 
     function compileBody (scope: Scope, body: ESTree.Statement[]): void
@@ -504,7 +517,16 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
 
             case "FunctionDeclaration":
                 var functionDeclaration: ESTree.FunctionDeclaration = NT.FunctionDeclaration.cast(stmt);
-                varDeclaration(scope.ctx, functionDeclaration.id);
+                var variable = varDeclaration(scope.ctx, functionDeclaration.id);
+                if (variable.funcRef)
+                    warning( location(stmt),  `hiding previous declaration of function '${variable.name}'` );
+
+                variable.funcRef = m_moduleBuilder.newFunctionRef(functionDeclaration.id.name);
+
+                if (!variable.initialized && !variable.assigned)
+                    variable.initialized = true;
+                else
+                    variable.assigned = true;
                 break;
             case "VariableDeclaration":
                 var variableDeclaration: ESTree.VariableDeclaration = NT.VariableDeclaration.cast(stmt);
@@ -641,18 +663,7 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
                 break;
 
             case "FunctionDeclaration":
-                var functionDeclaration: ESTree.FunctionDeclaration = NT.FunctionDeclaration.cast(stmt);
-                var variable = scope.ctx.funcScope.lookup(functionDeclaration.id.name);
-
-                if (scope.ctx.strictMode && parent)
-                    error(location(functionDeclaration), "functions can only be declared at top level in strict mode");
-
-                if (variable.functionDeclaration)
-                    warning( location(functionDeclaration),  `hiding previous declaration of function '${variable.name}'` );
-
-                variable.initialized = true;
-                variable.functionDeclaration = functionDeclaration;
-                compileFunction(scope, functionDeclaration);
+                compileFunctionDeclaration(scope, NT.FunctionDeclaration.cast(stmt), parent);
                 break;
             case "VariableDeclaration":
                 var variableDeclaration: ESTree.VariableDeclaration = NT.VariableDeclaration.cast(stmt);
@@ -811,6 +822,17 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
         ctx.builder.genLabel(exitLoop);
     }
 
+    function compileFunctionDeclaration (scope: Scope, stmt: ESTree.FunctionDeclaration, parent: ESTree.Statement): void
+    {
+        var variable = scope.ctx.funcScope.lookup(stmt.id.name);
+
+        if (scope.ctx.strictMode && parent)
+            error(location(stmt), "functions can only be declared at top level in strict mode");
+
+        var closure = compileFunctionValue(scope, stmt, true, variable.funcRef);
+        scope.ctx.builder.genAssign(variable.hvar, closure);
+    }
+
     function compileExpression (
         scope: Scope, e: ESTree.Expression, need: boolean=true, onTrue?: hir.Label, onFalse?: hir.Label
     ): hir.RValue
@@ -845,9 +867,10 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
                 });
                 break;
             case "FunctionExpression":
-                var functionExpression: ESTree.FunctionExpression = NT.FunctionExpression.cast(e);
-                compileFunction(scope, functionExpression);
-                break;
+                return toLogical(
+                    scope, e, compileFunctionExpression(scope, NT.FunctionExpression.cast(e), need),
+                    need, onTrue, onFalse
+                );
             case "SequenceExpression":
                 var sequenceExpression: ESTree.SequenceExpression = NT.SequenceExpression.cast(e);
                 sequenceExpression.expressions.forEach((e: ESTree.Expression) => {
@@ -879,12 +902,7 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
                 compileSubExpression(scope, conditionalExpression.consequent);
                 break;
             case "CallExpression":
-                var callExpression: ESTree.CallExpression = NT.CallExpression.cast(e);
-                compileSubExpression(scope, callExpression.callee);
-                callExpression.arguments.forEach((e: ESTree.Expression) => {
-                    compileSubExpression(scope, e);
-                });
-                break;
+                return toLogical(scope, e, compileCallExpression(scope, NT.CallExpression.cast(e), need), need, onTrue, onFalse);
             case "NewExpression":
                 var newExpression: ESTree.NewExpression = NT.NewExpression.cast(e);
                 compileSubExpression(scope, newExpression.callee);
@@ -937,9 +955,8 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
                 return new hir.Regex(regex.pattern, regex.flags);
             } else if (literal.value === null){
                 return hir.nullValue;
-            } else {
-                return literal.value;
-            }
+            } else
+                return <any>literal.value;
         } else {
             return null;
         }
@@ -985,6 +1002,26 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
         } else {
             return null;
         }
+    }
+
+    function compileFunctionValue (scope: Scope, e: ESTree.Function, need: boolean, funcRef: hir.FunctionRef): hir.RValue
+    {
+        if (!need)
+            warning(location(e), "unused function");
+
+        compileFunction(scope, e, funcRef);
+
+        if (!need)
+            return null;
+
+        var result = scope.ctx.allocTemp();
+        scope.ctx.builder.genClosure(result, funcRef);
+        return result;
+    }
+
+    function compileFunctionExpression (scope: Scope, e: ESTree.FunctionExpression, need: boolean): hir.RValue
+    {
+        return compileFunctionValue(scope, e, need, m_moduleBuilder.newFunctionRef(e.id && e.id.name));
     }
 
     function compileUnaryExpression (
@@ -1426,5 +1463,28 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
             assert(false, `unrecognized assignment target '${e.argument.type}'`);
             return null;
         }
+    }
+
+    function compileCallExpression (scope: Scope, e: ESTree.CallExpression, need: boolean): hir.RValue
+    {
+        var ctx = scope.ctx;
+        var closure = compileSubExpression(scope, e.callee, true, null, null);
+        var args: hir.RValue[] = [];
+        var fref: hir.FunctionRef = null;
+
+        e.arguments.forEach((e: ESTree.Expression) => {
+            args.push( compileSubExpression(scope, e, true, null, null) );
+        });
+
+        for ( var i = args.length - 1; i >= 0; --i )
+            ctx.releaseTemp(args[i]);
+        ctx.releaseTemp(closure);
+
+        var dest: hir.LValue = null;
+        if (need)
+            dest = ctx.allocTemp();
+
+        ctx.builder.genCall(dest, fref, closure, args);
+        return dest;
     }
 }
