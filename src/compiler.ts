@@ -666,14 +666,7 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
                 compileFunctionDeclaration(scope, NT.FunctionDeclaration.cast(stmt), parent);
                 break;
             case "VariableDeclaration":
-                var variableDeclaration: ESTree.VariableDeclaration = NT.VariableDeclaration.cast(stmt);
-                variableDeclaration.declarations.forEach((vd: ESTree.VariableDeclarator) => {
-                    if (vd.init) {
-                        var identifier = NT.Identifier.cast(vd.id);
-                        scope.lookup(identifier.name).assigned = true;
-                        compileExpression(scope, vd.init);
-                    }
-                });
+                compileVariableDeclaration(scope, NT.VariableDeclaration.cast(stmt));
                 break;
             default:
                 assert(false, `unsupported statement '${stmt.type}'`);
@@ -831,6 +824,21 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
 
         var closure = compileFunctionValue(scope, stmt, true, variable.funcRef);
         scope.ctx.builder.genAssign(variable.hvar, closure);
+    }
+
+    function compileVariableDeclaration (scope: Scope, stmt: ESTree.VariableDeclaration): void
+    {
+        stmt.declarations.forEach((vd: ESTree.VariableDeclarator) => {
+            if (vd.init) {
+                var identifier = NT.Identifier.cast(vd.id);
+                var variable = scope.lookup(identifier.name);
+                variable.assigned = true;
+
+                var value = compileExpression(scope, vd.init, true, null, null);
+                scope.ctx.releaseTemp(value);
+                scope.ctx.builder.genAssign(variable.hvar, value);
+            }
+        });
     }
 
     function compileExpression (
