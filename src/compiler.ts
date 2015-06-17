@@ -537,17 +537,7 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
                 break;
 
             case "FunctionDeclaration":
-                var functionDeclaration: ESTree.FunctionDeclaration = NT.FunctionDeclaration.cast(stmt);
-                var variable = varDeclaration(scope.ctx, functionDeclaration.id);
-                if (variable.funcRef)
-                    warning( location(stmt),  `hiding previous declaration of function '${variable.name}'` );
-
-                variable.funcRef = m_moduleBuilder.newFunctionRef(functionDeclaration.id.name);
-
-                if (!variable.initialized && !variable.assigned)
-                    variable.initialized = true;
-                else
-                    variable.assigned = true;
+                scanFunctionDeclaration(scope, NT.FunctionDeclaration.cast(stmt));
                 break;
             case "VariableDeclaration":
                 var variableDeclaration: ESTree.VariableDeclaration = NT.VariableDeclaration.cast(stmt);
@@ -558,6 +548,26 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
                 });
                 break;
         }
+    }
+
+    function scanFunctionDeclaration (scope: Scope, stmt: ESTree.FunctionDeclaration): void
+    {
+        var variable = varDeclaration(scope.ctx, stmt.id);
+        if (variable.funcRef)
+            warning( location(stmt),  `hiding previous declaration of function '${variable.name}'` );
+
+        variable.funcRef = m_moduleBuilder.newFunctionRef(stmt.id.name);
+
+        if (!variable.initialized && !variable.assigned)
+            variable.initialized = true;
+        else
+            variable.assigned = true;
+        variable.accessed = true;
+
+        var closure = scope.ctx.allocTemp();
+        scope.ctx.builder.genClosure(closure, variable.funcRef);
+        scope.ctx.builder.genAssign(variable.hvar, closure);
+        scope.ctx.releaseTemp(closure);
     }
 
     function compileStatement (scope: Scope, stmt: ESTree.Statement, parent: ESTree.Node): void
@@ -849,14 +859,11 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
 
     function compileFunctionDeclaration (scope: Scope, stmt: ESTree.FunctionDeclaration, parent: ESTree.Statement): void
     {
-        var variable = scope.ctx.funcScope.lookup(stmt.id.name);
-
         if (scope.ctx.strictMode && parent)
             error(location(stmt), "functions can only be declared at top level in strict mode");
 
-        var closure = compileFunctionValue(scope, stmt, true, variable.funcRef);
-        scope.ctx.builder.genAssign(variable.hvar, closure);
-        variable.accessed = true;
+        var variable = scope.ctx.funcScope.lookup(stmt.id.name);
+        compileFunction(scope, stmt, variable.funcRef);
     }
 
     function compileVariableDeclaration (scope: Scope, stmt: ESTree.VariableDeclaration): void
@@ -1045,10 +1052,12 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
         }
     }
 
-    function compileFunctionValue (scope: Scope, e: ESTree.Function, need: boolean, funcRef: hir.FunctionRef): hir.RValue
+    function compileFunctionExpression (scope: Scope, e: ESTree.FunctionExpression, need: boolean): hir.RValue
     {
         if (!need)
             warning(location(e), "unused function");
+
+        var funcRef = m_moduleBuilder.newFunctionRef(e.id && e.id.name);
 
         compileFunction(scope, e, funcRef);
 
@@ -1058,11 +1067,6 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
         var result = scope.ctx.allocTemp();
         scope.ctx.builder.genClosure(result, funcRef);
         return result;
-    }
-
-    function compileFunctionExpression (scope: Scope, e: ESTree.FunctionExpression, need: boolean): hir.RValue
-    {
-        return compileFunctionValue(scope, e, need, m_moduleBuilder.newFunctionRef(e.id && e.id.name));
     }
 
     function compileUnaryExpression (
