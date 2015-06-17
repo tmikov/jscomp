@@ -868,13 +868,9 @@ export class FunctionBuilder
         this.vars.forEach( (v: Var) => {
             if (!v.escapes && v.accessed) {
                 if (v.formalParam) {
-                    if (v.constant) {
-                        v.param = v.formalParam;
-                    } else {
-                        v.local = this.newLocal();
-                        this.paramSlots.push( v.local );
-                        ++this.paramSlotsCount;
-                    }
+                    v.local = this.newLocal();
+                    this.paramSlots.push( v.local );
+                    ++this.paramSlotsCount;
                 } else {
                     v.local = this.newLocal();
                 }
