@@ -1492,21 +1492,24 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
         var closure: hir.RValue;
         var thisArg: hir.RValue;
 
-        var memberExpression: ESTree.MemberExpression;
-        if (memberExpression = NT.MemberExpression.isTypeOf(e.callee)) {
-
+        var memb: ESTree.MemberExpression;
+        if (memb = NT.MemberExpression.isTypeOf(e.callee)) {
+            var tmp = compileMemberExpressionHelper(scope, memb, true, true);
+            closure = tmp.dest;
+            thisArg = tmp.obj;
         } else {
             closure = compileSubExpression(scope, e.callee, true, null, null);
             thisArg = hir.undefinedValue;
         }
 
-        args.push(hir.undefinedValue); // FIXME
+        args.push(thisArg);
         e.arguments.forEach((e: ESTree.Expression) => {
             args.push( compileSubExpression(scope, e, true, null, null) );
         });
 
         for ( var i = args.length - 1; i >= 0; --i )
             ctx.releaseTemp(args[i]);
+        ctx.releaseTemp(thisArg);
         ctx.releaseTemp(closure);
 
         var dest: hir.LValue = null;
@@ -1517,18 +1520,20 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
         return dest;
     }
 
-    function compileMemberExpression (scope: Scope, e: ESTree.MemberExpression, need: boolean): hir.RValue
+    function compileMemberExpressionHelper (scope: Scope, e: ESTree.MemberExpression, need: boolean, needObj: boolean)
+        : { obj: hir.RValue; dest: hir.RValue }
     {
-        var obj: hir.RValue = compileSubExpression(scope, e.object, true, null, null);
         var propName: hir.RValue;
-
         if (e.computed)
             propName = compileSubExpression(scope, e.property);
         else
             propName = hir.wrapImmediate(NT.Identifier.cast(e.property).name);
 
+        var obj: hir.RValue = compileSubExpression(scope, e.object, true, null, null);
+
+        if (!needObj)
+            scope.ctx.releaseTemp(obj);
         scope.ctx.releaseTemp(propName);
-        scope.ctx.releaseTemp(obj);
 
         var dest: hir.LValue;
         if (need)
@@ -1537,6 +1542,12 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
             dest = hir.nullReg;
 
         scope.ctx.builder.genPropGet(dest, obj, propName);
-        return dest;
+
+        return { obj: needObj ? obj : null, dest: need ? dest: null };
+    }
+
+    function compileMemberExpression (scope: Scope, e: ESTree.MemberExpression, need: boolean): hir.RValue
+    {
+        return compileMemberExpressionHelper(scope, e, need, false).dest;
     }
 }
