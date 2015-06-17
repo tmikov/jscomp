@@ -952,11 +952,11 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
                 });
                 break;
             case "MemberExpression":
-                var memberExpression: ESTree.MemberExpression = NT.MemberExpression.cast(e);
-                compileSubExpression(scope, memberExpression.object);
-                if (memberExpression.computed)
-                    compileSubExpression(scope, memberExpression.property);
-                break;
+                return toLogical(
+                    scope, e,
+                    compileMemberExpression(scope, NT.MemberExpression.cast(e), need),
+                    need, onTrue, onFalse
+                );
             default:
                 assert(false, `unsupported expression '${e.type}'`);
                 break;
@@ -997,7 +997,7 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
             } else if (literal.value === null){
                 return hir.nullValue;
             } else
-                return <any>literal.value;
+                return hir.wrapImmediate(literal.value);
         } else {
             return null;
         }
@@ -1373,39 +1373,28 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
             }
         } else if(memb = NT.MemberExpression.isTypeOf(e.left)) {
             var membObject: hir.RValue;
-            var membProp: hir.RValue = null;
-            var membPropName: string;
+            var membPropName: hir.RValue;
 
             if (memb.computed)
-                membProp = compileSubExpression(scope, memb.property, true, null, null);
+                membPropName = compileSubExpression(scope, memb.property, true, null, null);
             else
-                membPropName = NT.Identifier.cast(memb.property).name;
+                membPropName = hir.wrapImmediate(NT.Identifier.cast(memb.property).name);
             membObject = compileSubExpression(scope, memb.object, true, null, null);
 
             if (e.operator == "=") {
-                if (memb.computed)
-                    scope.ctx.builder.genComputedPropSet(membObject, membProp, rvalue);
-                else
-                    scope.ctx.builder.genPropSet(membObject, membPropName, rvalue);
-                scope.ctx.releaseTemp(membProp);
+                scope.ctx.builder.genPropSet(membObject, membPropName, rvalue);
                 scope.ctx.releaseTemp(membObject);
+                scope.ctx.releaseTemp(membPropName);
                 return rvalue;
             } else {
                 var res = scope.ctx.allocTemp();
-                if (memb.computed)
-                    scope.ctx.builder.genComputedPropGet(res, membObject, membProp);
-                else
-                    scope.ctx.builder.genPropGet(res, membObject, membPropName);
-
+                scope.ctx.builder.genPropGet(res, membObject, membPropName);
                 scope.ctx.releaseTemp(rvalue);
                 scope.ctx.builder.genBinop(mapAssignmentOperator(e.operator), res, res, rvalue);
 
-                if (memb.computed)
-                    scope.ctx.builder.genComputedPropSet(membObject, membProp, res);
-                else
-                    scope.ctx.builder.genPropSet(membObject, membPropName, res);
-                scope.ctx.releaseTemp(membProp);
+                scope.ctx.builder.genPropSet(membObject, membPropName, res);
                 scope.ctx.releaseTemp(membObject);
+                scope.ctx.releaseTemp(membPropName);
                 scope.ctx.releaseTemp(rvalue);
                 return res;
             }
@@ -1442,7 +1431,7 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
 
         var variable: Variable;
         var opcode: hir.OpCode = e.operator == "++" ? hir.OpCode.ADD : hir.OpCode.SUB;
-        var immOne = 1;
+        var immOne = hir.wrapImmediate(1);
         var ctx = scope.ctx;
 
         if (identifier = NT.Identifier.isTypeOf(e.argument)) {
@@ -1462,43 +1451,31 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
             }
         } else if(memb = NT.MemberExpression.isTypeOf(e.argument)) {
             var membObject: hir.RValue;
-            var membProp: hir.RValue = null;
-            var membPropName: string;
+            var membPropName: hir.RValue = null;
 
             if (memb.computed)
-                membProp = compileSubExpression(scope, memb.property, true, null, null);
+                membPropName = compileSubExpression(scope, memb.property, true, null, null);
             else
-                membPropName = NT.Identifier.cast(memb.property).name;
+                membPropName = hir.wrapImmediate(NT.Identifier.cast(memb.property).name);
             membObject = compileSubExpression(scope, memb.object, true, null, null);
 
             var val: hir.Local = ctx.allocTemp();
 
-            if (memb.computed)
-                ctx.builder.genComputedPropGet(val, membObject, membProp);
-            else
-                ctx.builder.genPropGet(val, membObject, membPropName);
+            ctx.builder.genPropGet(val, membObject, membPropName);
             ctx.builder.genUnop(hir.OpCode.TO_NUMBER, val, val);
 
             if (!e.prefix && need) { // Postfix? It only matters if we need the result
                 var tmp = ctx.allocTemp();
                 ctx.builder.genBinop(opcode, tmp, val, immOne);
-                store(tmp);
+                ctx.builder.genPropSet(membObject, membPropName, tmp);
                 ctx.releaseTemp(tmp);
             } else {
                 ctx.builder.genBinop(opcode, val, val, immOne);
-                store(val);
-            }
-
-            function store (src: hir.RValue)
-            {
-                if (memb.computed)
-                    ctx.builder.genComputedPropSet(membObject, membProp, src);
-                else
-                    ctx.builder.genPropSet(membObject, membPropName, src);
+                ctx.builder.genPropSet(membObject, membPropName, val);
             }
 
             ctx.releaseTemp(membObject);
-            ctx.releaseTemp(membProp);
+            ctx.releaseTemp(membPropName);
             return val;
         } else {
             assert(false, `unrecognized assignment target '${e.argument.type}'`);
@@ -1509,9 +1486,19 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
     function compileCallExpression (scope: Scope, e: ESTree.CallExpression, need: boolean): hir.RValue
     {
         var ctx = scope.ctx;
-        var closure = compileSubExpression(scope, e.callee, true, null, null);
         var args: hir.RValue[] = [];
         var fref: hir.FunctionRef = null;
+
+        var closure: hir.RValue;
+        var thisArg: hir.RValue;
+
+        var memberExpression: ESTree.MemberExpression;
+        if (memberExpression = NT.MemberExpression.isTypeOf(e.callee)) {
+
+        } else {
+            closure = compileSubExpression(scope, e.callee, true, null, null);
+            thisArg = hir.undefinedValue;
+        }
 
         args.push(hir.undefinedValue); // FIXME
         e.arguments.forEach((e: ESTree.Expression) => {
@@ -1527,6 +1514,29 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
             dest = ctx.allocTemp();
 
         ctx.builder.genCall(dest, fref, closure, args);
+        return dest;
+    }
+
+    function compileMemberExpression (scope: Scope, e: ESTree.MemberExpression, need: boolean): hir.RValue
+    {
+        var obj: hir.RValue = compileSubExpression(scope, e.object, true, null, null);
+        var propName: hir.RValue;
+
+        if (e.computed)
+            propName = compileSubExpression(scope, e.property);
+        else
+            propName = hir.wrapImmediate(NT.Identifier.cast(e.property).name);
+
+        scope.ctx.releaseTemp(propName);
+        scope.ctx.releaseTemp(obj);
+
+        var dest: hir.LValue;
+        if (need)
+            dest = scope.ctx.allocTemp();
+        else
+            dest = hir.nullReg;
+
+        scope.ctx.builder.genPropGet(dest, obj, propName);
         return dest;
     }
 }

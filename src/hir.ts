@@ -107,6 +107,26 @@ export var nullValue = new SpecialConstantClass("null");
 export var undefinedValue = new SpecialConstantClass("undefined");
 export var nullReg = new NullReg(0);
 
+export function uwrapImmedate (v: RValue): any
+{
+    if (v === nullValue)
+        return null;
+    else if (v === undefinedValue)
+        return void 0;
+    else
+        return v;
+}
+
+export function wrapImmediate (v: any): RValue
+{
+    if (v === void 0)
+        return undefinedValue;
+    else if (v === null)
+        return nullValue;
+    else
+        return v;
+}
+
 export function isImmediate (v: RValue): boolean
 {
     switch (typeof v) {
@@ -202,6 +222,10 @@ export const enum OpCode
     // Assignment
     ASSIGN,
 
+    // Property access
+    GET,
+    PUT,
+
     // Call
     CALL,
     CALLIND,
@@ -266,6 +290,10 @@ var g_opcodeName: string[] = [
 
     // Assignment
     "ASSIGN",
+
+    // Property access
+    "GET",
+    "PUT",
 
     // Call
     "CALL",
@@ -369,6 +397,14 @@ class AssignOp extends UnOp {
         return `${rv2s(this.dest)} = ${rv2s(this.src1)}`;
     }
 }
+
+class PutOp extends Instruction {
+    constructor (public obj: RValue, public propName: RValue, public src: RValue) { super(OpCode.PUT); }
+    toString (): string {
+        return `${oc2s(this.op)}(${rv2s(this.obj)}, ${rv2s(this.propName)}, ${rv2s(this.src)})`;
+    }
+}
+
 class CallOp extends Instruction {
     constructor(
         op: OpCode, public dest: LValue, public fref: FunctionRef, public closure: RValue, public args: RValue[]
@@ -457,27 +493,6 @@ class BasicBlock
         lab.bb = this;
         this.labels.push(lab);
     }
-}
-
-
-function uwrapImmedate (v: RValue): any
-{
-    if (v === nullValue)
-        return null;
-    else if (v === undefinedValue)
-        return void 0;
-    else
-        return v;
-}
-
-function wrapImmediate (v: any): RValue
-{
-    if (v === void 0)
-        return undefinedValue;
-    else if (v === null)
-        return nullValue;
-    else
-        return v;
 }
 
 /**
@@ -774,21 +789,13 @@ export class FunctionBuilder
         this.getBB().push(new AssignOp(dest, src));
     }
 
-    genPropGet(dest: LValue, obj: RValue, propName: string): void
+    genPropGet(dest: LValue, obj: RValue, propName: RValue): void
     {
-        assert(false);
+        this.getBB().push(new BinOp(OpCode.GET, dest, obj, propName));
     }
-    genPropSet(obj: RValue, propName: string, src: RValue): void
+    genPropSet(obj: RValue, propName: RValue, src: RValue): void
     {
-        assert(false);
-    }
-    genComputedPropGet(dest: LValue, obj: RValue, prop: RValue): void
-    {
-        assert(false);
-    }
-    genComputedPropSet(obj: RValue, prop: RValue, src: RValue): void
-    {
-        assert(false);
+        this.getBB().push(new PutOp(obj, propName, src));
     }
 
     genCall(dest: LValue, fref: FunctionRef, closure: RValue, args: RValue[]): void
