@@ -108,7 +108,6 @@ class Variable
     escapes: boolean = false;
     funcRef: hir.FunctionRef;
 
-    hparam: hir.Param = null;
     hvar: hir.Var = null;
 
     constructor (ctx: FunctionContext, name: string)
@@ -133,11 +132,11 @@ class Scope
         this.vars = new StringMap<Variable>();
     }
 
-    newVariable (name: string): Variable
+    newVariable (name: string, hvar?: hir.Var): Variable
     {
         var variable = new Variable(this.ctx, name);
         this.vars.set(name, variable);
-        variable.hvar = this.ctx.builder.newVar(name);
+        variable.hvar = hvar ? hvar : this.ctx.builder.newVar(name);
         return variable;
     }
 
@@ -171,7 +170,7 @@ class FunctionContext
     strictMode: boolean;
 
     funcScope: Scope;
-    thisParam: hir.Param;
+    thisParam: Variable;
     argumentsVar: Variable;
 
     labelList: Label = null;
@@ -191,7 +190,9 @@ class FunctionContext
         this.funcScope = new Scope(this, parentScope);
 
         // Generate a param binding for 'this'
-        this.thisParam = this.builder.newParam("this");
+        this.thisParam = this.funcScope.newVariable("this", this.builder.newParam("this").variable);
+        this.thisParam.declared = true;
+        this.thisParam.initialized = true;
 
         this.argumentsVar = this.funcScope.newVariable("arguments");
         this.argumentsVar.declared = true;
@@ -418,11 +419,13 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
 
             if (v = funcScope.vars.get(ident.name)) {
                 (funcCtx.strictMode ? error : warning)(location(ident), `parameter '${ident.name}' already declared`);
+                // Overwrite the assigned hvar. When we have duplicate parameter names, the last one wins
+                v.hvar = param.variable;
             } else {
-                v = varDeclaration(funcCtx, ident);
+                v = funcScope.newVariable(ident.name, param.variable);
+                v.initialized = true;
+                v.declared = true;
             }
-
-            v.hparam = param;
         });
 
         var bodyBlock: ESTree.BlockStatement;
@@ -432,10 +435,9 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
             assert(false, "TODO: implement ES6");
 
         funcScope.vars.forEach( (v: Variable) => {
-            if (v.funcRef && v.initialized && !v.assigned)
-                builder.setVarFuncRef(v.hvar, v.funcRef);
-                v.hvar.funcRef = v.funcRef;
-            builder.setVarEscapes(v.hvar, v.escapes);
+            builder.setVarAttributes(v.hvar,
+                v.escapes, v.accessed || v.assigned, v.initialized && !v.assigned, v.funcRef
+            );
         });
 
         funcCtx.builder.close();
@@ -843,6 +845,7 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
 
         var closure = compileFunctionValue(scope, stmt, true, variable.funcRef);
         scope.ctx.builder.genAssign(variable.hvar, closure);
+        variable.accessed = true;
     }
 
     function compileVariableDeclaration (scope: Scope, stmt: ESTree.VariableDeclaration): void
@@ -1499,6 +1502,7 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
         var args: hir.RValue[] = [];
         var fref: hir.FunctionRef = null;
 
+        args.push(hir.undefinedValue); // FIXME
         e.arguments.forEach((e: ESTree.Expression) => {
             args.push( compileSubExpression(scope, e, true, null, null) );
         });

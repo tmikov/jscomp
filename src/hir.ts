@@ -44,17 +44,32 @@ export type RValue = MemValue | string | boolean | number | Regex | SpecialConst
 
 export class Param extends MemValue
 {
-    constructor(id: number, public index: number, public name: string) {super(id);}
-    toString() { return `Param(${this.id},${this.index},${this.name})`; }
+    index: number;
+    name: string;
+    variable: Var;
+
+    constructor(id: number, index: number, name: string, variable: Var)
+    {
+        super(id);
+        this.index = index;
+        this.name = name;
+        this.variable = variable;
+        variable.formalParam = this;
+    }
+    toString() { return `Param(${this.index}/*${this.name}*/)`; }
 }
 
 export class Var extends LValue
 {
     envLevel: number; //< environment nesting level
     name: string;
+    formalParam: Param = null; // associated formal parameter
     funcRef: FunctionRef = null;
     escapes: boolean = false;
+    constant: boolean = false;
+    accessed: boolean = true;
     local: Local = null; // The corresponding local to use if it doesn't escape
+    param: Param = null; // The corresponding param to use if it is constant and doesn't escape
     envIndex: number = -1; //< index in its environment block, if it escapes
 
     constructor(id: number, envLevel: number, name: string)
@@ -68,6 +83,8 @@ export class Var extends LValue
     {
         if (this.local)
             return this.local.toString();
+        else if (this.param)
+            return this.param.toString();
         else
             return `Var(env@${this.envLevel}[${this.envIndex}]/*${this.name}*/)`;
     }
@@ -76,9 +93,14 @@ export class Var extends LValue
 export class Local extends LValue
 {
     isTemp: boolean = false; // for users of the module. Has no meaning internally
+    index: number;
 
-    constructor(id: number) {super(id);}
-    toString() { return `Local(${this.id})`; }
+    constructor(id: number, index: number)
+    {
+        super(id);
+        this.index = index;
+    }
+    toString() { return `Local(${this.index})`; }
 }
 
 export var nullValue = new SpecialConstantClass("null");
@@ -409,6 +431,11 @@ class BasicBlock
         this.id = id;
     }
 
+    insertAt (at: number, inst: Instruction): void
+    {
+        this.body.splice(at, 0, inst);
+    }
+
     push (inst: Instruction): void
     {
         this.body.push(inst);
@@ -595,13 +622,13 @@ export class FunctionBuilder
 
         this.envLevel = parentBuilder ? parentBuilder.envLevel + 1 : -1;
 
-        this.entryBB = this.getBB();
-        this.exitLabel = this.newLabel();
-
         if (parentBuilder)
             parentBuilder.addInnerFunction(this);
 
         this.nextLocalId = parentBuilder ? parentBuilder.nextLocalId+1 : 1;
+
+        this.entryBB = this.getBB();
+        this.exitLabel = this.newLabel();
     }
     toString() { return `Function(${this.fref})`; }
 
@@ -612,7 +639,7 @@ export class FunctionBuilder
 
     newParam(name: string): Param
     {
-        var param = new Param(this.nextLocalId++, this.nextParamIndex++, name);
+        var param = new Param(this.nextLocalId++, this.nextParamIndex++, name, this.newVar(name));
         this.params.push(param);
         return param;
     }
@@ -626,7 +653,7 @@ export class FunctionBuilder
 
     newLocal(): Local
     {
-        var loc = new Local(this.nextLocalId++);
+        var loc = new Local(this.nextLocalId++, this.locals.length);
         this.locals.push(loc);
         return loc;
     }
@@ -637,16 +664,21 @@ export class FunctionBuilder
         return lab;
     }
 
-    setVarFuncRef (v: Var, funcRef: FunctionRef): void
-    {
-        v.funcRef = funcRef;
-    }
-
-    setVarEscapes (v: Var, escapes: boolean): void
+    setVarAttributes (v: Var, escapes: boolean, accessed: boolean, constant: boolean, funcRef: FunctionRef): void
     {
         v.escapes = escapes;
-        if (!escapes)
-            v.local = this.newLocal();
+        v.constant = constant;
+        v.accessed = accessed;
+
+        if (constant)
+            v.funcRef = funcRef;
+
+        if (!escapes && accessed) {
+            if (constant && v.formalParam)
+                v.param = v.formalParam;
+            else
+                v.local = this.newLocal();
+        }
     }
 
     private getBB (): BasicBlock
@@ -787,10 +819,18 @@ export class FunctionBuilder
 
     private processVars (): void
     {
+        // Copy parameters
+        var instIndex = 0;
+        this.params.forEach((p: Param) => {
+            var v = p.variable;
+            if (!v.param && v.accessed)
+                this.entryBB.insertAt(instIndex++, new AssignOp(v, p));
+        });
+
         // Assign escaping var indexes
         this.envSize = 0;
         this.vars.forEach((v: Var) => {
-            if (v.escapes)
+            if (v.escapes && v.accessed)
                 v.envIndex = this.envSize++;
         });
 
