@@ -5,11 +5,6 @@
 // Decorate the standard ESTree nodes with additional properties from Acorn
 // and further ones which we generate
 
-declare module compiler
-{
-    interface Label {}
-}
-
 declare module ESTree
 {
     interface Node
@@ -20,6 +15,6 @@ declare module ESTree
 
     interface Statement
     {
-        labels?: compiler.Label[];
+        labels?: any[];
     }
 }

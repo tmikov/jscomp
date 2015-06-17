@@ -803,12 +803,21 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
         scope.ctx.builder.genRet(value);
     }
 
+    function fillContinueInNamedLoopLabels (labels: Label[], continueLab: hir.Label): void
+    {
+        if (labels)
+            for ( var i = 0, e = labels.length; i < e; ++i )
+                labels[i].continueLab = continueLab;
+    }
+
     function compileWhileStatement (scope: Scope, stmt: ESTree.WhileStatement): void
     {
         var ctx = scope.ctx;
         var exitLoop = ctx.builder.newLabel();
         var loop = ctx.builder.newLabel();
         var body = ctx.builder.newLabel();
+
+        fillContinueInNamedLoopLabels(stmt.labels, body);
 
         ctx.builder.genLabel(loop);
         compileExpression(scope, stmt.test, true, body, exitLoop);
@@ -826,6 +835,8 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
         var exitLoop = ctx.builder.newLabel();
         var loop = ctx.builder.newLabel();
         var body = ctx.builder.newLabel();
+
+        fillContinueInNamedLoopLabels(stmt.labels, body);
 
         ctx.builder.genLabel(body);
         scope.ctx.pushLabel(new Label(null, location(stmt), exitLoop, loop));
