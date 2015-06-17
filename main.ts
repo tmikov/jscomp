@@ -11,9 +11,11 @@ function printSyntax (): void
 {
     console.error(
 "syntax: jscomp [options] filename\n"+
-"   -h           this help\n"+
-"   --dump-ast   dump AST\n"+
-"   --dump-hir   dump HIR\n"
+"   -h                this help\n"+
+"   --dump-ast        dump AST\n"+
+"   --dump-hir        dump HIR\n"+
+"   --strict-mode     (default) enable strict mode\n"+
+"   --no-strict-mode  disable strict mode\n"
     );
 }
 
@@ -31,13 +33,15 @@ function main (argv: string[]): void
         var arg = argv[i];
         if (arg[0] === "-") {
             switch (arg) {
-                case "--dump-ast": options.dumpAST = true; break;
-                case "--dump-hir": options.dumpHIR = true; break;
                 case "--help":
                 case "-h":
                     printSyntax();
                     process.exit(0);
                     break;
+                case "--dump-ast": options.dumpAST = true; break;
+                case "--dump-hir": options.dumpHIR = true; break;
+                case "--strict-mode": options.strictMode = true; break;
+                case "--no-strict-mode": options.strictMode = false; break;
                 default:
                     console.error("error: unknown option '%s'", arg);
                     process.exit(1);

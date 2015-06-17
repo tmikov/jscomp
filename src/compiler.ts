@@ -26,6 +26,7 @@ export class Options
 {
     dumpAST = false;
     dumpHIR = false;
+    strictMode = true;
 }
 
 class NT<T extends ESTree.Node>
@@ -371,6 +372,8 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
         var builder = m_moduleBuilder.newFunctionBuilder(null, funcRef);
 
         m_globalContext = new FunctionContext(null, null, "<module>", builder);
+        m_globalContext.strictMode = m_options.strictMode;
+
         var ast: ESTree.Function = {
             start: prog.start,
             end: prog.end,
