@@ -573,7 +573,7 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
                 break;
             case "ExpressionStatement":
                 var expressionStatement: ESTree.ExpressionStatement = NT.ExpressionStatement.cast(stmt);
-                compileExpression(scope, expressionStatement.expression);
+                compileExpression(scope, expressionStatement.expression, false);
                 break;
             case "IfStatement":
                 compileIfStatement(scope, NT.IfStatement.cast(stmt));
