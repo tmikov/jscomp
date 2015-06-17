@@ -59,6 +59,19 @@ export class Param extends MemValue
     toString() { return `Param(${this.index}/*${this.name}*/)`; }
 }
 
+export class ArgSlot extends MemValue
+{
+    local: Local = null;
+
+    constructor (id: number, public index: number) { super(id); }
+    toString() {
+        if (this.local)
+            return this.local.toString();
+        else
+            return `Arg(${this.index})`;
+    }
+}
+
 export class Var extends LValue
 {
     envLevel: number; //< environment nesting level
@@ -407,7 +420,7 @@ class PutOp extends Instruction {
 
 class CallOp extends Instruction {
     constructor(
-        op: OpCode, public dest: LValue, public fref: FunctionRef, public closure: RValue, public args: RValue[]
+        op: OpCode, public dest: LValue, public fref: FunctionRef, public closure: RValue, public args: ArgSlot[]
     )
     {
         super(op);
@@ -615,6 +628,10 @@ export class FunctionBuilder
     private locals: Local[] = [];
     private vars: Var[] = [];
     private envSize: number = 0; //< the size of the escaping environment block
+    private paramSlotsCount: number = 0; //< number of slots to copy params into
+    private paramSlots: Local[] = null;
+    private argSlotsCount: number = 0; //< number of slots we need to reserve for calling
+    private argSlots: ArgSlot[] = [];
 
     private nextParamIndex = 0;
     private nextLocalId = 1;
@@ -659,6 +676,17 @@ export class FunctionBuilder
         return param;
     }
 
+    private getArgSlot(index: number): ArgSlot
+    {
+        if (index < this.argSlots.length)
+            return this.argSlots[index];
+        assert(index === this.argSlots.length);
+
+        var argSlot = new ArgSlot(this.nextLocalId++, this.argSlotsCount++);
+        this.argSlots.push(argSlot);
+        return argSlot;
+    }
+
     newVar(name: string): Var
     {
         var v = new Var(this.nextLocalId++, this.envLevel, name);
@@ -687,13 +715,6 @@ export class FunctionBuilder
 
         if (constant)
             v.funcRef = funcRef;
-
-        if (!escapes && accessed) {
-            if (constant && v.formalParam)
-                v.param = v.formalParam;
-            else
-                v.local = this.newLocal();
-        }
     }
 
     private getBB (): BasicBlock
@@ -802,7 +823,16 @@ export class FunctionBuilder
     {
         if (dest === null)
             dest = nullReg;
-        this.getBB().push(new CallOp(OpCode.CALLIND, dest, null, closure, args));
+
+        var bb = this.getBB();
+
+        var slots: ArgSlot[] = Array<ArgSlot>(args.length);
+        for ( var i = 0, e = args.length; i < e; ++i ) {
+            slots[i] = this.getArgSlot(i);
+            bb.push(new AssignOp(slots[i], args[i]));
+        }
+
+        this.getBB().push(new CallOp(OpCode.CALLIND, dest, null, closure, slots));
     }
 
     blockList: BasicBlock[] = [];
@@ -826,6 +856,31 @@ export class FunctionBuilder
 
     private processVars (): void
     {
+        // Allocate locals for the arg slots
+        this.argSlots.forEach((a: ArgSlot) => {
+            a.local = this.newLocal();
+        });
+
+        // Allocate parameter locals
+        this.paramSlotsCount = 0;
+        this.paramSlots = [];
+
+        this.vars.forEach( (v: Var) => {
+            if (!v.escapes && v.accessed) {
+                if (v.formalParam) {
+                    if (v.constant) {
+                        v.param = v.formalParam;
+                    } else {
+                        v.local = this.newLocal();
+                        this.paramSlots.push( v.local );
+                        ++this.paramSlotsCount;
+                    }
+                } else {
+                    v.local = this.newLocal();
+                }
+            }
+        });
+
         // Copy parameters
         var instIndex = 0;
         this.params.forEach((p: Param) => {
@@ -847,7 +902,7 @@ export class FunctionBuilder
     }
 
     /**
-     * Change CALLIND to CALL for all known functions
+     * Change CALLIND to CALL for all known functions.
      */
     private optimizeKnownFuncRefs (): void
     {
@@ -862,13 +917,15 @@ export class FunctionBuilder
                 //
                 if (inst.op === OpCode.CALLIND) {
                     var callInst = <CallOp>inst;
+
                     var closure: Var;
-                    if (closure = isVar(callInst.closure))
+                    if (closure = isVar(callInst.closure)) {
                         if (closure.funcRef)
                         {
                             callInst.op = OpCode.CALL;
                             callInst.fref = closure.funcRef;
                         }
+                    }
                 }
             }
         }
@@ -882,8 +939,26 @@ export class FunctionBuilder
             ifb.dump();
         });
 
+        function ss (slots: Local[]): string {
+            if (!slots || !slots.length)
+                return "0";
+            return `${slots[0].index}..${slots[slots.length-1].index}`;
+        }
+
         console.log(`\nFUNC_${this.fref.id}://${this.fref.name}`);
-        console.log(`//locals: ${this.locals.length} env: ${this.envSize}`);
+
+        var pslots: string;
+        if (!this.paramSlots || !this.paramSlots.length)
+            pslots = "0";
+        else
+            pslots = `${this.paramSlots[0].index}..${this.paramSlots[this.paramSlots.length-1].index}`;
+        var aslots: string;
+        if (!this.argSlots || !this.argSlots.length)
+            aslots = "0";
+        else
+            aslots = `${this.argSlots[0].local.index}..${this.argSlots[this.argSlots.length-1].local.index}`;
+
+        console.log(`//locals: ${this.locals.length} paramSlots: ${pslots} argSlots: ${aslots} env: ${this.envSize}`);
 
         for ( var i = 0, e = this.blockList.length; i < e; ++i ) {
             var bb = this.blockList[i];
