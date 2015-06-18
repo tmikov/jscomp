@@ -6,6 +6,7 @@
 
 import assert = require("assert");
 import util = require("util");
+import stream = require("stream");
 
 export class MemValue
 {
@@ -25,12 +26,6 @@ export class Regex
 {
     constructor (public pattern: string, public flags: string) {}
     toString(): string { return `Regex(/${this.pattern}/${this.flags})`; }
-}
-
-export class FunctionRef
-{
-    constructor (public id: number, public name: string) {}
-    toString (): string { return `FunctionRef(${this.id}:${this.name})`; }
 }
 
 /** for null and undefined */
@@ -77,10 +72,10 @@ export class Var extends LValue
     envLevel: number; //< environment nesting level
     name: string;
     formalParam: Param = null; // associated formal parameter
-    funcRef: FunctionRef = null;
     escapes: boolean = false;
     constant: boolean = false;
     accessed: boolean = true;
+    funcRef: FunctionBuilder = null;
     local: Local = null; // The corresponding local to use if it doesn't escape
     param: Param = null; // The corresponding param to use if it is constant and doesn't escape
     envIndex: number = -1; //< index in its environment block, if it escapes
@@ -89,7 +84,7 @@ export class Var extends LValue
     {
         super(id);
         this.envLevel = envLevel;
-        this.name = name;
+        this.name = name || "";
     }
 
     toString()
@@ -260,6 +255,8 @@ export const enum OpCode
     _BINOP_LAST = INSTANCEOF,
     _UNOP_FIRST = NEG,
     _UNOP_LAST = TO_NUMBER,
+    _IF_FIRST = IF_TRUE,
+    _IF_LAST = IF_LE,
     _BINCOND_FIRST = IF_STRICT_EQ,
     _BINCOND_LAST = IF_LE,
     _JUMP_FIRST = RET,
@@ -350,14 +347,18 @@ var g_binOpCommutative: boolean[] = [
     false, //INSTANCEOF
 ];
 
-
-export function isCommutative (op: OpCode)
+export function isCommutative (op: OpCode): boolean
 {
     assert(op >= OpCode._BINOP_FIRST && op <= OpCode._BINOP_LAST);
     return g_binOpCommutative[op - OpCode._BINOP_FIRST];
 }
 
-export function isJump (op: OpCode)
+export function  isBinop (op: OpCode): boolean
+{
+    return op >= OpCode._BINOP_FIRST && op <= OpCode._BINOP_LAST;
+}
+
+export function isJump (op: OpCode): boolean
 {
     return op >= OpCode._JUMP_FIRST && op <= OpCode._JUMP_LAST;
 }
@@ -387,7 +388,7 @@ class Instruction {
     constructor (public op: OpCode) {}
 }
 class ClosureOp extends Instruction {
-    constructor (public dest: LValue, public funcRef: FunctionRef) { super(OpCode.CLOSURE); }
+    constructor (public dest: LValue, public funcRef: FunctionBuilder) { super(OpCode.CLOSURE); }
     toString (): string {
             return `${rv2s(this.dest)} = ${oc2s(this.op)}(${this.funcRef})`;
     }
@@ -420,7 +421,7 @@ class PutOp extends Instruction {
 
 class CallOp extends Instruction {
     constructor(
-        op: OpCode, public dest: LValue, public fref: FunctionRef, public closure: RValue, public args: ArgSlot[]
+        op: OpCode, public dest: LValue, public fref: FunctionBuilder, public closure: RValue, public args: ArgSlot[]
     )
     {
         super(op);
@@ -617,9 +618,11 @@ function buildBlockList (entry: BasicBlock, exit: BasicBlock): BasicBlock[]
 
 export class FunctionBuilder
 {
-    private module: ModuleBuilder;
-    private parentBuilder: FunctionBuilder;
-    private fref: FunctionRef;
+    public id: number;
+    public module: ModuleBuilder;
+    public parentBuilder: FunctionBuilder;
+    public closureVar: Var; //< variable in the parent where this closure is kept
+    public name: string;
 
     // The nesting level of this function's environment
     private envLevel: number;
@@ -633,6 +636,8 @@ export class FunctionBuilder
     private argSlotsCount: number = 0; //< number of slots we need to reserve for calling
     private argSlots: ArgSlot[] = [];
 
+    private lowestEnvAccessed: number = -1;
+
     private nextParamIndex = 0;
     private nextLocalId = 1;
     private nextLabelId = 0;
@@ -644,29 +649,31 @@ export class FunctionBuilder
     private exitBB: BasicBlock = null;
     private exitLabel: Label = null;
 
-    private innerFunctions: FunctionBuilder[] = [];
+    public closures: FunctionBuilder[] = [];
 
-    constructor(module: ModuleBuilder, parentBuilder: FunctionBuilder, fref: FunctionRef)
+    constructor(id: number, module: ModuleBuilder, parentBuilder: FunctionBuilder, closureVar: Var, name: string)
     {
+        this.id = id;
         this.module = module;
         this.parentBuilder = parentBuilder;
-        this.fref = fref;
+        this.closureVar = closureVar;
+        this.name = name;
 
-        this.envLevel = parentBuilder ? parentBuilder.envLevel + 1 : -1;
-
-        if (parentBuilder)
-            parentBuilder.addInnerFunction(this);
+        this.envLevel = parentBuilder ? parentBuilder.envLevel + 1 : 0;
 
         this.nextLocalId = parentBuilder ? parentBuilder.nextLocalId+1 : 1;
 
         this.entryBB = this.getBB();
         this.exitLabel = this.newLabel();
     }
-    toString() { return `Function(${this.fref})`; }
 
-    private addInnerFunction (f: FunctionBuilder): void
+    toString() { return `Function(${this.id}/*${this.name}*/)`; }
+
+    newClosure (name: string): FunctionBuilder
     {
-        this.innerFunctions.push(f);
+        var fref = new FunctionBuilder(this.module.newFunctionId(), this.module, this, this.newVar(name), name);
+        this.closures.push(fref);
+        return fref;
     }
 
     newParam(name: string): Param
@@ -707,7 +714,7 @@ export class FunctionBuilder
         return lab;
     }
 
-    setVarAttributes (v: Var, escapes: boolean, accessed: boolean, constant: boolean, funcRef: FunctionRef): void
+    setVarAttributes (v: Var, escapes: boolean, accessed: boolean, constant: boolean, funcRef: FunctionBuilder): void
     {
         v.escapes = escapes;
         v.constant = constant;
@@ -730,7 +737,7 @@ export class FunctionBuilder
         this.curBB = null;
     }
 
-    genClosure(dest: LValue, func: FunctionRef): void
+    genClosure(dest: LValue, func: FunctionBuilder): void
     {
         this.getBB().push(new ClosureOp(dest, func));
     }
@@ -819,7 +826,7 @@ export class FunctionBuilder
         this.getBB().push(new PutOp(obj, propName, src));
     }
 
-    genCall(dest: LValue, fref: FunctionRef, closure: RValue, args: RValue[]): void
+    genCall(dest: LValue, fref: FunctionBuilder, closure: RValue, args: RValue[]): void
     {
         if (dest === null)
             dest = nullReg;
@@ -849,9 +856,12 @@ export class FunctionBuilder
         this.closeBB();
 
         this.blockList = buildBlockList(this.entryBB, this.exitBB);
+    }
 
-        if (this.envLevel === 0)
-            this.processVars();
+    prepareForCodegen (): void
+    {
+        this.processVars();
+        this.closures.forEach((fb: FunctionBuilder) => fb.prepareForCodegen());
     }
 
     private processVars (): void
@@ -877,6 +887,13 @@ export class FunctionBuilder
             }
         });
 
+        // Assign escaping var indexes
+        this.envSize = 0;
+        this.vars.forEach((v: Var) => {
+            if (v.escapes && v.accessed)
+                v.envIndex = this.envSize++;
+        });
+
         // Copy parameters
         var instIndex = 0;
         this.params.forEach((p: Param) => {
@@ -885,16 +902,24 @@ export class FunctionBuilder
                 this.entryBB.insertAt(instIndex++, new AssignOp(v, p));
         });
 
-        // Assign escaping var indexes
-        this.envSize = 0;
-        this.vars.forEach((v: Var) => {
-            if (v.escapes && v.accessed)
-                v.envIndex = this.envSize++;
+        // Create closures
+        this.closures.forEach((fb: FunctionBuilder) => {
+            var clvar = fb.closureVar;
+            if (clvar && clvar.accessed)
+                this.entryBB.insertAt(instIndex++, new ClosureOp(clvar, fb));
         });
 
         this.optimizeKnownFuncRefs();
 
-        this.innerFunctions.forEach((ifb: FunctionBuilder) => ifb.processVars());
+        // For now instead of finding the lowest possible environment, just find the lowest existing one
+        // TODO: scan all escaping variable accesses and determine which environment we really need
+        this.lowestEnvAccessed = -1; // No environment at all
+        for ( var curb = this.parentBuilder; curb; curb = curb.parentBuilder ) {
+            if (curb.envSize > 0) {
+                this.lowestEnvAccessed = curb.envLevel;
+                break;
+            }
+        }
     }
 
     /**
@@ -931,7 +956,7 @@ export class FunctionBuilder
     {
         assert(this.closed);
 
-        this.innerFunctions.forEach((ifb: FunctionBuilder) => {
+        this.closures.forEach((ifb: FunctionBuilder) => {
             ifb.dump();
         });
 
@@ -941,7 +966,7 @@ export class FunctionBuilder
             return `${slots[0].index}..${slots[slots.length-1].index}`;
         }
 
-        console.log(`\nFUNC_${this.fref.id}://${this.fref.name}`);
+        console.log(`\nFUNC_${this.id}://${this.name}`);
 
         var pslots: string;
         if (!this.paramSlots || !this.paramSlots.length)
@@ -964,20 +989,301 @@ export class FunctionBuilder
             });
         }
     }
+
+    private out: NodeJS.WritableStream = null;
+
+    private gen (...params: any[])
+    {
+        this.out.write(util.format.apply(null, arguments));
+    }
+
+    private strEnvAccess (envLevel: number): string
+    {
+        if (envLevel < 0)
+            return "NULL";
+
+        if (envLevel === this.envLevel)
+            return "frame.escaped";
+
+        var path = "env";
+        for ( var fb: FunctionBuilder = this; fb = fb.parentBuilder; ) {
+            if (fb.envLevel === envLevel) {
+                return path;
+            } else if (fb.envSize > 0) {
+                path += "->parent";
+            }
+        }
+        assert(false, util.format("cannot access envLevel %d from envLevel %d (%s)", envLevel, this.envLevel, this.name));
+    }
+
+    private strEscapingVar (v: Var): string
+    {
+        assert(v.escapes);
+        return util.format("%s->vars[%d]", this.strEnvAccess(v.envLevel), v.envIndex);
+    }
+
+
+    private strMemValue (lv: MemValue): string
+    {
+        if (lv instanceof Var) {
+            if (lv.local)
+                return this.strMemValue(lv.local);
+            else if (lv.param)
+                return this.strMemValue(lv.param);
+            else
+                return this.strEscapingVar(lv);
+        }
+        else if (lv instanceof Param) {
+            return `(argc > ${lv.index} ? argv[${lv.index}] : JS_UNDEFINED_VALUE)`;
+        }
+        else if (lv instanceof ArgSlot) {
+            return this.strMemValue(lv.local);
+        }
+        else if (lv instanceof Local) {
+            return `frame.locals[${lv.index}]`;
+        }
+        else {
+            assert(false, "unsupported LValue "+ lv);
+            return "???";
+        }
+    }
+
+    private strRValue (rv: RValue): string
+    {
+        if (<any>rv instanceof MemValue)
+            return this.strMemValue(<MemValue>rv);
+        else if (rv === undefinedValue)
+            return "JS_UNDEFINED_VALUE";
+        else if (rv === nullValue)
+            return "JS_NULL_VALUE";
+        else if (typeof rv === "number")
+            return `js::makeNumberValue(${rv})`;
+        else if (typeof rv === "boolean")
+            return `js::makeBooleanValue(${rv ? "true":"false"})`;
+        else
+            return rv2s(rv);
+    }
+
+    private strBlock (bb: BasicBlock): string
+    {
+        return `B${bb.id}`;
+    }
+
+    private strDest (v: LValue): string
+    {
+        if (v !== nullReg)
+            return util.format("%s = ", this.strMemValue(v));
+        else
+            return "";
+    }
+
+    private generateInst(inst: Instruction): void
+    {
+        switch (inst.op) {
+            case OpCode.CLOSURE:
+                var closureop = <ClosureOp>inst;
+                this.gen("  %sjs::newFunction(&frame, %s, \"%s\", %d, %s);\n",
+                    this.strDest(closureop.dest),
+                    this.strEnvAccess(closureop.funcRef.lowestEnvAccessed),
+                    closureop.funcRef.name || "",
+                    closureop.funcRef.params.length-1,
+                    this.module.strFunc(closureop.funcRef)
+                );
+                break;
+            case OpCode.ASSIGN:
+                var assignop = <AssignOp>inst;
+                this.gen("  %s%s;\n", this.strDest(assignop.dest), this.strRValue(assignop.src1));
+                break;
+            case OpCode.CALL:
+                // TODO: self tail-recursion optimization
+                var callop = <CallOp>inst;
+                this.gen("  %s%s(&frame, %s, %d, &%s);\n",
+                    this.strDest(callop.dest),
+                    this.module.strFunc(callop.fref),
+                    this.strEnvAccess(callop.fref.lowestEnvAccessed),
+                    callop.args.length,
+                    this.strMemValue(callop.args[0])
+                );
+                break;
+            case OpCode.CALLIND:
+                var callop = <CallOp>inst;
+                this.gen("  js::call(&frame, %s, %d, &%s);\n",
+                    this.strRValue(callop.closure),
+                    callop.args.length,
+                    this.strMemValue(callop.args[0])
+                );
+                break;
+            default:
+                if (inst.op >= OpCode._BINOP_FIRST && inst.op <= OpCode._BINOP_LAST) {
+                    var binop = <BinOp>inst;
+                    var callerStr: string = "";
+                    if (inst.op === OpCode.ADD)
+                        callerStr = "&frame, ";
+                    this.gen("  %sjs::operator_%s(%s%s, %s);\n",
+                        this.strDest(binop.dest),
+                        oc2s(binop.op),
+                        callerStr,
+                        this.strRValue(binop.src1), this.strRValue(binop.src2)
+                    );
+                }
+                else {
+                    //assert(false, "Unsupported instruction "+ inst);
+                }
+                break;
+        }
+    }
+
+    /**
+     * Generate a jump instruction, taking care of the fall-through case.
+     * @param inst
+     * @param nextBB
+     */
+    private generateJump (inst: Instruction, nextBB: BasicBlock): void
+    {
+        assert(inst instanceof JumpInstruction);
+        var jump = <JumpInstruction>inst;
+
+        var bb1 = jump.label1 && jump.label1.bb;
+        var bb2 = jump.label2 && jump.label2.bb;
+
+        if (jump.op === OpCode.GOTO) {
+            if (bb1 !== nextBB)
+            this.gen("  goto %s;\n", this.strBlock(bb1));
+        }
+        else if (jump.op >= OpCode._IF_FIRST && jump.op <= OpCode._IF_LAST) {
+            var ifop = <IfOp>(jump);
+            var cond: string;
+            if (jump.op >= OpCode._BINCOND_FIRST && jump.op <= OpCode._BINCOND_LAST) {
+                cond = util.format("operator_%s(%s, %s)",
+                                    oc2s(ifop.op), this.strRValue(ifop.src1), this.strRValue(ifop.src2));
+            } else {
+                cond = util.format("operator_%s(%s)", oc2s(ifop.op), this.strRValue(ifop.src1));
+            }
+
+            if (bb2 === nextBB)
+                this.gen("  if (%s) goto %s;\n", cond, this.strBlock(bb1));
+            else if (bb1 === nextBB)
+                this.gen("  if (!%s) goto %s;\n", cond, this.strBlock(bb2));
+            else
+                this.gen("  if (%s) goto %s; else goto %s;\n", cond, this.strBlock(bb1), this.strBlock(bb2));
+        }
+        else if (jump.op === OpCode.RET) {
+            var retop = <RetOp>jump;
+            this.gen("  return %s;\n", this.strRValue(retop.src));
+        }
+        else
+            assert(false, "unknown instructiopn "+ jump);
+    }
+
+    private _generateC (): void
+    {
+        var gen = this.gen.bind(this);
+        gen("\n// %s\n/*static*/ js::TaggedValue %s (js::StackFrame * caller, js::Env * env, unsigned argc, const js::TaggedValue * argv)\n{\n",
+            this.name || "<unnamed>", this.module.strFunc(this)
+        );
+        gen("  js::StackFrameN<%d,%d,%d> frame(caller, env, __FILE__ \":%s\", __LINE__);\n\n",
+            this.envSize, this.locals.length, this.paramSlotsCount,
+            this.name || "<unnamed>"
+        );
+
+        // Keep track if the very last thing we generated was a label, so we can add a ';' after i
+        // at the end
+        var labelWasLast = false;
+        for ( var bi = 0, be = this.blockList.length; bi < be; ++bi ) {
+            var bb = this.blockList[bi];
+            labelWasLast = bb.body.length === 0;
+            gen("%s:\n", this.strBlock(bb));
+            for ( var ii = 0, ie = bb.body.length-1; ii < ie; ++ii )
+                this.generateInst(bb.body[ii]);
+
+            if (ie >= 0)
+                this.generateJump(bb.body[ii], bi < be - 1 ? this.blockList[bi+1] : null);
+        }
+        if (labelWasLast)
+            gen("  ;\n");
+
+        gen("}\n");
+    }
+
+    generateC (out: NodeJS.WritableStream): void
+    {
+        this.out = out;
+        try
+        {
+            this._generateC();
+        }
+        finally
+        {
+            this.out = null;
+        }
+    }
 }
 
 export class ModuleBuilder
 {
-    nextFunctionId = 0;
+    private nextFunctionId = 0;
+    private topLevel: FunctionBuilder = null;
 
-    newFunctionRef(name: string): FunctionRef
+    newFunctionId (): number
     {
-        return new FunctionRef(this.nextFunctionId++, name);
+        return this.nextFunctionId++;
     }
 
-    newFunctionBuilder(parentBuilder: FunctionBuilder, fref: FunctionRef): FunctionBuilder
+    createTopLevel(): FunctionBuilder
     {
-        var fb = new FunctionBuilder(this, parentBuilder, fref);
-        return fb;
+        assert(!this.topLevel);
+        var fref = new FunctionBuilder(this.newFunctionId(), this, null, null, "<global>");
+        this.topLevel = fref;
+        return fref;
+    }
+
+    prepareForCodegen (): void
+    {
+        this.topLevel.prepareForCodegen();
+    }
+
+    strFunc (fref: FunctionBuilder): string
+    {
+        return util.format("fn%d", fref.id);
+    }
+
+    private out: NodeJS.WritableStream = null;
+
+    private gen (...params: any[])
+    {
+        this.out.write(util.format.apply(null, arguments));
+    }
+
+    private _generateC (): void
+    {
+        if (!this.topLevel)
+            return;
+
+        var gen = this.gen.bind(this);
+        gen("include <jsc/runtime.h>\n\n");
+
+        var forEachFunc = (fb: FunctionBuilder, cb: (fb: FunctionBuilder)=>void) => {
+            if (fb !== this.topLevel)
+                cb(fb);
+            fb.closures.forEach((fb) => forEachFunc(fb, cb));
+        };
+
+        forEachFunc(this.topLevel, (fb) => {
+            gen("/*static*/ js::TaggedValue %s (js::StackFrame*, js::Env*, unsigned, const js::TaggedValue*); // %s\n",
+                this.strFunc(fb), fb.name || "<unnamed>"
+            );
+        });
+        gen("\n");
+        forEachFunc(this.topLevel, (fb) => fb.generateC(this.out));
+    }
+
+    generateC (out: NodeJS.WritableStream): void
+    {
+        this.out = out;
+        try {
+            this._generateC();
+        } finally {
+            this.out = null;
+        }
     }
 }

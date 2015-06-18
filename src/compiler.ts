@@ -107,7 +107,7 @@ class Variable
     assigned: boolean = false;
     accessed: boolean = false;
     escapes: boolean = false;
-    funcRef: hir.FunctionRef;
+    funcRef: hir.FunctionBuilder;
 
     hvar: hir.Var = null;
 
@@ -265,6 +265,11 @@ class FunctionContext
             this.tempStack.push(l);
         }
     }
+
+    public addClosure (id: ESTree.Identifier): hir.FunctionBuilder
+    {
+        return this.builder.newClosure(id && id.name);
+    }
 }
 
 // NOTE: since we have a very dumb backend (for now), we have to perform some optimizations
@@ -368,10 +373,9 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
             console.log(JSON.stringify(prog, adjustRegexLiteral, 4));
         }
 
-        var funcRef = m_moduleBuilder.newFunctionRef(null);
-        var builder = m_moduleBuilder.newFunctionBuilder(null, funcRef);
+        var funcRef = m_moduleBuilder.createTopLevel();
 
-        m_globalContext = new FunctionContext(null, null, "<module>", builder);
+        m_globalContext = new FunctionContext(null, null, funcRef.name, funcRef);
         m_globalContext.strictMode = m_options.strictMode;
 
         var ast: ESTree.Function = {
@@ -382,10 +386,15 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
             body: { start: prog.start, end: prog.end, type: NT.BlockStatement.name, body: prog.body },
             generator: false
         };
-        var fctx: FunctionContext = compileFunction(m_globalContext.funcScope, ast, funcRef);
+        var fctx: FunctionContext = compileFunction(m_globalContext.funcScope, ast, m_globalContext.addClosure(null));
+
+        m_moduleBuilder.prepareForCodegen();
 
         if (m_options.dumpHIR)
             fctx.builder.dump();
+
+        if (!m_options.dumpAST && !m_options.dumpHIR)
+            m_moduleBuilder.generateC(process.stdout);
     }
 
 
@@ -406,10 +415,9 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
         return v;
     }
 
-    function compileFunction (parentScope: Scope, ast: ESTree.Function, funcRef: hir.FunctionRef): FunctionContext
+    function compileFunction (parentScope: Scope, ast: ESTree.Function, funcRef: hir.FunctionBuilder): FunctionContext
     {
-        var builder = m_moduleBuilder.newFunctionBuilder(parentScope.ctx.builder, funcRef);
-        var funcCtx = new FunctionContext(parentScope.ctx, parentScope, funcRef.name, builder);
+        var funcCtx = new FunctionContext(parentScope && parentScope.ctx, parentScope, funcRef.name, funcRef);
         var funcScope = funcCtx.funcScope;
 
         // Declare the parameters
@@ -438,7 +446,7 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
             assert(false, "TODO: implement ES6");
 
         funcScope.vars.forEach( (v: Variable) => {
-            builder.setVarAttributes(v.hvar,
+            funcRef.setVarAttributes(v.hvar,
                 v.escapes, v.accessed || v.assigned, v.initialized && !v.assigned, v.funcRef
             );
         });
@@ -555,22 +563,27 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
 
     function scanFunctionDeclaration (scope: Scope, stmt: ESTree.FunctionDeclaration): void
     {
-        var variable = varDeclaration(scope.ctx, stmt.id);
-        if (variable.funcRef)
-            warning( location(stmt),  `hiding previous declaration of function '${variable.name}'` );
+        var ctx = scope.ctx;
+        var funcScope = ctx.funcScope;
+        var name = stmt.id.name;
 
-        variable.funcRef = m_moduleBuilder.newFunctionRef(stmt.id.name);
+        var variable = funcScope.vars.get(name);
+        if (variable) {
+            if (variable.funcRef)
+                warning( location(stmt),  `hiding previous declaration of function '${variable.name}'` );
+        } else {
+            variable = new Variable(ctx, name);
+            funcScope.vars.set(name, variable);
+        }
+        variable.declared = true;
+        variable.funcRef = ctx.addClosure(stmt.id);
+        variable.hvar = variable.funcRef.closureVar;
 
         if (!variable.initialized && !variable.assigned)
             variable.initialized = true;
         else
             variable.assigned = true;
         variable.accessed = true;
-
-        var closure = scope.ctx.allocTemp();
-        scope.ctx.builder.genClosure(closure, variable.funcRef);
-        scope.ctx.builder.genAssign(variable.hvar, closure);
-        scope.ctx.releaseTemp(closure);
     }
 
     function compileStatement (scope: Scope, stmt: ESTree.Statement, parent: ESTree.Node): void
@@ -1060,16 +1073,9 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
         if (!need)
             warning(location(e), "unused function");
 
-        var funcRef = m_moduleBuilder.newFunctionRef(e.id && e.id.name);
-
+        var funcRef = scope.ctx.addClosure(e.id);
         compileFunction(scope, e, funcRef);
-
-        if (!need)
-            return null;
-
-        var result = scope.ctx.allocTemp();
-        scope.ctx.builder.genClosure(result, funcRef);
-        return result;
+        return need ? funcRef.closureVar : null;
     }
 
     function compileUnaryExpression (
@@ -1494,7 +1500,7 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
     {
         var ctx = scope.ctx;
         var args: hir.RValue[] = [];
-        var fref: hir.FunctionRef = null;
+        var fref: hir.FunctionBuilder = null;
 
         var closure: hir.RValue;
         var thisArg: hir.RValue;
