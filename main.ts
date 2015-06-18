@@ -61,8 +61,10 @@ function main (argv: string[]): void
         process.exit(1);
     }
 
+    var errCnt = 0;
     var reporter: compiler.IErrorReporter = {
         error: (loc: ESTree.SourceLocation, msg: string) => {
+            ++errCnt;
             if (loc)
                 console.error(`${loc.source}:${loc.start.line}:${loc.start.column + 1}: error: ${msg}`);
             else
@@ -79,6 +81,9 @@ function main (argv: string[]): void
                 console.warn(`${loc.source}:${loc.start.line}:${loc.start.column + 1}: note: ${msg}`);
             else
                 console.warn(`note: ${msg}`);
+        },
+        errorCount: () => {
+            return errCnt;
         }
     };
 

@@ -20,6 +20,7 @@ export interface IErrorReporter
     error (loc: ESTree.SourceLocation, msg: string) : void;
     warning (loc: ESTree.SourceLocation, msg: string) : void;
     note (loc: ESTree.SourceLocation, msg: string) : void;
+    errorCount (): number;
 }
 
 export class Options
@@ -387,6 +388,9 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
             generator: false
         };
         var fctx: FunctionContext = compileFunction(m_globalContext.funcScope, ast, m_globalContext.addClosure(null));
+
+        if (m_reporter.errorCount() > 0)
+            return;
 
         m_moduleBuilder.prepareForCodegen();
 
