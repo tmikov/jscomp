@@ -14,9 +14,9 @@ static void collect (StackFrame * caller);
 
 Memory * allocate (size_t size, StackFrame * caller)
 {
-    Runtime * runtime = caller->runtime;
+    Runtime * runtime = JS_GET_RUNTIME(caller);
 
-    if (runtime->allocatedSize + size > runtime->gcThreshold)
+    if (runtime->allocatedSize + size > runtime->gcThreshold || (runtime->diagFlags & Runtime::DIAG_FORCE_GC))
         collect(caller);
 
     Memory * block = (Memory *)malloc(size);
@@ -52,7 +52,7 @@ void _release (Memory * m, Runtime * runtime)
 
 void forceGC (StackFrame * caller)
 {
-    if (caller->runtime->diagFlags & Runtime::DIAG_HEAP_GC)
+    if (JS_GET_RUNTIME(caller)->diagFlags & Runtime::DIAG_HEAP_GC)
         fprintf(stderr, "forceGC:");
     collect(caller);
 }
@@ -61,7 +61,7 @@ struct Marker : public IMark
 {
     Runtime * d_runtime;
     unsigned d_markBit;
-    std::deque<Memory *> d_markQueue;
+    std::deque<const Memory *> d_markQueue;
 #ifdef JS_DEBUG
     unsigned d_maxQueueSize;
 #endif
@@ -70,13 +70,15 @@ struct Marker : public IMark
         d_runtime(runtime)
     {
         d_markBit = runtime->markBit;
+    #ifdef JS_DEBUG
         d_maxQueueSize = 0;
+    #endif
     };
 
-    bool _mark (Memory * memory);
+    bool _mark (const Memory * memory);
 };
 
-bool Marker::_mark (Memory * memory)
+bool Marker::_mark (const Memory * memory)
 {
 #ifdef JS_DEBUG
     if (d_runtime->diagFlags & Runtime::DIAG_HEAP_GC_VERBOSE)
@@ -96,7 +98,7 @@ bool Marker::_mark (Memory * memory)
 
 static void collect (StackFrame * caller)
 {
-    Runtime * runtime = caller->runtime;
+    Runtime * runtime = JS_GET_RUNTIME(caller);
     unsigned startAllocatedSize = runtime->allocatedSize;
     if (runtime->diagFlags & Runtime::DIAG_HEAP_GC) {
         fprintf(stderr, "GC started. Threshold=%u Allocated=%u\n", runtime->gcThreshold, runtime->allocatedSize);
@@ -109,11 +111,19 @@ static void collect (StackFrame * caller)
     runtime->markBit ^= 1;
     Marker marker(runtime);
 
+    // Mark the runtime roots
     runtime->mark(&marker, marker.d_markBit);
-    caller->mark(&marker, marker.d_markBit);
+
+    // Mark the stack
+    {
+        StackFrame * frame = caller;
+        do
+            frame->mark(&marker, marker.d_markBit);
+        while ((frame = frame->caller) != NULL);
+    }
 
     while (!marker.d_markQueue.empty()) {
-        Memory * m = marker.d_markQueue.front();
+        const Memory * m = marker.d_markQueue.front();
         marker.d_markQueue.pop_front();
         m->mark(&marker, marker.d_markBit);
     }

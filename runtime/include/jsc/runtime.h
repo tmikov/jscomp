@@ -6,8 +6,10 @@
 #include <vector>
 #include <string>
 #include <stdlib.h>
+#include <string.h>
+#include <new>
 
-#define JS_DEBUG
+//#define JS_DEBUG
 
 #define JS_NORETURN __attribute__((noreturn))
 
@@ -69,7 +71,7 @@ void _release (Memory * p, Runtime * runtime);
 
 struct IMark
 {
-    virtual bool _mark (Memory *) = 0;
+    virtual bool _mark (const Memory *) = 0;
 };
 
 struct Memory
@@ -79,7 +81,7 @@ struct Memory
         FLAGS_MASK = 0x01, MARK_BIT_MASK = 0x01
     };
 
-    uintptr_t header; //< used by GC
+    mutable uintptr_t header; //< used by GC
     unsigned gcSize;
 
     Memory * getNext () const
@@ -92,7 +94,7 @@ struct Memory
         header = (uintptr_t)next | (header & FLAGS_MASK);
     }
 
-    virtual bool mark (IMark * marker, unsigned markBit) = 0;
+    virtual bool mark (IMark * marker, unsigned markBit) const = 0;
 
     virtual void finalizer ();
 
@@ -112,7 +114,9 @@ struct Env : public Memory
     unsigned size;
     TaggedValue vars[];
 
-    virtual bool mark (IMark * marker, unsigned markBit);
+    Env () {};
+
+    virtual bool mark (IMark * marker, unsigned markBit) const;
 
     static Env * make (StackFrame * caller, Env * parent, unsigned size);
 
@@ -129,16 +133,19 @@ enum PropAttr
 
 struct Property
 {
+    const StringPrim * const name;
     unsigned flags;
     TaggedValue value;
 
-    Property () :
-        flags(0)
+    Property (const StringPrim * name, unsigned flags, TaggedValue value) :
+        name(name), flags(flags), value(value)
     {}
+};
 
-    Property (unsigned flags, TaggedValue value) :
-        flags(flags), value(value)
-    {}
+struct less_cstr {
+    bool operator() (const char * a, const char * b) const {
+        return strcmp(a, b) < 0;
+    }
 };
 
 enum ObjectFlags
@@ -152,32 +159,32 @@ struct Object : public Memory
 {
     unsigned flags;
     Object * parent;
-    std::map<std::string, Property> props;
+    std::map<const char *, Property, less_cstr> props;
 
     Object (Object * parent) :
         flags(0),
         parent(parent)
     { }
 
-    virtual bool mark (IMark * marker, unsigned markBit);
+    virtual bool mark (IMark * marker, unsigned markBit) const;
 
     Object * defineOwnProperty (
-        StackFrame * caller, const std::string name, unsigned flags,
+        StackFrame * caller, const StringPrim * name, unsigned flags,
         TaggedValue value = JS_UNDEFINED_VALUE, Function * get = NULL, Function * set = NULL
     );
 
-    Property * getOwnProperty (const std::string & name)
+    Property * getOwnProperty (const char * name)
     {
         auto it = this->props.find(name);
         return it != this->props.end() ? &it->second : NULL;
     }
 
-    Property * getProperty (const std::string & name);
+    Property * getProperty (const char * name);
 
-    TaggedValue get (StackFrame * caller, const std::string & name);
-    void put (StackFrame * caller, const std::string & name, TaggedValue v);
+    TaggedValue get (StackFrame * caller, const char * name);
+    void put (StackFrame * caller, const StringPrim * name, TaggedValue v);
 
-    bool deleteProperty (const std::string & name);
+    bool deleteProperty (StackFrame * caller, const char * name);
 
     void freeze ()
     {
@@ -206,21 +213,25 @@ struct PropertyAccessor : public Memory
         get(get), set(set)
     { }
 
-    virtual bool mark (IMark * marker, unsigned markBit);
+    virtual bool mark (IMark * marker, unsigned markBit) const;
 };
 
-struct Arguments : public Object
+/*struct Arguments : public Object
 {
     std::vector<TaggedValue> elems;
     unsigned length;
     // TODO: array-line functionality
-};
+};*/
 
 struct Array : public Object
 {
     std::vector<TaggedValue> elems;
 
-    virtual bool mark (IMark * marker, unsigned markBit);
+    Array (Object * parent):
+        Object(parent)
+    {}
+
+    virtual bool mark (IMark * marker, unsigned markBit) const;
 
     unsigned getLength ()
     { return elems.size(); }
@@ -241,9 +252,10 @@ struct Function : public Object
     unsigned length; //< number of argumenrs
     CodePtr code;
 
-    Function (StackFrame * caller, Object * parent, Env * env, const std::string & name, unsigned length, CodePtr code);
+    Function (Object * parent, Env * env, CodePtr code);
+    void init (StackFrame * caller, const StringPrim * name, unsigned length);
 
-    virtual bool mark (IMark * marker, unsigned markBit);
+    virtual bool mark (IMark * marker, unsigned markBit) const;
 
     void definePrototype (StackFrame * caller, Object * prototype);
 
@@ -264,7 +276,7 @@ struct StringPrim : public Memory
     }
 
     //public:
-    bool mark (IMark * marker, unsigned markBit);
+    bool mark (IMark * marker, unsigned markBit) const;
 
     static StringPrim * makeEmpty (StackFrame * caller, unsigned length);
     static StringPrim * make (StackFrame * caller, const char * str, unsigned length);
@@ -272,11 +284,6 @@ struct StringPrim : public Memory
     static StringPrim * make (StackFrame * caller, const char * str)
     {
         return make(caller, str, (unsigned)strlen(str));
-    }
-
-    static StringPrim * make (StackFrame * caller, const std::string & str)
-    {
-        return make(caller, str.data(), (unsigned)str.length());
     }
 
     const char * getStr () const
@@ -293,7 +300,7 @@ struct String : public Object
         Object(parent), value(value)
     {}
 
-    bool mark (IMark * marker, unsigned markBit);
+    bool mark (IMark * marker, unsigned markBit) const;
     virtual TaggedValue defaultValue (StackFrame * caller, ValueTag preferredType);
 };
 
@@ -319,7 +326,7 @@ struct Boolean : public Object
 
 struct StackFrame
 {
-    Runtime * runtime;
+    //Runtime * runtime;
     StackFrame * caller;
     Env * escaped;
 #ifdef JS_DEBUG
@@ -329,7 +336,7 @@ struct StackFrame
     unsigned localCount;
     TaggedValue locals[0];
 
-    StackFrame (Runtime * runtime, StackFrame * caller, Env * env, unsigned escapedCount, unsigned localCount,
+    StackFrame (/*Runtime * runtime, */StackFrame * caller, Env * env, unsigned escapedCount, unsigned localCount,
                 unsigned skipInit
 #ifdef JS_DEBUG
         , const char * fileFunc, unsigned line
@@ -337,17 +344,21 @@ struct StackFrame
     )
     {
         this->caller = caller;
-        this->runtime = runtime;
-        this->escaped = escapedCount ? Env::make(caller, env, escapedCount) : NULL;
+        //this->runtime = runtime;
+        this->escaped = NULL;
 #ifdef JS_DEBUG
         this->fileFunc = fileFunc;
         this->line = line;
 #endif
         this->localCount = localCount;
         memset(locals + skipInit, 0, sizeof(locals[0]) * (localCount - skipInit));
+
+        // Note: tricky. We use ourselves as a stack frame here
+        if (escapedCount)
+            this->escaped = Env::make(this, env, escapedCount);
     }
 
-    bool mark (IMark * marker, unsigned markBit);
+    bool mark (IMark * marker, unsigned markBit) const;
 
     TaggedValue * var (unsigned index)
     { return locals + index; }
@@ -387,19 +398,19 @@ struct StackFrameN : public StackFrame
 {
     TaggedValue _actualLocals[L];
 
-    StackFrameN (Runtime * runtime, StackFrame * caller, Env * env, const char * fileFunc, unsigned line) :
+/*    StackFrameN (Runtime * runtime, StackFrame * caller, Env * env, const char * fileFunc, unsigned line) :
 #ifdef JS_DEBUG
         StackFrame(runtime, caller, env, E, L, SkipInit, fileFunc, line)
 #else
         StackFrame( runtime, caller, env, E, L, SkipInit )
 #endif
-    { }
+    { }*/
 
     StackFrameN (StackFrame * caller, Env * env, const char * fileFunc, unsigned line) :
 #ifdef JS_DEBUG
-        StackFrame(caller->runtime, caller, env, E, L, SkipInit, fileFunc, line)
+        StackFrame(/*caller->runtime, */caller, env, E, L, SkipInit, fileFunc, line)
 #else
-        StackFrame( caller->runtime, caller, env, E, L, SkipInit )
+        StackFrame(caller, env, E, L, SkipInit)
 #endif
     { }
 };
@@ -409,9 +420,11 @@ struct Runtime
     enum
     {
         DIAG_HEAP_ALLOC = 0x01, DIAG_HEAP_ALLOC_STACK = 0x02, DIAG_HEAP_GC = 0x04, DIAG_HEAP_GC_VERBOSE = 0x08,
-        DIAG_ALL = 0x0F
+        DIAG_ALL = 0x0F,
+        DIAG_FORCE_GC = 0x10,
     };
     unsigned diagFlags;
+    bool strictMode;
 
     Object * objectPrototype;
     Function * functionPrototype;
@@ -430,19 +443,26 @@ struct Runtime
 
     Env * env;
 
-    std::map<std::string,StringPrim*> permStrings;
+    std::map<const char *,StringPrim*,less_cstr> permStrings;
 
-    TaggedValue permStrUndefined;
-    TaggedValue permStrNull;
-    TaggedValue permStrTrue;
-    TaggedValue permStrFalse;
-    TaggedValue permStrNaN;
+    const StringPrim * permStrEmpty;
+    const StringPrim * permStrUndefined;
+    const StringPrim * permStrNull;
+    const StringPrim * permStrTrue;
+    const StringPrim * permStrFalse;
+    const StringPrim * permStrNaN;
+    const StringPrim * permStrPrototype;
+    const StringPrim * permStrConstructor;
+    const StringPrim * permStrLength;
+    const StringPrim * permStrName;
+    const StringPrim * permStrArguments;
+    const StringPrim * permStrCaller;
 
     unsigned markBit; // the value that was used for marking during the previous collection
 
     struct MemoryHead : public Memory
     {
-        virtual bool mark (IMark * marker, unsigned markBit);
+        virtual bool mark (IMark * marker, unsigned markBit) const;
     };
 
     MemoryHead head;
@@ -450,12 +470,29 @@ struct Runtime
     unsigned allocatedSize;
     unsigned gcThreshold;
 
-    Runtime ();
+    Runtime (bool strictMode = true);
 
     bool mark (IMark * marker, unsigned markBit);
 
-    TaggedValue definePermString (StackFrame * caller, const std::string & str);
+    const StringPrim * internString (StackFrame * caller, const char * str, unsigned len);
+    const StringPrim * internString (StackFrame * caller, const char * str);
+    void initStrings (StackFrame * caller, const StringPrim ** prims, const char * strconst, const unsigned * offsets, unsigned count);
+
+private:
+    void parseDiagEnvironment();
 };
+
+extern Runtime * g_runtime;
+
+#ifdef JS_DEBUG
+inline Runtime * getRuntime (StackFrame * frame) { return g_runtime; }
+#define JS_GET_RUNTIME(frame)  js::getRuntime(frame)
+#else
+#define JS_GET_RUNTIME(frame)  js::g_runtime
+#endif
+
+#define JS_IS_STRICT_MODE(frame) (JS_GET_RUNTIME(frame)->strictMode != false)
+
 
 
 inline bool markValue (IMark * marker, unsigned markBit, const TaggedValue & value)
@@ -466,7 +503,7 @@ inline bool markValue (IMark * marker, unsigned markBit, const TaggedValue & val
         return true;
 }
 
-inline bool markMemory (IMark * marker, unsigned markBit, Memory * mem)
+inline bool markMemory (IMark * marker, unsigned markBit, const Memory * mem)
 {
     if (mem && (mem->header & Memory::MARK_BIT_MASK) != markBit)
         return marker->_mark(mem);
@@ -511,14 +548,9 @@ inline TaggedValue makeObjectValue (Function * f)
     return makeMemoryValue(VT_FUNCTION, f);
 }
 
-inline TaggedValue makeStringValue (StringPrim * s)
+inline TaggedValue makeStringValue (const StringPrim * s)
 {
-    return makeMemoryValue(VT_STRINGPRIM, s);
-}
-
-inline TaggedValue makeStringValue (StackFrame * caller, const std::string & str)
-{
-    return makeStringValue(StringPrim::make(caller, str));
+    return makeMemoryValue(VT_STRINGPRIM, const_cast<StringPrim*>(s));
 }
 
 inline TaggedValue makeStringValue (StackFrame * caller, const char * str)
@@ -526,10 +558,14 @@ inline TaggedValue makeStringValue (StackFrame * caller, const char * str)
     return makeStringValue(StringPrim::make(caller, str));
 }
 
-TaggedValue newFunction (StackFrame * caller, Env * env, const std::string & name, unsigned length, CodePtr code);
+inline TaggedValue makeInternStringValue (StackFrame * caller, const char * str)
+{
+    return makeStringValue(JS_GET_RUNTIME(caller)->internString(caller, str));
+}
 
+TaggedValue newFunction (StackFrame * caller, Env * env, const StringPrim * name, unsigned length, CodePtr code);
 
-void throwTypeError (StackFrame * caller, const std::string & str) JS_NORETURN;
+void throwTypeError (StackFrame * caller, const char * str, ...) JS_NORETURN;
 
 bool isCallable (TaggedValue val);
 TaggedValue callFunction (StackFrame * caller, TaggedValue value, unsigned argc, const TaggedValue * argv);
@@ -539,10 +575,38 @@ Object * toObject (StackFrame * caller, TaggedValue v);
 TaggedValue toPrimitive (StackFrame * caller, TaggedValue v, ValueTag preferredType = (ValueTag)0);
 double toNumber (const StringPrim * str);
 double toNumber (StackFrame * caller, TaggedValue v);
+double primToNumber (TaggedValue v);
 int32_t toInt32 (StackFrame * caller, TaggedValue v);
 TaggedValue toString (StackFrame * caller, double n);
 TaggedValue toString (StackFrame * caller, TaggedValue v);
 
 TaggedValue concatString (StackFrame * caller, StringPrim * a, StringPrim * b);
+bool less (StringPrim * a, StringPrim * b);
+
+// Operators
+TaggedValue operator_STRICT_EQ (TaggedValue a, TaggedValue b);
+TaggedValue operator_STRICT_NE (TaggedValue a, TaggedValue b);
+TaggedValue operator_LOOSE_EQ (TaggedValue a, TaggedValue b);
+TaggedValue operator_LOOSE_NE (TaggedValue a, TaggedValue b);
+TaggedValue operator_LT (TaggedValue a, TaggedValue b);
+TaggedValue operator_LE (TaggedValue a, TaggedValue b);
 TaggedValue operator_ADD (StackFrame * caller, TaggedValue a, TaggedValue b);
+TaggedValue operator_IN (TaggedValue a, TaggedValue b);
+TaggedValue operator_INSTANCEOF (TaggedValue a, TaggedValue b);
+
+TaggedValue operator_LOG_NOT (TaggedValue a);
+TaggedValue operator_TYPEOF (TaggedValue a);
+TaggedValue operator_VOID (TaggedValue a);
+TaggedValue operator_DELETE (TaggedValue a);
+TaggedValue operator_TO_NUMBER (StackFrame * caller, TaggedValue a);
+
+bool operator_IF_TRUE (TaggedValue a);
+bool operator_IF_STRICT_EQ (TaggedValue a, TaggedValue b);
+bool operator_IF_STRICT_NE (TaggedValue a, TaggedValue b);
+bool operator_IF_LOOSE_EQ (TaggedValue a, TaggedValue b);
+bool operator_IF_LOOSE_NE (TaggedValue a, TaggedValue b);
+bool operator_IF_LT (StackFrame * caller, TaggedValue x, TaggedValue y);
+bool operator_IF_LE (StackFrame * caller, TaggedValue x, TaggedValue y);
+bool operator_IF_GT (StackFrame * caller, TaggedValue x, TaggedValue y);
+bool operator_IF_GE (StackFrame * caller, TaggedValue x, TaggedValue y);
 };

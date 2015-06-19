@@ -18,7 +18,7 @@ static js::TaggedValue fn1 (js::StackFrame * caller, js::Env * env, unsigned arg
 
     // return a + b
     frame.setLine(__LINE__ + 1);
-    frame.locals[2] = js::internal_add(&frame, frame.locals[0], frame.locals[1]);
+    frame.locals[2] = js::operator_ADD(&frame, frame.locals[0], frame.locals[1]);
     return frame.locals[2];
 }
 
@@ -27,7 +27,7 @@ js::TaggedValue module (js::StackFrame * caller, js::Env * env, unsigned argc, c
     js::StackFrameN<1, 4, 1> frame(caller, env, __FILE__ ":module", __LINE__);
     frame.locals[0] = argv[0]; // "this" is always passed
 
-    frame.escaped->vars[0] = js::newFunction(caller, env, "add", 2, fn1);
+    frame.escaped->vars[0] = js::newFunction(caller, env, JS_GET_RUNTIME(&frame)->internString(&frame, "add"), 2, fn1);
 
     // add( 10, 20 )
     frame.locals[1] = frame.locals[0];
@@ -37,17 +37,17 @@ js::TaggedValue module (js::StackFrame * caller, js::Env * env, unsigned argc, c
     return js::callFunction(&frame, frame.escaped->vars[0], 3, frame.locals + 1);
 }
 
-int main (void)
-{
-    js::Runtime * runtime = new js::Runtime();
-    js::StackFrameN<0, 1, 0> frame(runtime, NULL, NULL, __FILE__ ":main", __LINE__);
-
-    frame.locals[0] = js::makeObjectValue(new(&frame) js::Object(runtime->objectPrototype));
-    frame.setLine(__LINE__ + 1);
-    module(&frame, runtime->env, 1, frame.locals);
-
-    js::forceGC(&frame);
-    js::forceGC(&frame);
-
-    return 0;
-}
+//int main (void)
+//{
+//    js::Runtime * runtime = new js::Runtime();
+//    js::StackFrameN<0, 1, 0> frame(runtime, NULL, NULL, __FILE__ ":main", __LINE__);
+//
+//    frame.locals[0] = js::makeObjectValue(new(&frame) js::Object(runtime->objectPrototype));
+//    frame.setLine(__LINE__ + 1);
+//    module(&frame, runtime->env, 1, frame.locals);
+//
+//    js::forceGC(&frame);
+//    js::forceGC(&frame);
+//
+//    return 0;
+//}
