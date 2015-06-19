@@ -273,6 +273,11 @@ class FunctionContext
     }
 }
 
+class AsmBinding {
+    public used: boolean = false;
+    constructor(public index: number, public name: string, public e: ESTree.Expression) {}
+}
+
 // NOTE: since we have a very dumb backend (for now), we have to perform some optimizations
 // that wouldn't normally be necessary
 export function compile (m_fileName: string, m_reporter: IErrorReporter, m_options: Options): boolean
@@ -1500,8 +1505,20 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
         }
     }
 
+    function extractCallIdentifier (e: ESTree.CallExpression): string
+    {
+        var identifierExp: ESTree.Identifier;
+        return (identifierExp = NT.Identifier.isTypeOf(e.callee)) ? identifierExp.name : null;
+    }
+
     function compileCallExpression (scope: Scope, e: ESTree.CallExpression, need: boolean): hir.RValue
     {
+        // Check for compiler extensions
+        switch (extractCallIdentifier(e)) {
+            case "__asm__": return compileAsmExpression(scope, e, need);
+            case "__asmh__": return compileAsmHExpression(scope, e, need);
+        }
+
         var ctx = scope.ctx;
         var args: hir.RValue[] = [];
         var fref: hir.FunctionBuilder = null;
@@ -1535,6 +1552,254 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
 
         ctx.builder.genCall(dest, fref, closure, args);
         return dest;
+    }
+
+    function isStringLiteral (e: ESTree.Expression): string
+    {
+        var lit = NT.Literal.isTypeOf(e);
+        return lit && typeof lit.value === "string" ? <string>lit.value : null;
+    }
+
+    /**
+     * Used by compiler extensions when an an argument is required to be a constant string. Besides a
+     * single string literal we also handle addition of literals.
+     * @param e
+     * @returns {any}
+     */
+    function parseConstantString (e: ESTree.Expression): string
+    {
+        var str = isStringLiteral(e);
+        if (str !== null)
+            return str;
+        var bine = NT.BinaryExpression.isTypeOf(e);
+        if (!bine || bine.operator != "+") {
+            error(location(e), "not a constant string literal");
+            return null;
+        }
+        var a = parseConstantString(bine.left);
+        if (a === null)
+            return null;
+        var b = parseConstantString(bine.right);
+        if (b === null)
+            return null;
+        return a + b;
+    }
+
+    function compileAsmExpression (scope: Scope, e: ESTree.CallExpression, need: boolean): hir.RValue
+    {
+        // __asm__( options: object, result: [], inputs: [[]*]?, pattern: string )
+        var resultBinding: AsmBinding = null;
+        var bindings: AsmBinding[] = [];
+        var bindingMap = new StringMap<AsmBinding>();
+        var pattern: hir.AsmPattern = null;
+
+        function addBinding (name: string, e: ESTree.Expression): AsmBinding
+        {
+            var b = new AsmBinding(bindings.length, name, e);
+            bindings.push(b);
+            bindingMap.set(name, b);
+            return b;
+        }
+
+        function parseOptions (e: ESTree.Expression): void
+        {
+            var objE = NT.ObjectExpression.isTypeOf(e);
+            if (!objE) {
+                error(location(e), "'__asm__' parameter 1 (options) must be an object literal");
+            } else if (objE.properties.length > 0) {
+                error(location(e), "'__asm__': no options are currently implemented");
+            }
+        }
+
+        function parseResult (e: ESTree.Expression): void
+        {
+            var arrE = NT.ArrayExpression.isTypeOf(e);
+            if (!arrE) {
+                error(location(e), "'__asm__' parameter 2 (result) must be an array literal");
+                return;
+            }
+            if (arrE.elements.length === 0)
+                return;
+            var name = isStringLiteral(arrE.elements[0]);
+            if (!name) {
+                error(location(arrE.elements[0]), "__asm__ result name must be a string literal");
+                return;
+            }
+            resultBinding = addBinding(name, null);
+            if (arrE.elements.length > 1) {
+                error(location(arrE.elements[1]), "unsupported __asm__ result options");
+                return;
+            }
+        }
+
+        function parseInputDeclaration (e: ESTree.Expression): void
+        {
+            var arrE = NT.ArrayExpression.isTypeOf(e);
+            if (!arrE) {
+                error(location(e), "'__asm__' every input declaration must be an array literal");
+                return;
+            }
+            var name = isStringLiteral(arrE.elements[0]);
+            if (!name) {
+                error(location(e), "'__asm__' every input declaration must begin with a string literal");
+                return;
+            }
+            if (bindingMap.has(name)) {
+                error(location(e), `'__asm__' binding '${name}' already declared`);
+                return;
+            }
+
+            if (arrE.elements.length < 2) {
+                error(location(e), "'__asm__' input declaration needs an initializing expression");
+                return;
+            }
+            addBinding(name, arrE.elements[1]);
+
+            if (arrE.elements.length > 2) {
+                error(location(e), "'__asm__' input declaration options not supported yet");
+                return;
+            }
+        }
+
+        function parseInputs (e: ESTree.Expression): void
+        {
+            var arrE = NT.ArrayExpression.isTypeOf(e);
+            if (!arrE) {
+                error(location(e), "'__asm__' parameter 3 (inputs) must be an array literal");
+                return;
+            }
+            arrE.elements.forEach(parseInputDeclaration);
+        }
+
+        function parsePattern (e: ESTree.Expression): void
+        {
+            var patstr = parseConstantString(e);
+            if (patstr === null)
+                return;
+
+            var lastIndex = 0;
+            var asmPat: hir.AsmPattern = [];
+            var re =  /(%%)|(%\[([^\]]*)\])/g;
+            var match : RegExpExecArray;
+
+            function pushStr (str: string): void
+            {
+                if (asmPat.length && typeof asmPat[asmPat.length-1] === "string")
+                    asmPat[asmPat.length-1] += str;
+                else
+                    asmPat.push(str);
+            }
+
+            while (match = re.exec(patstr)) {
+                if (match.index > lastIndex)
+                    pushStr(patstr.slice(lastIndex, match.index));
+
+                if (match[1]) { // "%%"?
+                    pushStr("%");
+                } else {
+                    var name = match[3];
+                    var bnd = bindingMap.get(name);
+                    if (!bnd) {
+                        error(location(e), `undeclared binding '%[${name}]'`);
+                        return;
+                    }
+                    bnd.used = true;
+                    asmPat.push(bnd.index);
+                }
+
+                lastIndex = re.lastIndex;
+            }
+
+            if (lastIndex < patstr.length)
+                pushStr(patstr.slice(lastIndex, patstr.length));
+
+            if (resultBinding && !resultBinding.used) {
+                error(location(e), `result binding '%[${resultBinding.name}]' wasn't used`);
+                return;
+            }
+
+            bindingMap.forEach((b) => {
+                if (!b.used)
+                    warning(location(e), `binding '%[${b.name}]' wasn't used`);
+            });
+
+            pattern = asmPat;
+        }
+
+
+        if (e.arguments.length !== 4) {
+            error(location(e), "'__asm__' requires exactly four arguments");
+        } else {
+            parseOptions(e.arguments[0]);
+            parseResult(e.arguments[1]);
+            parseInputs(e.arguments[2]);
+            parsePattern(e.arguments[3]);
+        }
+
+        if (!pattern) // error?
+            return need ? hir.nullReg : null;
+
+        var hbnd: hir.RValue[] = new Array<hir.RValue>(bindings.length);
+        var dest: hir.LValue = null;
+
+        for ( var i = 0; i < bindings.length; ++i ) {
+            var b = bindings[i];
+            if (!b.used)
+                hbnd[i] = null;
+            else if (b.e)
+                hbnd[i] = compileSubExpression(scope, b.e, true, null, null);
+            else
+                hbnd[i] = dest = scope.ctx.allocTemp();
+        }
+
+        // Release the temporaries in reverse order, except the result
+        for ( var i = bindings.length-1; i >= 0; --i )
+            if (bindings[i].e) // if not an output
+                scope.ctx.releaseTemp(hbnd[i]);
+
+        scope.ctx.builder.genAsm(dest, hbnd, pattern);
+
+        if (need) {
+            if (dest) {
+                return dest;
+            } else {
+                warning(location(e), "'__asm__': no result value generated");
+                return hir.undefinedValue;
+            }
+        } else {
+            scope.ctx.releaseTemp(dest);
+            return null;
+        }
+    }
+
+    function compileAsmHExpression (scope: Scope, e: ESTree.CallExpression, need: boolean): hir.RValue
+    {
+        function parseOptions (e: ESTree.Expression): void
+        {
+            var objE = NT.ObjectExpression.isTypeOf(e);
+            if (!objE) {
+                error(location(e), "'__asmh__' parameter 1 (options) must be an object literal");
+            } else if (objE.properties.length > 0) {
+                error(location(e), "'__asmh__': no options are currently implemented");
+            }
+        }
+
+
+    exit:
+        {
+            if (e.arguments.length !== 2) {
+                error(location(e), "'__asmh__' requires exactly two arguments");
+                break exit;
+            }
+
+            parseOptions(e.arguments[0]);
+            var str = parseConstantString(e.arguments[1]);
+            if (!str)
+                break exit;
+
+            m_moduleBuilder.addAsmHeader(str);
+        }
+        return need ? hir.undefinedValue : null;
     }
 
     function compileMemberExpressionHelper (scope: Scope, e: ESTree.MemberExpression, need: boolean, needObj: boolean)

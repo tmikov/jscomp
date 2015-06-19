@@ -8,6 +8,8 @@ import assert = require("assert");
 import util = require("util");
 import stream = require("stream");
 
+import StringMap = require("../lib/StringMap");
+
 export class MemValue
 {
     constructor(public id: number) {}
@@ -195,6 +197,7 @@ export const enum OpCode
 {
     // Special
     CLOSURE,
+    ASM,
 
     // Binary
     STRICT_EQ,
@@ -266,6 +269,7 @@ export const enum OpCode
 var g_opcodeName: string[] = [
     // Special
     "CLOSURE",
+    "ASM",
 
     // Binary
     "STRICT_EQ",
@@ -459,6 +463,19 @@ class IfOp extends JumpInstruction {
             return `${oc2s(this.op)}(${rv2s(this.src1)}, ${rv2s(this.src2)}) ${this.label1} else ${this.label2}`;
         else
             return `${oc2s(this.op)}(${rv2s(this.src1)}) ${this.label1} else ${this.label2}`;
+    }
+}
+
+export type AsmPattern = Array<string|number>;
+
+class AsmOp extends Instruction {
+    constructor (public dest: LValue, public bindings: RValue[], public pat: AsmPattern)
+    {
+        super(OpCode.ASM);
+    }
+    toString (): string
+    {
+        return `${rv2s(this.dest)} = ${oc2s(this.op)}([${this.bindings}], [${this.pat}])`;
     }
 }
 
@@ -740,6 +757,11 @@ export class FunctionBuilder
     genClosure(dest: LValue, func: FunctionBuilder): void
     {
         this.getBB().push(new ClosureOp(dest, func));
+    }
+    genAsm (dest: LValue, bindings: RValue[], pat: AsmPattern): void
+    {
+        assert(!dest || bindings[0] === dest);
+        this.getBB().push(new AsmOp(dest || nullReg, bindings, pat));
     }
 
     genRet(src: RValue): void
@@ -1077,6 +1099,22 @@ export class FunctionBuilder
             return "";
     }
 
+    private generateAsm (asm: AsmOp): void
+    {
+        this.gen("{");
+        for ( var i = 0, e = asm.pat.length; i < e; ++i )
+        {
+            var pe = asm.pat[i];
+            if (typeof pe === "string") {
+                this.gen(<string>pe);
+            } else if (typeof pe === "number") {
+                this.gen("(%s)", this.strRValue(asm.bindings[<number>pe]));
+            } else
+                assert(false, "unsupported pattern value "+ pe);
+        }
+        this.gen(";}\n");
+    }
+
     private generateInst(inst: Instruction): void
     {
         switch (inst.op) {
@@ -1089,6 +1127,9 @@ export class FunctionBuilder
                     closureop.funcRef.params.length-1,
                     this.module.strFunc(closureop.funcRef)
                 );
+                break;
+            case OpCode.ASM:
+                this.generateAsm(<AsmOp>inst);
                 break;
             case OpCode.ASSIGN:
                 var assignop = <AssignOp>inst;
@@ -1224,6 +1265,17 @@ export class ModuleBuilder
     private nextFunctionId = 0;
     private topLevel: FunctionBuilder = null;
 
+    /** Headers added with the __asmh__ compiler extension */
+    private asmHeaders : string[] = [];
+    private asmHeadersSet = new StringMap<Object>();
+
+    addAsmHeader (h: string) {
+        if (!this.asmHeadersSet.has(h)) {
+            this.asmHeadersSet.set(h, null);
+            this.asmHeaders.push(h);
+        }
+    }
+
     newFunctionId (): number
     {
         return this.nextFunctionId++;
@@ -1260,7 +1312,10 @@ export class ModuleBuilder
             return;
 
         var gen = this.gen.bind(this);
-        gen("include <jsc/runtime.h>\n\n");
+        gen("#include <jsc/runtime.h>\n");
+        // Generate the headers added with __asmh__
+        this.asmHeaders.forEach((h: string) => gen("%s\n", h));
+        gen("\n");
 
         var forEachFunc = (fb: FunctionBuilder, cb: (fb: FunctionBuilder)=>void) => {
             if (fb !== this.topLevel)
