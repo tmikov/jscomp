@@ -183,15 +183,9 @@ export function isTempLocal (v: RValue): Local
 // a >= b  = !LESS(a,b)
 // a <= b  = !LESS(b,a)
 // a != b  = !(a == b)
-// However things fall apart when floating point is involved because comparions between
-// NaN-s always return false. So, we cannot use equivalencies involving a logical negation.
-// We need '<', '<=', '==' and '!='.
-// a < b
-// a > b  <==> b < a
-// a <= b
-// a >= b <==> b <= a
-// a == b
-// a != b
+// However things fall apart first when floating point is involved (because comparions between
+// NaN-s always return false) and second because JavaScript requires left-to-right evaluation and
+// converting to a primitive value for comparison could cause a function call.
 
 export const enum OpCode
 {
@@ -206,6 +200,8 @@ export const enum OpCode
     LOOSE_NE,
     LT,
     LE,
+    GT,
+    GE,
     SHL_N,
     SHR_N,
     ASR_N,
@@ -253,15 +249,17 @@ export const enum OpCode
     IF_LOOSE_NE,
     IF_LT,
     IF_LE,
+    IF_GT,
+    IF_GE,
 
     _BINOP_FIRST = STRICT_EQ,
     _BINOP_LAST = INSTANCEOF,
     _UNOP_FIRST = NEG_N,
     _UNOP_LAST = TO_NUMBER,
     _IF_FIRST = IF_TRUE,
-    _IF_LAST = IF_LE,
+    _IF_LAST = IF_GE,
     _BINCOND_FIRST = IF_STRICT_EQ,
-    _BINCOND_LAST = IF_LE,
+    _BINCOND_LAST = IF_GE,
     _JUMP_FIRST = RET,
     _JUMP_LAST = IF_LE,
 }
@@ -278,6 +276,8 @@ var g_opcodeName: string[] = [
     "LOOSE_NE",
     "LT",
     "LE",
+    "GT",
+    "GE",
     "SHL_N",
     "SHR_N",
     "ASR_N",
@@ -325,6 +325,8 @@ var g_opcodeName: string[] = [
     "IF_LOOSE_NE",
     "IF_LT",
     "IF_LE",
+    "IF_GT",
+    "IF_GE",
 ];
 
 // Note: surprisingly, 'ADD' is not commutative because 'string+x' is not the same as 'x+string'
@@ -336,6 +338,8 @@ var g_binOpCommutative: boolean[] = [
     true,  //LOOSE_NE,
     false, //LT,
     false, //LE,
+    false, //GT,
+    false, //GE,
     false, //SHL,
     false, //SHR,
     false, //ASR,
@@ -1189,11 +1193,17 @@ export class FunctionBuilder
        }
     }
 
+    private outCallerLine(): void
+    {
+        this.gen("  frame.setLine(__LINE__+1);\n");
+    }
+
     private generateInst(inst: Instruction): void
     {
         switch (inst.op) {
             case OpCode.CLOSURE:
                 var closureop = <ClosureOp>inst;
+                this.outCallerLine();
                 this.gen("  %sjs::newFunction(&frame, %s, \"%s\", %d, %s);\n",
                     this.strDest(closureop.dest),
                     this.strEnvAccess(closureop.funcRef.lowestEnvAccessed),
@@ -1212,6 +1222,7 @@ export class FunctionBuilder
             case OpCode.CALL:
                 // TODO: self tail-recursion optimization
                 var callop = <CallOp>inst;
+                this.outCallerLine();
                 this.gen("  %s%s(&frame, %s, %d, &%s);\n",
                     this.strDest(callop.dest),
                     this.module.strFunc(callop.fref),
@@ -1222,6 +1233,7 @@ export class FunctionBuilder
                 break;
             case OpCode.CALLIND:
                 var callop = <CallOp>inst;
+                this.outCallerLine();
                 this.gen("  js::call(&frame, %s, %d, &%s);\n",
                     this.strRValue(callop.closure),
                     callop.args.length,
@@ -1248,6 +1260,7 @@ export class FunctionBuilder
      */
     private generateJump (inst: Instruction, nextBB: BasicBlock): void
     {
+        var callerStr: string = "&frame, ";
         assert(inst instanceof JumpInstruction);
         var jump = <JumpInstruction>inst;
 
@@ -1262,8 +1275,8 @@ export class FunctionBuilder
             var ifop = <IfOp>(jump);
             var cond: string;
             if (jump.op >= OpCode._BINCOND_FIRST && jump.op <= OpCode._BINCOND_LAST) {
-                cond = util.format("operator_%s(%s, %s)",
-                                    oc2s(ifop.op), this.strRValue(ifop.src1), this.strRValue(ifop.src2));
+                cond = util.format("operator_%s(%s%s, %s)",
+                                    oc2s(ifop.op), callerStr, this.strRValue(ifop.src1), this.strRValue(ifop.src2));
             } else {
                 cond = util.format("operator_%s(%s)", oc2s(ifop.op), this.strRValue(ifop.src1));
             }

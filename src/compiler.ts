@@ -1196,7 +1196,6 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
             return null;
         }
 
-        // TODO: re-order based on number of temporaries needed by each sub-tree
         var v1 = compileSubExpression(scope, e.left, true);
         var v2 = compileSubExpression(scope, e.right, true);
         ctx.releaseTemp(v1);
@@ -1213,8 +1212,8 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
             case "!==": return compileLogBinary(ctx, e, hir.OpCode.STRICT_NE, v1, v2, onTrue, onFalse);
             case "<":   return compileLogBinary(ctx, e, hir.OpCode.LT, v1, v2, onTrue, onFalse);
             case "<=":  return compileLogBinary(ctx, e, hir.OpCode.LE, v1, v2, onTrue, onFalse);
-            case ">":   return compileLogBinary(ctx, e, hir.OpCode.LT, v2, v1, onTrue, onFalse);
-            case ">=":  return compileLogBinary(ctx, e, hir.OpCode.LE, v2, v1, onTrue, onFalse);
+            case ">":   return compileLogBinary(ctx, e, hir.OpCode.GT, v1, v2, onTrue, onFalse);
+            case ">=":  return compileLogBinary(ctx, e, hir.OpCode.GE, v1, v2, onTrue, onFalse);
             case "in":  return compileLogBinary(ctx, e, hir.OpCode.IN, v1, v2, onTrue, onFalse);
             case "instanceof": return compileLogBinary(ctx, e, hir.OpCode.INSTANCEOF, v1, v2, onTrue, onFalse);
 
