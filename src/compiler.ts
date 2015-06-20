@@ -1019,6 +1019,22 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
         }
     }
 
+    function toNumberValue (scope: Scope, v: hir.RValue): hir.RValue
+    {
+        return v;
+        /*
+        var t : hir.RValue;
+        if (hir.isImmediate(v))
+            if ((t = hir.foldUnary(hir.OpCode.TO_NUMBER, v)) !== null)
+                return t;
+
+        scope.ctx.releaseTemp(v);
+        var r = scope.ctx.allocTemp();
+        scope.ctx.builder.genUnop(hir.OpCode.TO_NUMBER, r, v);
+        return r;
+        */
+    }
+
     function compileLiteral (scope: Scope, literal: ESTree.Literal, need: boolean): hir.RValue
     {
         if (need) {
@@ -1101,20 +1117,23 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
 
         switch (e.operator) {
             case "-":
-                return toLogical(scope, e, compileSimpleUnary(scope, hir.OpCode.NEG, e.argument), true, onTrue, onFalse);
+                return toLogical(scope, e, compileSimpleUnary(scope, hir.OpCode.NEG_N, true, e.argument), true, onTrue, onFalse);
             case "+":
-                return toLogical(scope, e, compileSimpleUnary(scope, hir.OpCode.UPLUS, e.argument), true, onTrue, onFalse);
+                return toLogical(scope, e,
+                    toNumberValue(scope, compileSubExpression(scope, e.argument, true, null, null)),
+                    true, onTrue, onFalse
+                );
             case "~":
-                return toLogical(scope, e, compileSimpleUnary(scope, hir.OpCode.BIN_NOT, e.argument), true, onTrue, onFalse);
+                return toLogical(scope, e, compileSimpleUnary(scope, hir.OpCode.BIN_NOT_N, true, e.argument), true, onTrue, onFalse);
             case "delete":
                 assert(false, "FIXME"); // FIXME
-                return toLogical(scope, e, compileSimpleUnary(scope, hir.OpCode.DELETE, e.argument), true, onTrue, onFalse);
+                return toLogical(scope, e, compileSimpleUnary(scope, hir.OpCode.DELETE, false, e.argument), true, onTrue, onFalse);
 
             case "!":
                 if (onTrue)
                     return compileSubExpression(scope, e.argument, true, onFalse, onTrue);
                 else
-                    return compileSimpleUnary(scope, hir.OpCode.LOG_NOT, e.argument);
+                    return compileSimpleUnary(scope, hir.OpCode.LOG_NOT, false, e.argument);
 
             case "typeof":
                 if (onTrue) {
@@ -1122,7 +1141,7 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
                     warning(location(e), "condition is always true");
                     ctx.builder.genGoto(onTrue);
                 } else {
-                    return compileSimpleUnary(scope, hir.OpCode.TYPEOF, e.argument);
+                    return compileSimpleUnary(scope, hir.OpCode.TYPEOF, false, e.argument);
                 }
                 break;
 
@@ -1143,9 +1162,11 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
 
         return null;
 
-        function compileSimpleUnary (scope: Scope, op: hir.OpCode, e: ESTree.Expression): hir.RValue
+        function compileSimpleUnary (scope: Scope, op: hir.OpCode, arith: boolean, e: ESTree.Expression): hir.RValue
         {
             var v = compileSubExpression(scope, e, true, null, null);
+            if (arith)
+                v = toNumberValue(scope, v);
             scope.ctx.releaseTemp(v);
 
             var folded = hir.foldUnary(op, v);
@@ -1197,17 +1218,17 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
             case "in":  return compileLogBinary(ctx, e, hir.OpCode.IN, v1, v2, onTrue, onFalse);
             case "instanceof": return compileLogBinary(ctx, e, hir.OpCode.INSTANCEOF, v1, v2, onTrue, onFalse);
 
-            case "<<":  return toLogical(scope, e, compileArithBinary(ctx, hir.OpCode.SHL, v1, v2), true, onTrue, onFalse);
-            case ">>":  return toLogical(scope, e, compileArithBinary(ctx, hir.OpCode.ASR, v1, v2), true, onTrue, onFalse);
-            case ">>>": return toLogical(scope, e, compileArithBinary(ctx, hir.OpCode.SHR, v1, v2), true, onTrue, onFalse);
-            case "+":   return toLogical(scope, e, compileArithBinary(ctx, hir.OpCode.ADD, v1, v2), true, onTrue, onFalse);
-            case "-":   return toLogical(scope, e, compileArithBinary(ctx, hir.OpCode.SUB, v1, v2), true, onTrue, onFalse);
-            case "*":   return toLogical(scope, e, compileArithBinary(ctx, hir.OpCode.MUL, v1, v2), true, onTrue, onFalse);
-            case "/":   return toLogical(scope, e, compileArithBinary(ctx, hir.OpCode.DIV, v1, v2), true, onTrue, onFalse);
-            case "%":   return toLogical(scope, e, compileArithBinary(ctx, hir.OpCode.MOD, v1, v2), true, onTrue, onFalse);
-            case "|":   return toLogical(scope, e, compileArithBinary(ctx, hir.OpCode.OR, v1, v2), true, onTrue, onFalse);
-            case "^":   return toLogical(scope, e, compileArithBinary(ctx, hir.OpCode.XOR, v1, v2), true, onTrue, onFalse);
-            case "&":   return toLogical(scope, e, compileArithBinary(ctx, hir.OpCode.AND, v1, v2), true, onTrue, onFalse);
+            case "<<":  return toLogical(scope, e, compileArithBinary(ctx, hir.OpCode.SHL_N, v1, v2), true, onTrue, onFalse);
+            case ">>":  return toLogical(scope, e, compileArithBinary(ctx, hir.OpCode.ASR_N, v1, v2), true, onTrue, onFalse);
+            case ">>>": return toLogical(scope, e, compileArithBinary(ctx, hir.OpCode.SHR_N, v1, v2), true, onTrue, onFalse);
+            case "+":   return toLogical(scope, e, compileGenericBinary(ctx, hir.OpCode.ADD, v1, v2), true, onTrue, onFalse);
+            case "-":   return toLogical(scope, e, compileArithBinary(ctx, hir.OpCode.SUB_N, v1, v2), true, onTrue, onFalse);
+            case "*":   return toLogical(scope, e, compileArithBinary(ctx, hir.OpCode.MUL_N, v1, v2), true, onTrue, onFalse);
+            case "/":   return toLogical(scope, e, compileArithBinary(ctx, hir.OpCode.DIV_N, v1, v2), true, onTrue, onFalse);
+            case "%":   return toLogical(scope, e, compileArithBinary(ctx, hir.OpCode.MOD_N, v1, v2), true, onTrue, onFalse);
+            case "|":   return toLogical(scope, e, compileArithBinary(ctx, hir.OpCode.OR_N, v1, v2), true, onTrue, onFalse);
+            case "^":   return toLogical(scope, e, compileArithBinary(ctx, hir.OpCode.XOR_N, v1, v2), true, onTrue, onFalse);
+            case "&":   return toLogical(scope, e, compileArithBinary(ctx, hir.OpCode.AND_N, v1, v2), true, onTrue, onFalse);
             default:
                 assert(false, `unknown binary operator '${e.operator}'`);
                 break;
@@ -1215,7 +1236,7 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
 
         return null;
 
-        function compileArithBinary (ctx: FunctionContext, op: hir.OpCode, v1: hir.RValue, v2: hir.RValue): hir.RValue
+        function compileGenericBinary (ctx: FunctionContext, op: hir.OpCode, v1: hir.RValue, v2: hir.RValue): hir.RValue
         {
             var folded = hir.foldBinary(op, v1, v2);
             if (folded !== null)
@@ -1224,6 +1245,11 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
             var dest = ctx.allocTemp();
             ctx.builder.genBinop(op, dest, v1, v2);
             return dest;
+        }
+
+        function compileArithBinary (ctx: FunctionContext, op: hir.OpCode, v1: hir.RValue, v2: hir.RValue): hir.RValue
+        {
+            return compileGenericBinary(ctx, op, toNumberValue(scope, v1), toNumberValue(scope, v2));
         }
 
         function compileLogBinary (
@@ -1390,7 +1416,7 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
                 return rvalue;
             } else {
                 scope.ctx.releaseTemp(rvalue);
-                scope.ctx.builder.genBinop(mapAssignmentOperator(e.operator), variable.hvar, variable.hvar, rvalue);
+                performOperation(scope, e.operator, variable.hvar, rvalue);
                 return variable.hvar;
             }
         } else if(memb = NT.MemberExpression.isTypeOf(e.left)) {
@@ -1412,7 +1438,7 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
                 var res = scope.ctx.allocTemp();
                 scope.ctx.builder.genPropGet(res, membObject, membPropName);
                 scope.ctx.releaseTemp(rvalue);
-                scope.ctx.builder.genBinop(mapAssignmentOperator(e.operator), res, res, rvalue);
+                performOperation(scope, e.operator, res, rvalue);
 
                 scope.ctx.builder.genPropSet(membObject, membPropName, res);
                 scope.ctx.releaseTemp(membObject);
@@ -1425,24 +1451,34 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
             return null;
         }
 
-        function mapAssignmentOperator (operator: string): hir.OpCode
+        function performOperation (scope: Scope, operator: string, dest: hir.LValue, src: hir.RValue): void
         {
+            var opcode: hir.OpCode;
+
             switch (operator) {
-                case "+=":    return hir.OpCode.ADD;
-                case "-=":    return hir.OpCode.SUB;
-                case "*=":    return hir.OpCode.MUL;
-                case "/=":    return hir.OpCode.DIV;
-                case "%=":    return hir.OpCode.MOD;
-                case "<<=":   return hir.OpCode.SHL;
-                case ">>=":   return hir.OpCode.ASR;
-                case ">>>=":  return hir.OpCode.SHR;
-                case "|=":    return hir.OpCode.OR;
-                case "^=":    return hir.OpCode.XOR;
-                case "&=":    return hir.OpCode.AND;
+                case "+=":
+                    scope.ctx.builder.genBinop(hir.OpCode.ADD, dest, dest, src);
+                    return;
+
+                case "-=":    opcode = hir.OpCode.SUB_N; break;
+                case "*=":    opcode = hir.OpCode.MUL_N; break;
+                case "/=":    opcode = hir.OpCode.DIV_N; break;
+                case "%=":    opcode = hir.OpCode.MOD_N; break;
+                case "<<=":   opcode = hir.OpCode.SHL_N; break;
+                case ">>=":   opcode = hir.OpCode.ASR_N; break;
+                case ">>>=":  opcode = hir.OpCode.SHR_N; break;
+                case "|=":    opcode = hir.OpCode.OR_N; break;
+                case "^=":    opcode = hir.OpCode.XOR_N; break;
+                case "&=":    opcode = hir.OpCode.AND_N; break;
                 default:
                     assert(false, `unrecognized assignment operator '${operator}'`);
                     return null;
             }
+
+            src = toNumberValue(scope, src);
+            var d = toNumberValue(scope, dest);
+            scope.ctx.releaseTemp(d);
+            scope.ctx.builder.genBinop(opcode, dest, d, src);
         }
     }
 
@@ -1452,7 +1488,7 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
         var memb: ESTree.MemberExpression;
 
         var variable: Variable;
-        var opcode: hir.OpCode = e.operator == "++" ? hir.OpCode.ADD : hir.OpCode.SUB;
+        var opcode: hir.OpCode = e.operator == "++" ? hir.OpCode.ADD_N : hir.OpCode.SUB_N;
         var immOne = hir.wrapImmediate(1);
         var ctx = scope.ctx;
 
@@ -1462,13 +1498,12 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
             var lval = variable.hvar;
 
             if (!e.prefix && need) { // Postfix? It only matters if we need the result
-                var res = ctx.allocTemp();
-                ctx.builder.genUnop(hir.OpCode.TO_NUMBER, res, lval);
+                var res = toNumberValue(scope, lval);
                 ctx.builder.genBinop(opcode, lval, lval, immOne);
                 return res;
             } else {
-                ctx.builder.genUnop(hir.OpCode.TO_NUMBER, lval, lval);
-                ctx.builder.genBinop(opcode, lval, lval, immOne);
+                var res = toNumberValue(scope, lval);
+                ctx.builder.genBinop(opcode, lval, res, immOne);
                 return lval;
             }
         } else if(memb = NT.MemberExpression.isTypeOf(e.argument)) {
@@ -1482,17 +1517,16 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
             membObject = compileSubExpression(scope, memb.object, true, null, null);
 
             var val: hir.Local = ctx.allocTemp();
-
             ctx.builder.genPropGet(val, membObject, membPropName);
-            ctx.builder.genUnop(hir.OpCode.TO_NUMBER, val, val);
+            var n = toNumberValue(scope, val);
 
             if (!e.prefix && need) { // Postfix? It only matters if we need the result
                 var tmp = ctx.allocTemp();
-                ctx.builder.genBinop(opcode, tmp, val, immOne);
+                ctx.builder.genBinop(opcode, tmp, n, immOne);
                 ctx.builder.genPropSet(membObject, membPropName, tmp);
                 ctx.releaseTemp(tmp);
             } else {
-                ctx.builder.genBinop(opcode, val, val, immOne);
+                ctx.builder.genBinop(opcode, val, n, immOne);
                 ctx.builder.genPropSet(membObject, membPropName, val);
             }
 

@@ -206,25 +206,25 @@ export const enum OpCode
     LOOSE_NE,
     LT,
     LE,
-    SHL,
-    SHR,
-    ASR,
+    SHL_N,
+    SHR_N,
+    ASR_N,
     ADD,
-    SUB,
-    MUL,
-    DIV,
-    MOD,
-    OR,
-    XOR,
-    AND,
+    ADD_N,
+    SUB_N,
+    MUL_N,
+    DIV_N,
+    MOD_N,
+    OR_N,
+    XOR_N,
+    AND_N,
     IN,
     INSTANCEOF,
 
     // Unary
-    NEG,
-    UPLUS,
+    NEG_N,
     LOG_NOT,
-    BIN_NOT,
+    BIN_NOT_N,
     TYPEOF,
     VOID,
     DELETE,
@@ -256,7 +256,7 @@ export const enum OpCode
 
     _BINOP_FIRST = STRICT_EQ,
     _BINOP_LAST = INSTANCEOF,
-    _UNOP_FIRST = NEG,
+    _UNOP_FIRST = NEG_N,
     _UNOP_LAST = TO_NUMBER,
     _IF_FIRST = IF_TRUE,
     _IF_LAST = IF_LE,
@@ -278,25 +278,25 @@ var g_opcodeName: string[] = [
     "LOOSE_NE",
     "LT",
     "LE",
-    "SHL",
-    "SHR",
-    "ASR",
+    "SHL_N",
+    "SHR_N",
+    "ASR_N",
     "ADD",
-    "SUB",
-    "MUL",
-    "DIV",
-    "MOD",
-    "OR",
-    "XOR",
-    "AND",
+    "ADD_N",
+    "SUB_N",
+    "MUL_N",
+    "DIV_N",
+    "MOD_N",
+    "OR_N",
+    "XOR_N",
+    "AND_N",
     "IN",
     "INSTANCEOF",
 
     // Unary
-    "NEG",
-    "UPLUS",
+    "NEG_N",
     "LOG_NOT",
-    "BIN_NOT",
+    "BIN_NOT_N",
     "TYPEOF",
     "VOID",
     "DELETE",
@@ -340,7 +340,8 @@ var g_binOpCommutative: boolean[] = [
     false, //SHR,
     false, //ASR,
     false, //ADD,
-    false, //SUB,
+    true,  //ADD_N,
+    false, //SUB_N
     true,  //MUL,
     false, //DIV,
     false, //MOD,
@@ -547,20 +548,21 @@ export function foldBinary (op: OpCode, v1: RValue, v2: RValue): RValue
         case OpCode.LOOSE_NE:  r = a1 != a2; break;
         case OpCode.LT:        r = a1 < a2; break;
         case OpCode.LE:        r = a1 <= a2; break;
-        case OpCode.SHL:       r = a1 << a2; break;
-        case OpCode.SHR:       r = a1 >> a2; break;
-        case OpCode.ASR:       r = a1 >>> a2; break;
-        case OpCode.ADD:       r = a1 + a2; break;
-        case OpCode.SUB:       r = a1 - a2; break;
-        case OpCode.MUL:       r = a1 * a2; break;
-        case OpCode.DIV:       r = a1 / a2; break;
-        case OpCode.MOD:       r = a1 % a2; break;
-        case OpCode.OR:        r = a1 | a2; break;
-        case OpCode.XOR:       r = a1 ^ a2; break;
-        case OpCode.AND:       r = a1 & a2; break;
+        case OpCode.SHL_N:     r = a1 << a2; break;
+        case OpCode.SHR_N:     r = a1 >> a2; break;
+        case OpCode.ASR_N:     r = a1 >>> a2; break;
+        case OpCode.ADD:
+        case OpCode.ADD_N:     r = a1 + a2; break;
+        case OpCode.SUB_N:     r = a1 - a2; break;
+        case OpCode.MUL_N:     r = a1 * a2; break;
+        case OpCode.DIV_N:     r = a1 / a2; break;
+        case OpCode.MOD_N:     r = a1 % a2; break;
+        case OpCode.OR_N:      r = a1 | a2; break;
+        case OpCode.XOR_N:     r = a1 ^ a2; break;
+        case OpCode.AND_N:     r = a1 & a2; break;
         case OpCode.IN:        return null;
         case OpCode.INSTANCEOF: return null;
-        default:              return null;
+        default:               return null;
     }
 
     return wrapImmediate(r);
@@ -585,14 +587,13 @@ export function foldUnary (op: OpCode, v: RValue): RValue
     var a: any = uwrapImmedate(v);
     var r: any;
     switch (op) {
-        case OpCode.NEG:     r = -a; break;
-        case OpCode.UPLUS:   r = +a; break;
-        case OpCode.LOG_NOT: r = !a; break;
-        case OpCode.BIN_NOT: r = ~a; break;
-        case OpCode.TYPEOF:  r = typeof a; break;
-        case OpCode.VOID:    r = void 0; break;
-        case OpCode.DELETE:  return null;
-        case OpCode.TO_NUMBER: r = Number(a);
+        case OpCode.NEG_N:     r = -a; break;
+        case OpCode.LOG_NOT:   r = !a; break;
+        case OpCode.BIN_NOT_N: r = ~a; break;
+        case OpCode.TYPEOF:    r = typeof a; break;
+        case OpCode.VOID:      r = void 0; break;
+        case OpCode.DELETE:    return null;
+        case OpCode.TO_NUMBER: r = Number(a); break;
         default: return null;
     }
     return wrapImmediate(r);
@@ -1115,6 +1116,79 @@ export class FunctionBuilder
         this.gen(";}\n");
     }
 
+    private generateBinopOutofline (binop: BinOp): void
+    {
+        var callerStr: string = "&frame, ";
+        this.gen("  %sjs::operator_%s(%s%s, %s);\n",
+            this.strDest(binop.dest),
+            oc2s(binop.op),
+            callerStr,
+            this.strRValue(binop.src1), this.strRValue(binop.src2)
+        );
+    }
+
+    private strToNumber (rv: RValue): string
+    {
+        var callerStr: string = "&frame, ";
+        return isImmediate(rv) ? String(uwrapImmedate(rv)) : util.format("js::toNumber(%s%s)", callerStr, this.strRValue(rv));
+    }
+
+    /**
+     * Unwrap a value which we know is numeric
+     * @param rv
+     */
+    private strUnwrapN (rv: RValue): string
+    {
+        return isImmediate(rv) ? String(uwrapImmedate(rv)) : util.format("%s.raw.nval", this.strRValue(rv));
+    }
+
+    private outNumericBinop (binop: BinOp, coper: string): void
+    {
+        this.gen("  %sjs::makeNumberValue(%s %s %s);\n", this.strDest(binop.dest),
+            this.strToNumber(binop.src1), coper, this.strToNumber(binop.src2));
+    }
+
+    /**
+     * A binary operator where we know the operands are numbers
+     * @param binop
+     * @param coper
+     */
+    private outBinop_N (binop: BinOp, coper: string): void
+    {
+        this.gen("  %sjs::makeNumberValue(%s %s %s);\n", this.strDest(binop.dest),
+            this.strUnwrapN(binop.src1), coper, this.strUnwrapN(binop.src2));
+    }
+
+    private generateBinop (binop: BinOp): void
+    {
+        var callerStr: string = "";
+        if (binop.op === OpCode.ADD)
+            callerStr = "&frame, ";
+
+        switch (binop.op) {
+            case OpCode.ADD:   this.generateBinopOutofline(binop); break;
+            case OpCode.ADD_N: this.outNumericBinop(binop, "+"); break;
+            case OpCode.SUB_N: this.outNumericBinop(binop, "-"); break;
+            case OpCode.MUL_N: this.outNumericBinop(binop, "*"); break;
+
+            default:
+                this.generateBinopOutofline(binop);
+                break;
+        }
+    }
+
+    private generateUnop (unop: UnOp): void
+    {
+       switch (unop.op) {
+           case OpCode.TO_NUMBER:
+               this.gen("  %sjs::makeNumberValue(%s);\n", this.strDest(unop.dest), this.strToNumber(unop.src1));
+               break;
+           default:
+               assert(false, "Unsupported instruction "+ unop);
+               break;
+       }
+    }
+
     private generateInst(inst: Instruction): void
     {
         switch (inst.op) {
@@ -1156,19 +1230,12 @@ export class FunctionBuilder
                 break;
             default:
                 if (inst.op >= OpCode._BINOP_FIRST && inst.op <= OpCode._BINOP_LAST) {
-                    var binop = <BinOp>inst;
-                    var callerStr: string = "";
-                    if (inst.op === OpCode.ADD)
-                        callerStr = "&frame, ";
-                    this.gen("  %sjs::operator_%s(%s%s, %s);\n",
-                        this.strDest(binop.dest),
-                        oc2s(binop.op),
-                        callerStr,
-                        this.strRValue(binop.src1), this.strRValue(binop.src2)
-                    );
+                    this.generateBinop(<BinOp>inst);
+                } else if (inst.op >= OpCode._UNOP_FIRST && inst.op <= OpCode._UNOP_LAST) {
+                    this.generateUnop(<UnOp>inst);
                 }
                 else {
-                    //assert(false, "Unsupported instruction "+ inst);
+                    assert(false, "Unsupported instruction "+ inst);
                 }
                 break;
         }
