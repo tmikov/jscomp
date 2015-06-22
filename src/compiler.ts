@@ -326,7 +326,7 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
     {
         var options: acorn.Options = {
             ecmaVersion: 5,
-            sourceType: "module",
+            //sourceType: "module",
             allowReserved: false,
             allowHashBang: true,
             locations: false,
