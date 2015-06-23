@@ -7,6 +7,8 @@
 
 import fs = require("fs");
 import assert = require("assert");
+import util = require("util");
+import child_process = require("child_process");
 
 import acorn = require("../js/acorn/acorn_csp");
 
@@ -28,6 +30,11 @@ export class Options
     dumpAST = false;
     dumpHIR = false;
     strictMode = true;
+    debug = false;
+    compileOnly = false;
+    sourceOnly = false;
+    outputName: string = null;
+    verbose = false;
 }
 
 class NT<T extends ESTree.Node>
@@ -280,7 +287,9 @@ class AsmBinding {
 
 // NOTE: since we have a very dumb backend (for now), we have to perform some optimizations
 // that wouldn't normally be necessary
-export function compile (m_fileName: string, m_reporter: IErrorReporter, m_options: Options): boolean
+export function compile (
+    m_fileName: string, m_reporter: IErrorReporter, m_options: Options, m_doneCB: () => void
+): void
 {
     var m_globalContext: FunctionContext;
     var m_input: string;
@@ -303,13 +312,21 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
         m_reporter.note(loc, msg);
     }
 
-    function compileIt (): boolean
+    function fireCB (): void
+    {
+        if (!m_doneCB)
+            return;
+        var cb = m_doneCB;
+        m_doneCB = null;
+        process.nextTick(cb);
+    }
+
+    function compileIt (): void
     {
         var prog: ESTree.Program;
-        if (!(prog = parse(m_fileName)))
-            return false;
-        compileProgram(prog);
-        return true;
+        if ((prog = parse(m_fileName)))
+            compileProgram(prog);
+        fireCB();
     }
 
     function location (node: ESTree.Node): ESTree.SourceLocation
@@ -402,8 +419,113 @@ export function compile (m_fileName: string, m_reporter: IErrorReporter, m_optio
         if (m_options.dumpHIR)
             fctx.builder.dump();
 
-        if (!m_options.dumpAST && !m_options.dumpHIR)
-            m_moduleBuilder.generateC(process.stdout);
+        if (!m_options.dumpAST && !m_options.dumpHIR) {
+            produceOutput();
+        }
+    }
+
+    function produceOutput () {
+        function stripExtension (fn: string): string
+        {
+            var pos = fn.lastIndexOf(".");
+            return pos > 0 ? fn.slice(0, pos) : fn;
+        }
+
+        if (m_options.sourceOnly) {
+            if (m_options.outputName === "-") { // output to pipe?
+                m_moduleBuilder.generateC(process.stdout);
+            } else {
+                var ext = ".cxx";
+                var outName: string = null;
+
+                if (m_options.outputName !== null) {
+                    outName = m_options.outputName;
+                    if (outName.lastIndexOf(".") <= 0) // if no extension, add one (note that "." at pos 0 is not an ext)
+                        outName += ext;
+                } else {
+                    outName = stripExtension(m_fileName) + ext;
+                }
+
+                try {
+                    var fd = fs.openSync(outName, "w");
+                    var out = fs.createWriteStream(null, {fd: fd});
+                    m_moduleBuilder.generateC(out);
+                    out.end();
+                    out.once("error", (e: any) => {
+                        error(null, e.message);
+                        fireCB();
+                    });
+                    out.once("finish", () => fireCB());
+                } catch (e) {
+                    error(null, e.message);
+                }
+            }
+        } else {
+            var ext = m_options.compileOnly ? ".o" : "";
+            var outName: string = null;
+
+            if (m_options.outputName !== null) {
+                outName = m_options.outputName;
+                if (outName.lastIndexOf(".") <= 0) // if no extension, add one (note that "." at pos 0 is not an ext)
+                    outName += ext;
+            } else {
+                outName = stripExtension(m_fileName) + ext;
+            }
+
+            var cc = "c++";
+            if (process.env["CC"])
+                cc = process.env["CC"];
+            var cflags: string[] = [];
+            if (process.env["CFLAGS"])
+                cflags = process.env["CFLAGS"].split(" ");
+
+            var args: string[] = [];
+            args.push("-Iruntime/include");
+            args.push("-xc++", "--std=c++11");
+            if (cflags.length > 0) {
+                args = args.concat(cflags);
+            } else {
+                if (m_options.debug)
+                    args.push("-g");
+                else
+                    args.push("-O1");
+            }
+            if (m_options.debug)
+                args.push("-DJS_DEBUG");
+
+            if (m_options.compileOnly)
+                args.push("-c");
+            else
+                args.push("-Lruntime/build", "-ljsruntime");
+            args.push("-o", outName);
+            args.push("-");
+
+            if (m_options.verbose)
+                console.log(cc, args.join(" "));
+
+            var child = child_process.spawn(
+                cc,
+                args,
+                {stdio: ['pipe', process.stdout, process.stderr] }
+            );
+            child.stdin.once("error", (e: any) => {
+                error(null, e.message);
+            });
+            child.stdin.write(util.format("#line 1 \"%s\"\n", m_fileName));
+            m_moduleBuilder.generateC(child.stdin);
+            child.stdin.end();
+            child.once("error", (e: any) => {
+                error(null, e.message);
+                fireCB();
+            });
+            child.once("exit", (code: number, signal: string) => {
+                if (code !== 0)
+                    error(null, "child process terminated with code "+ code);
+                else if (signal)
+                    error(null, "child process terminated with an error");
+                fireCB();
+            });
+        }
     }
 
 

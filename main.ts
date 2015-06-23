@@ -15,7 +15,12 @@ function printSyntax (): void
 "   --dump-ast        dump AST\n"+
 "   --dump-hir        dump HIR\n"+
 "   --strict-mode     (default) enable strict mode\n"+
-"   --no-strict-mode  disable strict mode\n"
+"   --no-strict-mode  disable strict mode\n"+
+"   -g                enable debug\n"+
+"   -c                compile only (do not link)\n"+
+"   -S                compile to C source\n"+
+"   -o filename       output file\n"+
+"   -v                verbose\n"
     );
 }
 
@@ -42,6 +47,18 @@ function main (argv: string[]): void
                 case "--dump-hir": options.dumpHIR = true; break;
                 case "--strict-mode": options.strictMode = true; break;
                 case "--no-strict-mode": options.strictMode = false; break;
+                case "-g": options.debug = true; break;
+                case "-c": options.compileOnly = true; break;
+                case "-S": options.sourceOnly = true; break;
+                case "-o":
+                    ++i;
+                    if (i === argv.length) {
+                        console.error("'-o' missing argument");
+                        process.exit(1);
+                    }
+                    options.outputName = argv[i];
+                    break;
+                case "-v": options.verbose = true; break;
                 default:
                     console.error("error: unknown option '%s'", arg);
                     process.exit(1);
@@ -87,7 +104,10 @@ function main (argv: string[]): void
         }
     };
 
-    compiler.compile(fname, reporter, options);
+    compiler.compile(fname, reporter, options, () => {
+        if (reporter.errorCount() > 0)
+            process.exit(1);
+    });
 }
 
 main(process.argv.slice(1));
