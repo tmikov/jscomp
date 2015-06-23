@@ -184,6 +184,8 @@ struct Object : public Memory
 
     TaggedValue get (StackFrame * caller, const char * name);
     void put (StackFrame * caller, const StringPrim * name, TaggedValue v);
+    virtual TaggedValue getComputed (StackFrame * caller, TaggedValue propName);
+    virtual void putComputed (StackFrame * caller, TaggedValue propName, TaggedValue v);
 
     bool deleteProperty (StackFrame * caller, const char * name);
 
@@ -222,6 +224,8 @@ struct PropertyAccessor : public Memory
     std::vector<TaggedValue> elems;
     unsigned length;
     // TODO: array-line functionality
+    virtual TaggedValue getComputed (StackFrame * caller, TaggedValue propName);
+    virtual void putComputed (StackFrame * caller, TaggedValue propName, TaggedValue v);
 };*/
 
 struct Array : public Object
@@ -239,9 +243,16 @@ struct Array : public Object
 
     void setLength (unsigned newLen);
 
-    TaggedValue getElem (unsigned index);
-
+    TaggedValue getElem (unsigned index) const
+    {
+        return index < elems.size() ? elems[index] : JS_UNDEFINED_VALUE;
+    }
     void setElem (unsigned index, TaggedValue v);
+
+    virtual TaggedValue getComputed (StackFrame * caller, TaggedValue propName);
+    virtual void putComputed (StackFrame * caller, TaggedValue propName, TaggedValue v);
+
+    static int32_t isIndexString (const char * str);
 };
 
 typedef TaggedValue (* CodePtr) (StackFrame * caller, Env * env, unsigned argc, const TaggedValue * args);
@@ -299,7 +310,9 @@ struct String : public Object
 
     String (Object * parent, TaggedValue value) :
         Object(parent), value(value)
-    {}
+    {
+        freeze();
+    }
 
     bool mark (IMark * marker, unsigned markBit) const;
     virtual TaggedValue defaultValue (StackFrame * caller, ValueTag preferredType);
@@ -311,7 +324,9 @@ struct Number : public Object
 
     Number (Object * parent, TaggedValue value) :
         Object(parent), value(value)
-    {}
+    {
+        freeze();
+    }
     virtual TaggedValue defaultValue (StackFrame * caller, ValueTag preferredType);
 };
 
@@ -321,7 +336,9 @@ struct Boolean : public Object
 
     Boolean (Object * parent, TaggedValue value) :
         Object(parent), value(value)
-    {}
+    {
+        freeze();
+    }
     virtual TaggedValue defaultValue (StackFrame * caller, ValueTag preferredType);
 };
 
@@ -570,6 +587,23 @@ void throwTypeError (StackFrame * caller, const char * str, ...) JS_NORETURN;
 
 bool isCallable (TaggedValue val);
 TaggedValue callFunction (StackFrame * caller, TaggedValue value, unsigned argc, const TaggedValue * argv);
+
+/**
+ * Returns the integer if the value is a non-negative integer, otherwise -1
+ */
+inline int32_t isNonNegativeInteger (TaggedValue val)
+{
+    if (val.tag == VT_NUMBER) {
+        int32_t n = (int32_t)val.raw.nval;
+        return n >= 0 && n == val.raw.nval ? n : -1;
+    }
+    return -1;
+}
+
+void put (StackFrame * caller, TaggedValue obj, const StringPrim * propName, TaggedValue val);
+void putComputed (StackFrame * caller, TaggedValue obj, TaggedValue propName, TaggedValue val);
+TaggedValue get (StackFrame * caller, TaggedValue obj, const StringPrim * propName);
+TaggedValue getComputed (StackFrame * caller, TaggedValue obj, TaggedValue propName);
 
 Object * toObject (StackFrame * caller, TaggedValue v);
 

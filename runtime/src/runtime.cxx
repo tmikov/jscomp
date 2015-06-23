@@ -6,6 +6,7 @@
 
 #include <assert.h>
 #include <stdarg.h>
+#include <errno.h>
 
 // Need our own definition to avoid warnings when using it on C++ objects
 #define OFFSETOF(type, field)  ((char*)&(((type*)0)->field) - ((char*)0) )
@@ -152,6 +153,20 @@ cannotWrite:;
         throwTypeError(caller, "Property '%s' is not writable", name->getStr());
 }
 
+TaggedValue Object::getComputed (StackFrame * caller, TaggedValue propName)
+{
+    StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":Object::getComputed()", __LINE__);
+    frame.locals[0] = toString(&frame, propName);
+    return this->get(&frame, frame.locals[0].raw.sval->getStr());
+}
+
+void Object::putComputed (StackFrame * caller, TaggedValue propName, TaggedValue v)
+{
+    StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":Object::putComputed()", __LINE__);
+    frame.locals[0] = toString(&frame, propName);
+    this->put(&frame, frame.locals[0].raw.sval, v);
+}
+
 bool Object::deleteProperty (StackFrame * caller, const char * name)
 {
     auto it = props.find(name);
@@ -238,16 +253,57 @@ void Array::setLength (unsigned newLen)
     elems.resize(newLen, TaggedValue{VT_UNDEFINED});
 }
 
-TaggedValue Array::getElem (unsigned index)
-{
-    return index < elems.size() ? elems[index] : JS_UNDEFINED_VALUE;
-}
-
 void Array::setElem (unsigned index, TaggedValue v)
 {
     if (index >= elems.size())
         setLength(index + 1);
     elems[index] = v;
+}
+
+int32_t Array::isIndexString (const char * str)
+{
+    if (str[0] >= '0' && str[0] <= '9') { // Filter out the obvious cases
+        char * end;
+        errno = 0;
+        unsigned long ul = strtoul(str, &end, 10);
+        if (errno == 0 && *end == 0 && ul <= INT32_MAX)
+            return (int32_t)ul;
+    }
+    return -1;
+}
+
+TaggedValue Array::getComputed (StackFrame * caller, TaggedValue propName)
+{
+    int32_t index;
+    // Fast path
+    if ((index = isNonNegativeInteger(propName)) >= 0)
+        return getElem(index);
+
+    StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":Object::getComputed()", __LINE__);
+    frame.locals[0] = toString(&frame, propName);
+    if ((index = isIndexString(frame.locals[0].raw.sval->getStr())) >= 0)
+        return getElem(index);
+
+    return this->get(&frame, frame.locals[0].raw.sval->getStr());
+}
+
+void Array::putComputed (StackFrame * caller, TaggedValue propName, TaggedValue v)
+{
+    int32_t index;
+    // Fast path
+    if ((index = isNonNegativeInteger(propName)) >= 0) {
+        setElem(index, v);
+        return;
+    }
+
+    StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":Object::getComputed()", __LINE__);
+    frame.locals[0] = toString(&frame, propName);
+    if ((index = isIndexString(frame.locals[0].raw.sval->getStr())) >= 0) {
+        setElem(index, v);
+        return;
+    }
+
+    this->put(&frame, frame.locals[0].raw.sval, v);
 }
 
 Function::Function (Object * parent, Env * env, CodePtr code) :
@@ -612,6 +668,110 @@ TaggedValue callFunction (StackFrame * caller, TaggedValue value, unsigned argc,
     throwTypeError(caller, "not a function");
     return JS_UNDEFINED_VALUE;
 };
+
+void put (StackFrame * caller, TaggedValue obj, const StringPrim * propName, TaggedValue val)
+{
+    switch (obj.tag) {
+        case VT_UNDEFINED: throwTypeError(caller, "cannot assign property '%s' of undefined", propName->getStr()); break;
+        case VT_NULL:      throwTypeError(caller, "cannot assign property '%s' of null", propName->getStr()); break;
+
+        case VT_OBJECT:
+        case VT_FUNCTION: obj.raw.oval->put(caller, propName, val); break;
+
+        case VT_NUMBER:
+        case VT_BOOLEAN:
+        case VT_STRINGPRIM:
+            if (JS_IS_STRICT_MODE(caller))
+                throwTypeError(caller, "cannot assign property '%s' of primitive", propName->getStr()); break;
+            break;
+        default:
+            assert(false);
+            break;
+    }
+}
+
+void putComputed (StackFrame * caller, TaggedValue obj, TaggedValue propName, TaggedValue val)
+{
+    switch (obj.tag) {
+
+        case VT_OBJECT:
+        case VT_FUNCTION: obj.raw.oval->putComputed(caller, propName, val); break;
+
+        case VT_NUMBER:
+        case VT_BOOLEAN:
+        case VT_STRINGPRIM:
+            if (JS_IS_STRICT_MODE(caller)) {
+        case VT_UNDEFINED:
+        case VT_NULL:
+                StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":putComputed", __LINE__);
+                frame.locals[0] = toString(&frame, propName);
+                throwTypeError(&frame, "cannot assign property '%s' of primitive", frame.locals[0].raw.sval->getStr());
+            }
+            break;
+        default:
+            assert(false);
+            break;
+    }
+}
+
+TaggedValue get (StackFrame * caller, TaggedValue obj, const StringPrim * propName)
+{
+    switch (obj.tag) {
+        case VT_UNDEFINED: throwTypeError(caller, "cannot read property '%s' of undefined", propName->getStr()); break;
+        case VT_NULL:      throwTypeError(caller, "cannot read property '%s' of null", propName->getStr()); break;
+
+        case VT_OBJECT:
+        case VT_FUNCTION: return obj.raw.oval->get(caller, propName->getStr()); break;
+
+        case VT_NUMBER:
+        case VT_BOOLEAN:
+        case VT_STRINGPRIM: {
+            // TODO: avoid temporary object creation
+            StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":get", __LINE__);
+            Object * o = toObject(&frame, obj);
+            frame.locals[0] = makeObjectValue(o);
+            return o->get(&frame, propName->getStr());
+        }
+        break;
+        default:
+            assert(false);
+            break;
+    }
+    return JS_UNDEFINED_VALUE;
+}
+
+TaggedValue getComputed (StackFrame * caller, TaggedValue obj, TaggedValue propName)
+{
+    switch (obj.tag) {
+        case VT_UNDEFINED:
+        case VT_NULL: {
+            StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":putComputed", __LINE__);
+            frame.locals[0] = toString(&frame, propName);
+            throwTypeError(&frame, "cannot read property '%s' of %s", frame.locals[0].raw.sval->getStr(),
+                obj.tag == VT_UNDEFINED ? "undefined" : "null"
+            );
+        }
+        break;
+
+        case VT_OBJECT:
+        case VT_FUNCTION: return obj.raw.oval->getComputed(caller, propName); break;
+
+        case VT_NUMBER:
+        case VT_BOOLEAN:
+        case VT_STRINGPRIM: {
+            // TODO: avoid temporary object creation
+            StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":get", __LINE__);
+            Object * o = toObject(&frame, obj);
+            frame.locals[0] = makeObjectValue(o);
+            return o->getComputed(&frame, propName);
+        }
+        break;
+        default:
+            assert(false);
+            break;
+    }
+    return JS_UNDEFINED_VALUE;
+}
 
 Object * toObject (StackFrame * caller, TaggedValue v)
 {

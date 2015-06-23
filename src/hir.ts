@@ -151,6 +151,11 @@ export function isImmediate (v: RValue): boolean
     return false;
 }
 
+export function isString (v: RValue): boolean
+{
+    return typeof v === "string";
+}
+
 export function isLValue (v: RValue): LValue
 {
     if (<any>v instanceof LValue)
@@ -581,8 +586,8 @@ export function isImmediateTrue (v: RValue): boolean
 
 function isNonNegativeInteger (s: string): boolean
 {
-    var n = Number(s) | 0;
-    return n === parseFloat(s) && n >= 0;
+    var n = Number(s) | 0; // convert to integer
+    return n >= 0 && String(n) === s;
 }
 
 /**
@@ -1250,6 +1255,56 @@ export class FunctionBuilder
        }
     }
 
+    private generateGet (getop: BinOp): void
+    {
+        var callerStr = "&frame, ";
+
+        if (isString(getop.src2)) {
+            var strName: string = <string>uwrapImmedate(getop.src2);
+
+            // IMPORTANT: string property names looking like integer numbers must be treated as
+            // computed properties
+            if (!isNonNegativeInteger(strName)) {
+                this.gen("  %sjs::get(%s%s, %s);\n",
+                    this.strDest(getop.dest),
+                    callerStr,
+                    this.strRValue(getop.src1), this.strStringPrim(strName)
+                );
+                return;
+            }
+        }
+
+        this.gen("  %sjs::getComputed(%s%s, %s);\n",
+            this.strDest(getop.dest),
+            callerStr,
+            this.strRValue(getop.src1), this.strRValue(getop.src2)
+        );
+    }
+
+    private generatePut (putop: PutOp): void
+    {
+        var callerStr = "&frame, ";
+
+        if (isString(putop.propName)) {
+            var strName: string = <string>uwrapImmedate(putop.propName);
+
+            // IMPORTANT: string property names looking like integer numbers must be treated as
+            // computed properties
+            if (!isNonNegativeInteger(strName)) {
+                this.gen("  js::put(%s%s, %s, %s);\n",
+                    callerStr,
+                    this.strRValue(putop.obj), this.strStringPrim(strName), this.strRValue(putop.src)
+                );
+                return;
+            }
+        }
+
+        this.gen("  js::putComputed(%s%s, %s, %s);\n",
+            callerStr,
+            this.strRValue(putop.obj), this.strRValue(putop.propName), this.strRValue(putop.src)
+        );
+    }
+
     private outCallerLine(): void
     {
         this.gen("  frame.setLine(__LINE__+1);\n");
@@ -1275,6 +1330,12 @@ export class FunctionBuilder
             case OpCode.ASSIGN:
                 var assignop = <AssignOp>inst;
                 this.gen("  %s%s;\n", this.strDest(assignop.dest), this.strRValue(assignop.src1));
+                break;
+            case OpCode.GET:
+                this.generateGet(<BinOp>inst);
+                break;
+            case OpCode.PUT:
+                this.generatePut(<PutOp>inst);
                 break;
             case OpCode.CALL:
                 // TODO: self tail-recursion optimization
