@@ -9,6 +9,7 @@ import util = require("util");
 import stream = require("stream");
 
 import StringMap = require("../lib/StringMap");
+import bmh = require("../lib/bmh");
 
 export class MemValue
 {
@@ -936,7 +937,7 @@ export class FunctionBuilder
                 this.entryBB.insertAt(instIndex++, new ClosureOp(clvar, fb));
         });
 
-        this.optimizeKnownFuncRefs();
+        this.scanAllInstructions();
 
         // For now instead of finding the lowest possible environment, just find the lowest existing one
         // TODO: scan all escaping variable accesses and determine which environment we really need
@@ -950,9 +951,12 @@ export class FunctionBuilder
     }
 
     /**
-     * Change CALLIND to CALL for all known functions.
+     * Perform operations which need to access every instruction.
+     * <ul>
+     * <li>Change CALLIND to CALL for all known functions.</li>
+     * </ul>
      */
-    private optimizeKnownFuncRefs (): void
+    private scanAllInstructions (): void
     {
         for ( var i = 0, e = this.blockList.length; i < e; ++i )
             scanBlock(this.blockList[i]);
@@ -1017,11 +1021,11 @@ export class FunctionBuilder
         }
     }
 
-    private out: NodeJS.WritableStream = null;
+    private obuf: OutputSegment = null;
 
     private gen (...params: any[])
     {
-        this.out.write(util.format.apply(null, arguments));
+        this.obuf.push(util.format.apply(null, arguments));
     }
 
     private strEnvAccess (envLevel: number): string
@@ -1075,6 +1079,14 @@ export class FunctionBuilder
         }
     }
 
+    private strStringPrim(s: string): string
+    {
+        var res = "s_strings["+this.module.addString(s)+"]";
+        if (s.length <= 20)
+            res += "/*\"" + escapeCString(s) + "\"*/";
+        return res;
+    }
+
     private strRValue (rv: RValue): string
     {
         if (<any>rv instanceof MemValue)
@@ -1087,6 +1099,8 @@ export class FunctionBuilder
             return `js::makeNumberValue(${rv})`;
         else if (typeof rv === "boolean")
             return `js::makeBooleanValue(${rv ? "true":"false"})`;
+        else if (typeof rv === "string")
+            return `js::makeStringValue(${this.strStringPrim(rv)})`;
         else
             return rv2s(rv);
     }
@@ -1204,10 +1218,10 @@ export class FunctionBuilder
             case OpCode.CLOSURE:
                 var closureop = <ClosureOp>inst;
                 this.outCallerLine();
-                this.gen("  %sjs::newFunction(&frame, %s, \"%s\", %d, %s);\n",
+                this.gen("  %sjs::newFunction(&frame, %s, %s, %d, %s);\n",
                     this.strDest(closureop.dest),
                     this.strEnvAccess(closureop.funcRef.lowestEnvAccessed),
-                    closureop.funcRef.name || "",
+                    closureop.funcRef.name ? this.strStringPrim(closureop.funcRef.name) : "NULL",
                     closureop.funcRef.params.length-1,
                     this.module.strFunc(closureop.funcRef)
                 );
@@ -1299,7 +1313,7 @@ export class FunctionBuilder
     private _generateC (): void
     {
         var gen = this.gen.bind(this);
-        gen("\n// %s\n/*static*/ js::TaggedValue %s (js::StackFrame * caller, js::Env * env, unsigned argc, const js::TaggedValue * argv)\n{\n",
+        gen("\n// %s\nstatic js::TaggedValue %s (js::StackFrame * caller, js::Env * env, unsigned argc, const js::TaggedValue * argv)\n{\n",
             this.name || "<unnamed>", this.module.strFunc(this)
         );
         gen("  js::StackFrameN<%d,%d,%d> frame(caller, env, __FILE__ \":%s\", __LINE__);\n\n",
@@ -1326,18 +1340,162 @@ export class FunctionBuilder
         gen("}\n");
     }
 
-    generateC (out: NodeJS.WritableStream): void
+    generateC (obuf: OutputSegment): void
     {
-        this.out = out;
+        this.obuf = obuf;
         try
         {
             this._generateC();
         }
         finally
         {
-            this.out = null;
+            this.obuf = null;
         }
     }
+}
+
+export class OutputSegment
+{
+    private obuf: string[] = [];
+
+    public format (...params: any[]): void
+    {
+        this.obuf.push(util.format.apply(null, arguments));
+    }
+    public push (x: string): void
+    {
+        this.obuf.push(x);
+    }
+
+    public dump (out: NodeJS.WritableStream): void
+    {
+        for ( var i = 0, e = this.obuf.length; i < e; ++i )
+            out.write(this.obuf[i]);
+    }
+}
+
+export function escapeCString (s: string): string
+{
+    return escapeCStringBuffer(new Buffer(s, "utf8")).toString("ascii");
+}
+
+function max (a: number, b: number): number
+{
+    return a > b ? a : b;
+}
+
+function min (a: number, b: number): number
+{
+    return a < b ? a : b;
+}
+
+class DynBuffer
+{
+    buf: Buffer;
+    length: number = 0;
+
+    constructor (hint: number)
+    {
+        this.buf = new Buffer(hint);
+    }
+
+    reserve (extra: number, exactly: boolean): void
+    {
+        var rlen = this.length + extra;
+        var newLength: number;
+
+        if (!exactly) {
+            if (rlen <= this.buf.length)
+                return;
+            newLength = max(this.buf.length * 2, rlen);
+        } else {
+            if (rlen === this.buf.length)
+                return;
+            newLength = rlen;
+        }
+
+        var old = this.buf;
+        this.buf = new Buffer(newLength);
+        old.copy(this.buf, 0, 0, this.length);
+    }
+
+    addBuffer (s: Buffer, from: number, to: number): void
+    {
+        this.reserve(to - from, false);
+        s.copy(this.buf, this.length, from, to);
+        this.length += to - from;
+    }
+
+    addASCIIString (s: string): void
+    {
+        this.reserve(s.length, false);
+
+        var length = this.length;
+        for ( var i = 0, e = s.length; i < e; ++i )
+            this.buf[length++] = s.charCodeAt(i);
+        this.length = length;
+    }
+}
+
+export function escapeCStringBuffer (s: Buffer, from?: number, to?: number): Buffer
+{
+    if (from === void 0)
+        from = 0;
+    if (to === void 0)
+        to = s.length;
+
+    var res: DynBuffer = null;
+    var lastIndex = from;
+
+    for ( var i = from; i < to; ++i ) {
+        var byte = s[i];
+        if (byte < 32 || byte > 127) {
+            if (!res)
+                res = new DynBuffer(to - from + 16);
+            if (lastIndex < i)
+                res.addBuffer(s, lastIndex, i);
+            lastIndex = i + 1;
+            switch (byte) { // TODO: more escapes
+                case 9:  res.addASCIIString("\\t"); break;
+                case 10: res.addASCIIString("\\n"); break;
+                case 13: res.addASCIIString("\\r"); break;
+                default: res.addASCIIString(util.format("\\%d%d%d", byte/64&7, byte/8&7, byte&7)); break;
+            }
+        }
+    }
+    if (res !== null) {
+        res.reserve(i - lastIndex, true)
+        if (lastIndex < i)
+            res.addBuffer(s, lastIndex, i);
+        return res.buf;
+    }
+    else {
+        if (from !== 0 || to !== s.length)
+            return s.slice(from, to);
+        else
+            return s;
+    }
+}
+
+
+function bufferIndexOf (haystack: Buffer, haystackLen: number, needle: Buffer, startIndex: number = 0): number
+{
+    // TODO: full Boyer-Moore, etc
+    // see http://stackoverflow.com/questions/3183582/what-is-the-fastest-substring-search-algorithm
+    var needleLen = needle.length;
+
+    // Utilize Boyer-Moore-Harspool for needles much smaller than the haystack
+    if (needleLen >= 8 && haystackLen - startIndex - needleLen > 1000)
+        return bmh.search(haystack, startIndex, haystackLen, needle);
+
+    for ( var i = 0, e = haystackLen - needleLen + 1; i < e; ++i ) {
+        var j: number;
+        for ( j = 0; j < needleLen && haystack[i+j] === needle[j]; ++j )
+        {}
+        if (j === needleLen)
+            return i;
+    }
+    return -1;
 }
 
 export class ModuleBuilder
@@ -1348,12 +1506,25 @@ export class ModuleBuilder
     /** Headers added with the __asmh__ compiler extension */
     private asmHeaders : string[] = [];
     private asmHeadersSet = new StringMap<Object>();
+    private strings : string[] = [];
+    private stringMap = new StringMap<number>();
+    private codeSeg = new OutputSegment();
 
     addAsmHeader (h: string) {
         if (!this.asmHeadersSet.has(h)) {
             this.asmHeadersSet.set(h, null);
             this.asmHeaders.push(h);
         }
+    }
+
+    addString (s: string): number {
+        var n: number;
+        if ( (n = this.stringMap.get(s)) === void 0) {
+            n = this.strings.length;
+            this.strings.push(s);
+            this.stringMap.set(s, n);
+        }
+        return n;
     }
 
     newFunctionId (): number
@@ -1379,23 +1550,89 @@ export class ModuleBuilder
         return util.format("fn%d", fref.id);
     }
 
-    private out: NodeJS.WritableStream = null;
-
     private gen (...params: any[])
     {
-        this.out.write(util.format.apply(null, arguments));
+        this.codeSeg.push(util.format.apply(null, arguments));
     }
 
-    private _generateC (): void
+    private outputStringStorage (out: NodeJS.WritableStream): void
     {
-        if (!this.topLevel)
+        if (!this.strings.length)
             return;
+        /* TODO: to generalized suffix tree mapping.
+          Something like this?
+          - sort strings in decreasing length
+          - start with an empty string buffer
+          - for each string
+             - if found in the string buffer use that position
+             - append to the string buffer
+        */
+        var index: number[] = new Array<number>(this.strings.length);
+        var offsets: number[] = new Array<number>(this.strings.length);
+        var lengths: number[] = new Array<number>(this.strings.length);
 
-        var gen = this.gen.bind(this);
-        gen("#include <jsc/runtime.h>\n");
-        // Generate the headers added with __asmh__
-        this.asmHeaders.forEach((h: string) => gen("%s\n", h));
-        gen("\n");
+        // Sort the strings in decreasing length
+        var e = this.strings.length;
+        var i : number;
+        var totalLength = 0; // the combined length of all strings as initial guess for our buffer
+        for ( i = 0; i < e; ++i ) {
+            index[i] = i;
+            totalLength += this.strings[i].length;
+        }
+
+        index.sort( (a: number, b:number) => this.strings[b].length - this.strings[a].length);
+
+        var buf = new DynBuffer(totalLength);
+
+        for ( i = 0; i < e; ++i ) {
+            var ii = index[i];
+            var s = this.strings[ii];
+            var encoded = new Buffer(s, "utf8");
+            var pos: number = bufferIndexOf(buf.buf, buf.length, encoded);
+
+            if (pos < 0) { // Append to the buffer
+                pos = buf.length;
+                buf.addBuffer(encoded, 0, encoded.length);
+            }
+
+            offsets[ii] = pos;
+            lengths[ii] = encoded.length;
+        }
+
+        out.write(util.format("static const js::StringPrim * s_strings[%d];\n", this.strings.length));
+        out.write("static const char s_strconst[] =\n");
+        var line: string;
+        var margin = 72;
+
+        for ( var ofs = 0; ofs < buf.length; )
+        {
+            var to = min(buf.length, ofs + margin);
+            line = "  \"" + escapeCStringBuffer(buf.buf, ofs, to) + "\"";
+            if (to == buf.length)
+                line += ";";
+            line += "\n";
+            out.write(line);
+            ofs = to;
+        }
+
+        line = util.format("static const unsigned s_strofs[%d] = {", this.strings.length*2);
+
+        for ( var i = 0; i < this.strings.length; ++i ) {
+            var t = util.format("%d,%d", offsets[i], lengths[i]);
+            if (line.length + t.length + 1 > margin) {
+                out.write(line += i > 0 ? ",\n" : "\n");
+                line = "  "+t;
+            } else {
+                line += i > 0 ? "," + t : t;
+            }
+        }
+        line += "};\n\n";
+        out.write(line);
+    }
+
+    generateC (out: NodeJS.WritableStream): void
+    {
+        var moduleFunc = this.topLevel.closures[0];
 
         var forEachFunc = (fb: FunctionBuilder, cb: (fb: FunctionBuilder)=>void) => {
             if (fb !== this.topLevel)
@@ -1404,21 +1641,49 @@ export class ModuleBuilder
         };
 
         forEachFunc(this.topLevel, (fb) => {
-            gen("/*static*/ js::TaggedValue %s (js::StackFrame*, js::Env*, unsigned, const js::TaggedValue*); // %s\n",
+            this.gen("static js::TaggedValue %s (js::StackFrame*, js::Env*, unsigned, const js::TaggedValue*); // %s\n",
                 this.strFunc(fb), fb.name || "<unnamed>"
             );
         });
-        gen("\n");
-        forEachFunc(this.topLevel, (fb) => fb.generateC(this.out));
-    }
+        this.gen("\n");
+        forEachFunc(this.topLevel, (fb) => fb.generateC(this.codeSeg));
 
-    generateC (out: NodeJS.WritableStream): void
-    {
-        this.out = out;
-        try {
-            this._generateC();
-        } finally {
-            this.out = null;
+        this.gen(
+`
+int main()
+{
+    js::g_runtime = new js::Runtime();
+    js::StackFrameN<0, 1, 0> frame(NULL, NULL, __FILE__ ":main", __LINE__);
+`
+        );
+        if (this.strings.length > 0) {
+            this.gen(util.format(
+                "    JS_GET_RUNTIME(&frame)->initStrings(&frame, s_strings, s_strconst, s_strofs, %d);",
+                this.strings.length
+            ));
         }
+
+        this.gen(
+`
+    frame.setLine(__LINE__+1);
+    frame.locals[0] = js::makeObjectValue(new(&frame) js::Object(JS_GET_RUNTIME(&frame)->objectPrototype));
+    frame.setLine(__LINE__+1);
+    fn1(&frame, JS_GET_RUNTIME(&frame)->env, 1, frame.locals);
+
+    if (JS_GET_RUNTIME(&frame)->diagFlags & (js::Runtime::DIAG_HEAP_GC | js::Runtime::DIAG_FORCE_GC))
+        js::forceGC(&frame);
+
+    return 0;
+}`
+        );
+
+        out.write(util.format("#include <jsc/runtime.h>\n"));
+        // Generate the headers added with __asmh__
+        this.asmHeaders.forEach((h: string) => out.write(util.format("%s\n", h)));
+        out.write("\n");
+
+        this.outputStringStorage(out);
+
+        this.codeSeg.dump(out);
     }
 }
