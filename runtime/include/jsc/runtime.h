@@ -586,7 +586,7 @@ TaggedValue newFunction (StackFrame * caller, Env * env, const StringPrim * name
 void throwTypeError (StackFrame * caller, const char * str, ...) JS_NORETURN;
 
 bool isCallable (TaggedValue val);
-TaggedValue callFunction (StackFrame * caller, TaggedValue value, unsigned argc, const TaggedValue * argv);
+TaggedValue call(StackFrame * caller, TaggedValue value, unsigned argc, const TaggedValue * argv);
 
 /**
  * Returns the integer if the value is a non-negative integer, otherwise -1

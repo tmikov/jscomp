@@ -660,7 +660,7 @@ bool isCallable (TaggedValue v)
     return isValueTagObject((ValueTag)v.tag) && v.raw.oval->isCallable();
 }
 
-TaggedValue callFunction (StackFrame * caller, TaggedValue value, unsigned argc, const TaggedValue * argv)
+TaggedValue call (StackFrame * caller, TaggedValue value, unsigned argc, const TaggedValue * argv)
 {
     if (isValueTagObject((ValueTag)value.tag))
         return value.raw.oval->call(caller, argc, argv);
