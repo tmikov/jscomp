@@ -118,7 +118,7 @@ export var nullValue = new SpecialConstantClass("null");
 export var undefinedValue = new SpecialConstantClass("undefined");
 export var nullReg = new NullReg(0);
 
-export function uwrapImmedate (v: RValue): any
+export function unwrapImmedate (v: RValue): any
 {
     if (v === nullValue)
         return null;
@@ -548,8 +548,8 @@ export function foldBinary (op: OpCode, v1: RValue, v2: RValue): RValue
 {
     if (!isImmediate(v1) || !isImmediate(v2))
         return null;
-    var a1: any = uwrapImmedate(v1);
-    var a2: any = uwrapImmedate(v2);
+    var a1: any = unwrapImmedate(v1);
+    var a2: any = unwrapImmedate(v2);
     var r: any;
     switch (op) {
         case OpCode.STRICT_EQ: r = a1 === a2; break;
@@ -581,7 +581,7 @@ export function foldBinary (op: OpCode, v1: RValue, v2: RValue): RValue
 export function isImmediateTrue (v: RValue): boolean
 {
     assert(isImmediate(v));
-    return !!uwrapImmedate(v);
+    return !!unwrapImmedate(v);
 }
 
 function isNonNegativeInteger (s: string): boolean
@@ -600,7 +600,7 @@ export function foldUnary (op: OpCode, v: RValue): RValue
 {
     if (!isImmediate(v))
         return null;
-    var a: any = uwrapImmedate(v);
+    var a: any = unwrapImmedate(v);
     var r: any;
     switch (op) {
         case OpCode.NEG_N:     r = -a; break;
@@ -1160,7 +1160,7 @@ export class FunctionBuilder
     {
         var callerStr: string = "&frame, ";
         if (isImmediate(rv)) {
-            var n = Number(uwrapImmedate(rv));
+            var n = Number(unwrapImmedate(rv));
             if (isNaN(n))
                 return "NAN";
             else if (!isFinite(n))
@@ -1175,7 +1175,7 @@ export class FunctionBuilder
     {
         var callerStr: string = "&frame, ";
         return isImmediate(rv) ?
-            util.format("%d", uwrapImmedate(rv)|0) :
+            util.format("%d", unwrapImmedate(rv)|0) :
             util.format("js::toInt32(%s%s)", callerStr, this.strRValue(rv));
     }
 
@@ -1185,7 +1185,7 @@ export class FunctionBuilder
      */
     private strUnwrapN (rv: RValue): string
     {
-        return isImmediate(rv) ? String(uwrapImmedate(rv)) : util.format("%s.raw.nval", this.strRValue(rv));
+        return isImmediate(rv) ? String(unwrapImmedate(rv)) : util.format("%s.raw.nval", this.strRValue(rv));
     }
 
     private outNumericBinop (binop: BinOp, coper: string): void
@@ -1260,7 +1260,7 @@ export class FunctionBuilder
         var callerStr = "&frame, ";
 
         if (isString(getop.src2)) {
-            var strName: string = <string>uwrapImmedate(getop.src2);
+            var strName: string = <string>unwrapImmedate(getop.src2);
 
             // IMPORTANT: string property names looking like integer numbers must be treated as
             // computed properties
@@ -1286,7 +1286,7 @@ export class FunctionBuilder
         var callerStr = "&frame, ";
 
         if (isString(putop.propName)) {
-            var strName: string = <string>uwrapImmedate(putop.propName);
+            var strName: string = <string>unwrapImmedate(putop.propName);
 
             // IMPORTANT: string property names looking like integer numbers must be treated as
             // computed properties
