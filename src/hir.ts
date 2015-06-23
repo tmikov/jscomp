@@ -579,6 +579,12 @@ export function isImmediateTrue (v: RValue): boolean
     return !!uwrapImmedate(v);
 }
 
+function isNonNegativeInteger (s: string): boolean
+{
+    var n = Number(s) | 0;
+    return n === parseFloat(s) && n >= 0;
+}
+
 /**
  *
  * @param op
@@ -1148,7 +1154,24 @@ export class FunctionBuilder
     private strToNumber (rv: RValue): string
     {
         var callerStr: string = "&frame, ";
-        return isImmediate(rv) ? String(uwrapImmedate(rv)) : util.format("js::toNumber(%s%s)", callerStr, this.strRValue(rv));
+        if (isImmediate(rv)) {
+            var n = Number(uwrapImmedate(rv));
+            if (isNaN(n))
+                return "NAN";
+            else if (!isFinite(n))
+                return n > 0 ? "INFINITY" : "-INFINITY";
+            else
+                return String(n);
+        } else {
+            return util.format("js::toNumber(%s%s)", callerStr, this.strRValue(rv));
+        }
+    }
+    private strToInt32 (rv: RValue): string
+    {
+        var callerStr: string = "&frame, ";
+        return isImmediate(rv) ?
+            util.format("%d", uwrapImmedate(rv)|0) :
+            util.format("js::toInt32(%s%s)", callerStr, this.strRValue(rv));
     }
 
     /**
@@ -1164,6 +1187,12 @@ export class FunctionBuilder
     {
         this.gen("  %sjs::makeNumberValue(%s %s %s);\n", this.strDest(binop.dest),
             this.strToNumber(binop.src1), coper, this.strToNumber(binop.src2));
+    }
+
+    private outIntegerBinop (binop: BinOp, coper: string): void
+    {
+        this.gen("  %sjs::makeNumberValue(%s %s %s);\n", this.strDest(binop.dest),
+            this.strToInt32(binop.src1), coper, this.strToInt32(binop.src2));
     }
 
     /**
@@ -1188,6 +1217,20 @@ export class FunctionBuilder
             case OpCode.ADD_N: this.outNumericBinop(binop, "+"); break;
             case OpCode.SUB_N: this.outNumericBinop(binop, "-"); break;
             case OpCode.MUL_N: this.outNumericBinop(binop, "*"); break;
+            case OpCode.DIV_N: this.outNumericBinop(binop, "/"); break;
+            case OpCode.MOD_N:
+                this.gen("  %sjs::makeNumberValue(fmod(%s, %s);\n", this.strDest(binop.dest),
+                    this.strToNumber(binop.src1), this.strToNumber(binop.src2));
+                break;
+            case OpCode.SHL_N: this.outIntegerBinop(binop, "<<"); break;
+            case OpCode.SHR_N:
+                this.gen("  %sjs::makeNumberValue((uint32_t)%s %s (int32_t)%s);\n", this.strDest(binop.dest),
+                    this.strToInt32(binop.src1), ">>", this.strToInt32(binop.src2));
+                break;
+            case OpCode.ASR_N: this.outIntegerBinop(binop, ">>"); break;
+            case OpCode.OR_N: this.outIntegerBinop(binop, "|"); break;
+            case OpCode.XOR_N: this.outIntegerBinop(binop, "^"); break;
+            case OpCode.AND_N: this.outIntegerBinop(binop, "&"); break;
 
             default:
                 this.generateBinopOutofline(binop);

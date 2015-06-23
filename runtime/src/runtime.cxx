@@ -4,7 +4,6 @@
 
 #include "jsc/runtime.h"
 
-#include <math.h>
 #include <assert.h>
 #include <stdarg.h>
 
@@ -727,10 +726,7 @@ double primToNumber (TaggedValue v)
 
 int32_t toInt32 (StackFrame * caller, TaggedValue v)
 {
-    double num = toNumber(caller, v);
-    if (isnan(num) || isinf(num) || !num)
-        return 0;
-    return (int32_t)num;
+    return toInt32(toNumber(caller, v));
 }
 
 TaggedValue concatString (StackFrame * caller, StringPrim * a, StringPrim * b)

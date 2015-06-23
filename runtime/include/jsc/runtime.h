@@ -2,11 +2,12 @@
 // Licensed under the Apache License v2.0. See LICENSE in the project
 // root for complete license information.
 
+#include <stdlib.h>
+#include <string.h>
+#include <math.h>
 #include <map>
 #include <vector>
 #include <string>
-#include <stdlib.h>
-#include <string.h>
 #include <new>
 
 //#define JS_DEBUG
@@ -577,6 +578,10 @@ double toNumber (const StringPrim * str);
 double toNumber (StackFrame * caller, TaggedValue v);
 double primToNumber (TaggedValue v);
 int32_t toInt32 (StackFrame * caller, TaggedValue v);
+inline int32_t toInt32 (double num)
+{
+    return isnan(num) || isinf(num) ? 0 : (int32_t)num;
+}
 TaggedValue toString (StackFrame * caller, double n);
 TaggedValue toString (StackFrame * caller, TaggedValue v);
 
