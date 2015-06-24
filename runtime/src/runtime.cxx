@@ -89,7 +89,7 @@ Property * Object::getProperty (const char * name)
     do {
         if (Property * p = cur->getOwnProperty(name))
             return p;
-    } while ((cur = this->parent) != NULL);
+    } while ((cur = cur->parent) != NULL);
     return NULL;
 }
 
@@ -139,7 +139,7 @@ void Object::put (StackFrame * caller, const StringPrim * name, TaggedValue v)
                 }
             }
         }
-    } while ((cur = this->parent) != NULL);
+    } while ((cur = cur->parent) != NULL);
 
     if (this->flags & OF_NOEXTEND)
         goto cannotWrite;
