@@ -197,6 +197,7 @@ export const enum OpCode
 {
     // Special
     CLOSURE,
+    CREATE,
     ASM,
 
     // Binary
@@ -273,6 +274,7 @@ export const enum OpCode
 var g_opcodeName: string[] = [
     // Special
     "CLOSURE",
+    "CREATE",
     "ASM",
 
     // Binary
@@ -411,7 +413,7 @@ class ClosureOp extends Instruction {
 class BinOp extends Instruction {
     constructor (op: OpCode, public dest: LValue, public src1: RValue, public src2: RValue) { super(op); }
     toString (): string {
-        if (this.src2)
+        if (this.src2 !== null)
             return `${rv2s(this.dest)} = ${oc2s(this.op)}(${rv2s(this.src1)}, ${rv2s(this.src2)})`;
         else
             return `${rv2s(this.dest)} = ${oc2s(this.op)}(${rv2s(this.src1)})`;
@@ -849,6 +851,10 @@ export class FunctionBuilder
 
         this.getBB().push(new UnOp(op, dest, src));
     }
+    genCreate(dest: LValue, src: RValue = null): void
+    {
+        this.getBB().push(new UnOp(OpCode.CREATE, dest, src));
+    }
     genAssign(dest: LValue, src: RValue): void
     {
         if (dest === src)
@@ -1129,6 +1135,17 @@ export class FunctionBuilder
             return "";
     }
 
+    private outCreate (createOp: UnOp): void
+    {
+        if (createOp.src1 === null) {
+            this.gen("  %sjs::makeObjectValue(new (&frame) js::Object(JS_GET_RUNTIME(&frame)->objectPrototype));\n",
+                this.strDest(createOp.dest)
+            );
+        } else {
+            assert(false);
+        }
+    }
+
     private generateAsm (asm: AsmOp): void
     {
         this.gen("{");
@@ -1324,19 +1341,15 @@ export class FunctionBuilder
                     this.module.strFunc(closureop.funcRef)
                 );
                 break;
-            case OpCode.ASM:
-                this.generateAsm(<AsmOp>inst);
-                break;
+            case OpCode.CREATE: this.outCreate(<UnOp>inst); break;
+            case OpCode.ASM:    this.generateAsm(<AsmOp>inst); break;
+
             case OpCode.ASSIGN:
                 var assignop = <AssignOp>inst;
                 this.gen("  %s%s;\n", this.strDest(assignop.dest), this.strRValue(assignop.src1));
                 break;
-            case OpCode.GET:
-                this.generateGet(<BinOp>inst);
-                break;
-            case OpCode.PUT:
-                this.generatePut(<PutOp>inst);
-                break;
+            case OpCode.GET: this.generateGet(<BinOp>inst); break;
+            case OpCode.PUT: this.generatePut(<PutOp>inst); break;
             case OpCode.CALL:
                 // TODO: self tail-recursion optimization
                 var callop = <CallOp>inst;

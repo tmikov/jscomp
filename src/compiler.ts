@@ -1056,11 +1056,7 @@ export function compile (
                 });
                 break;
             case "ObjectExpression":
-                var objectExpression: ESTree.ObjectExpression = NT.ObjectExpression.cast(e);
-                objectExpression.properties.forEach((prop: ESTree.Property) => {
-                    compileSubExpression(scope, prop.value);
-                });
-                break;
+                return compileObjectExpression(scope, NT.ObjectExpression.cast(e), need, onTrue, onFalse);
             case "FunctionExpression":
                 return toLogical(
                     scope, e, compileFunctionExpression(scope, NT.FunctionExpression.cast(e), need),
@@ -1176,6 +1172,43 @@ export function compile (
     function compileThisExpression (scope: Scope, thisExp: ESTree.ThisExpression, need: boolean): hir.RValue
     {
         return need ? scope.ctx.thisParam : null;
+    }
+
+    function compileObjectExpression (
+        scope: Scope, e: ESTree.ObjectExpression, need: boolean, onTrue: hir.Label, onFalse: hir.Label
+    ): hir.RValue
+    {
+        var ctx = scope.ctx;
+
+        if (!need || onTrue) {
+            warning(location(e), onTrue ? "condition is always true" : "unused object expression");
+
+            e.properties.forEach((prop: ESTree.Property) => {
+                compileSubExpression(scope, prop.value, false, null, null);
+            });
+
+            if (onTrue)
+                ctx.builder.genGoto(onTrue);
+
+            return null;
+        }
+
+        var dest = ctx.allocTemp();
+        ctx.builder.genCreate(dest);
+
+        e.properties.forEach((prop: ESTree.Property) => {
+            var propName: hir.RValue;
+            if (prop.computed)
+                propName = compileSubExpression(scope, prop.key);
+            else
+                propName = hir.wrapImmediate(NT.Identifier.cast(prop.key).name);
+            var val = compileSubExpression(scope, prop.value, true, null, null);
+            ctx.releaseTemp(val);
+            ctx.releaseTemp(propName);
+            ctx.builder.genPropSet(dest, propName, val);
+        });
+
+        return dest;
     }
 
     function findVariable (scope: Scope, identifier: ESTree.Identifier, need: boolean): Variable
