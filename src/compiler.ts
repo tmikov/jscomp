@@ -179,7 +179,7 @@ class FunctionContext
     strictMode: boolean;
 
     funcScope: Scope;
-    thisParam: Variable;
+    thisParam: Variable = null;
     argumentsVar: Variable;
 
     labelList: Label = null;
@@ -197,11 +197,6 @@ class FunctionContext
 
         this.strictMode = parent && parent.strictMode;
         this.funcScope = new Scope(this, parentScope);
-
-        // Generate a param binding for 'this'
-        this.thisParam = this.funcScope.newVariable("this", this.builder.newParam("this").variable);
-        this.thisParam.declared = true;
-        this.thisParam.initialized = true;
 
         this.argumentsVar = this.funcScope.newVariable("arguments");
         this.argumentsVar.declared = true;
@@ -553,6 +548,12 @@ export function compile (
 
         // Declare the parameters
         // Create a HIR param+var binding for each of them
+        // First, "this"
+        var param = funcCtx.builder.newParam("this");
+        funcCtx.thisParam = funcScope.newVariable("this", param.variable);
+        funcCtx.thisParam.initialized = true;
+        funcCtx.thisParam.declared = true;
+
         ast.params.forEach( (pat: ESTree.Pattern): void => {
             var ident = NT.Identifier.cast(pat);
 
@@ -1171,7 +1172,13 @@ export function compile (
 
     function compileThisExpression (scope: Scope, thisExp: ESTree.ThisExpression, need: boolean): hir.RValue
     {
-        return need ? scope.ctx.thisParam : null;
+        var variable = scope.ctx.thisParam;
+        if (need) {
+            variable.accessed = true;
+            return variable.hvar;
+        } else {
+            return null;
+        }
     }
 
     function compileObjectExpression (

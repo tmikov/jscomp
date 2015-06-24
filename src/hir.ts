@@ -1082,7 +1082,10 @@ export class FunctionBuilder
                 return this.strEscapingVar(lv);
         }
         else if (lv instanceof Param) {
-            return `(argc > ${lv.index} ? argv[${lv.index}] : JS_UNDEFINED_VALUE)`;
+            if (lv.index === 0)
+                return `argv[${lv.index}]`; // "this" is always available
+            else
+                return `(argc > ${lv.index} ? argv[${lv.index}] : JS_UNDEFINED_VALUE)`;
         }
         else if (lv instanceof ArgSlot) {
             return this.strMemValue(lv.local);
