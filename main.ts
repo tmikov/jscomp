@@ -13,16 +13,20 @@ function printSyntax (): void
 {
     console.error(
 "syntax: jscomp [options] filename\n"+
-"   -h                this help\n"+
-"   --dump-ast        dump AST\n"+
-"   --dump-hir        dump HIR\n"+
-"   --strict-mode     (default) enable strict mode\n"+
-"   --no-strict-mode  disable strict mode\n"+
-"   -g                enable debug\n"+
-"   -c                compile only (do not link)\n"+
-"   -S                compile to C source\n"+
-"   -o filename       output file\n"+
-"   -v                verbose\n"
+"   -h                     this help\n"+
+"   --dump-ast             dump AST\n"+
+"   --dump-hir             dump HIR\n"+
+"   --strict-mode          (default) enable strict mode\n"+
+"   --no-strict-mode       disable strict mode\n"+
+"   -g                     enable debug\n"+
+"   -c                     compile only (do not link)\n"+
+"   -S                     compile to C source\n"+
+"   -o filename            output file\n"+
+"   -v                     verbose\n"+
+"   --runtime-inc-dir dir  set directory of runtime includes\n"+
+"   --runtime-lib-dir dir  set directory of runtime libraries\n"+
+"   -I dir                 additional include directories for the C/C++ compiler\n"+
+"   -L dir                 additional library directories for the C/C++ compiler\n"
     );
 }
 
@@ -75,9 +79,20 @@ function main (argv: string[]): void
                 case "-S": options.sourceOnly = true; break;
                 case "-v": options.verbose = true; break;
                 default:
-                    if (startsWith(arg, "-o")) { options.outputName = needArgument("-o"); break; }
-                    console.error("error: unknown option '%s'", arg);
-                    process.exit(1);
+                    if (startsWith(arg, "-o"))
+                        options.outputName = needArgument("-o");
+                    else if (startsWith(arg, "--runtime-inc-dir"))
+                        options.runtimeIncDir = needArgument("--runtime-inc-dir");
+                    else if (startsWith(arg, "--runtime-lib-dir"))
+                        options.runtimeLibDir = needArgument("--runtime-lib-dir");
+                    else if (startsWith(arg, "-I"))
+                        options.includeDirs.push(needArgument("-I"));
+                    else if (startsWith(arg, "-L"))
+                        options.libDirs.push(needArgument("-L"));
+                    else {
+                        console.error("error: unknown option '%s'", arg);
+                        process.exit(1);
+                    }
                     break;
             }
         } else {
@@ -88,6 +103,12 @@ function main (argv: string[]): void
             fname = arg;
         }
     }
+
+    // Default values for options
+    if (!options.runtimeIncDir)
+        options.runtimeIncDir = "runtime/include";
+    if (!options.runtimeLibDir)
+        options.runtimeLibDir = options.debug ? "runtime/debug" : "runtime/release";
 
     if (!fname) {
         console.error("error: no filename specified");

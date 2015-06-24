@@ -35,6 +35,10 @@ export class Options
     sourceOnly = false;
     outputName: string = null;
     verbose = false;
+    runtimeIncDir: string = null;
+    runtimeLibDir: string = null;
+    includeDirs: string[] = [];
+    libDirs: string[] = [];
 }
 
 class NT<T extends ESTree.Node>
@@ -475,7 +479,11 @@ export function compile (
                 cflags = process.env["CFLAGS"].split(" ");
 
             var args: string[] = [];
-            args.push("-Iruntime/include");
+
+            if (m_options.runtimeIncDir)
+                args.push("-I" + m_options.runtimeIncDir);
+            m_options.includeDirs.forEach((d) => args.push("-I"+d));
+
             args.push("-xc++", "--std=c++11");
             if (cflags.length > 0) {
                 args = args.concat(cflags);
@@ -488,10 +496,14 @@ export function compile (
             if (m_options.debug)
                 args.push("-DJS_DEBUG");
 
-            if (m_options.compileOnly)
+            if (m_options.compileOnly) {
                 args.push("-c");
-            else
-                args.push("-Lruntime/build", "-ljsruntime");
+            } else {
+                if (m_options.runtimeLibDir)
+                    args.push("-L"+m_options.runtimeLibDir);
+                m_options.libDirs.forEach((d) => args.push("-L"+d));
+                args.push("-ljsruntime");
+            }
             args.push("-o", outName);
             args.push("-");
 
