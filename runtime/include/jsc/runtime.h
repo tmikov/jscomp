@@ -42,15 +42,15 @@ enum ValueTag
     VT_UNDEFINED, VT_NULL, VT_BOOLEAN, VT_NUMBER, VT_STRINGPRIM, VT_MEMORY, VT_OBJECT, VT_FUNCTION,
 };
 
-inline bool isValueTagPointer (ValueTag t)
+inline bool isValueTagPointer (unsigned t)
 {
     return t >= VT_STRINGPRIM;
 }
-inline bool isValueTagPrimitive (ValueTag t)
+inline bool isValueTagPrimitive (unsigned t)
 {
     return t <= VT_STRINGPRIM;
 }
-inline bool isValueTagObject (ValueTag t)
+inline bool isValueTagObject (unsigned t)
 {
     return t >= VT_OBJECT;
 }
@@ -515,7 +515,7 @@ inline Runtime * getRuntime (StackFrame * frame) { return g_runtime; }
 
 inline bool markValue (IMark * marker, unsigned markBit, const TaggedValue & value)
 {
-    if (isValueTagPointer((ValueTag)value.tag) && (value.raw.mval->header & Memory::MARK_BIT_MASK) != markBit)
+    if (isValueTagPointer(value.tag) && (value.raw.mval->header & Memory::MARK_BIT_MASK) != markBit)
         return marker->_mark(value.raw.oval);
     else
         return true;
@@ -581,6 +581,7 @@ inline TaggedValue makeInternStringValue (StackFrame * caller, const char * str)
     return makeStringValue(JS_GET_RUNTIME(caller)->internString(caller, str));
 }
 
+Object * objectCreate (StackFrame * caller, TaggedValue parent);
 TaggedValue newFunction (StackFrame * caller, Env * env, const StringPrim * name, unsigned length, CodePtr code);
 
 void throwTypeError (StackFrame * caller, const char * str, ...) JS_NORETURN;
@@ -620,7 +621,8 @@ TaggedValue toString (StackFrame * caller, double n);
 TaggedValue toString (StackFrame * caller, TaggedValue v);
 
 TaggedValue concatString (StackFrame * caller, StringPrim * a, StringPrim * b);
-bool less (StringPrim * a, StringPrim * b);
+bool less (const StringPrim * a, const StringPrim * b);
+bool equal (const StringPrim * a, const StringPrim * b);
 
 // Operators
 TaggedValue operator_STRICT_EQ (TaggedValue a, TaggedValue b);
@@ -641,9 +643,7 @@ TaggedValue operator_TO_NUMBER (StackFrame * caller, TaggedValue a);
 
 bool operator_IF_TRUE (TaggedValue a);
 bool operator_IF_STRICT_EQ (TaggedValue a, TaggedValue b);
-bool operator_IF_STRICT_NE (TaggedValue a, TaggedValue b);
 bool operator_IF_LOOSE_EQ (TaggedValue a, TaggedValue b);
-bool operator_IF_LOOSE_NE (TaggedValue a, TaggedValue b);
 bool operator_IF_LT (StackFrame * caller, TaggedValue x, TaggedValue y);
 bool operator_IF_LE (StackFrame * caller, TaggedValue x, TaggedValue y);
 bool operator_IF_GT (StackFrame * caller, TaggedValue x, TaggedValue y);

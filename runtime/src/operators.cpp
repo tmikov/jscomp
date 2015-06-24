@@ -42,10 +42,22 @@ TaggedValue operator_DELETE (TaggedValue a);
 TaggedValue operator_TO_NUMBER (StackFrame * caller, TaggedValue a);
 
 bool operator_IF_TRUE (TaggedValue a);
-bool operator_IF_STRICT_EQ (TaggedValue a, TaggedValue b);
-bool operator_IF_STRICT_NE (TaggedValue a, TaggedValue b);
+
+bool operator_IF_STRICT_EQ (TaggedValue a, TaggedValue b)
+{
+    if (a.tag != b.tag)
+        return false;
+    switch (a.tag) {
+        case VT_UNDEFINED:
+        case VT_NULL: return true;
+        case VT_BOOLEAN: return a.raw.bval == b.raw.bval;
+        case VT_NUMBER: return a.raw.nval == b.raw.nval;
+        case VT_STRINGPRIM: return equal(a.raw.sval, b.raw.sval);
+        default: return a.raw.mval == b.raw.mval;
+    }
+}
+
 bool operator_IF_LOOSE_EQ (TaggedValue a, TaggedValue b);
-bool operator_IF_LOOSE_NE (TaggedValue a, TaggedValue b);
 
 #define MAKE_IF_REL(NAME, LESS, CMP) \
     bool operator_IF_ ## NAME (StackFrame * caller, TaggedValue x, TaggedValue y)\

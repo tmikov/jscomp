@@ -203,7 +203,7 @@ preferString:
     frame.locals[0] = get(&frame, "toString");
     if (js::isCallable(frame.locals[0])) {
         tmp = frame.locals[0].raw.oval->call(&frame, 1, &frame.locals[1]);
-        if (isValueTagPrimitive((ValueTag)tmp.tag))
+        if (isValueTagPrimitive(tmp.tag))
             return tmp;
     }
     if (preferredType == VT_NUMBER)
@@ -213,7 +213,7 @@ preferNumber:
     frame.locals[0] = get(&frame, "valueOf");
     if (js::isCallable(frame.locals[0])) {
         tmp = frame.locals[0].raw.oval->call(&frame, 1, &frame.locals[1]);
-        if (isValueTagPrimitive((ValueTag)tmp.tag))
+        if (isValueTagPrimitive(tmp.tag))
             return tmp;
     }
     if (preferredType == VT_NUMBER)
@@ -623,6 +623,22 @@ void Runtime::initStrings (
         prims[i] = internString(caller, strconst + offsets[i<<1], offsets[(i<<1)+1]);
 }
 
+/**
+ * @throws if parent is not an object or null
+ */
+Object * objectCreate (StackFrame * caller, TaggedValue parent)
+{
+    Object * p;
+    if (isValueTagObject(parent.tag))
+        p = parent.raw.oval;
+    else if (parent.tag == VT_NULL)
+        p = NULL;
+    else
+        throwTypeError(caller, "Object prototype may only be an Object or null");
+
+    return new (caller) Object(p);
+}
+
 TaggedValue newFunction (StackFrame * caller, Env * env, const StringPrim * name, unsigned length, CodePtr code)
 {
     StackFrameN<0, 2, 0> frame(caller, env, __FILE__ ":newFunction", __LINE__);
@@ -657,12 +673,12 @@ void throwTypeError (StackFrame *, const char * msg, ...)
 
 bool isCallable (TaggedValue v)
 {
-    return isValueTagObject((ValueTag)v.tag) && v.raw.oval->isCallable();
+    return isValueTagObject(v.tag) && v.raw.oval->isCallable();
 }
 
 TaggedValue call (StackFrame * caller, TaggedValue value, unsigned argc, const TaggedValue * argv)
 {
-    if (isValueTagObject((ValueTag)value.tag))
+    if (isValueTagObject(value.tag))
         return value.raw.oval->call(caller, argc, argv);
 
     throwTypeError(caller, "not a function");
@@ -784,7 +800,7 @@ Object * toObject (StackFrame * caller, TaggedValue v)
         case VT_NUMBER:     return new (caller) Number(JS_GET_RUNTIME(caller)->numberPrototype, v);
         case VT_STRINGPRIM: return new (caller) String(JS_GET_RUNTIME(caller)->stringPrototype, v);
         default:
-            assert(isValueTagObject((ValueTag)v.tag));
+            assert(isValueTagObject(v.tag));
             return v.raw.oval;
     }
 }
@@ -897,9 +913,14 @@ TaggedValue concatString (StackFrame * caller, StringPrim * a, StringPrim * b)
     return makeStringValue(res);
 }
 
-bool less (StringPrim * a, StringPrim * b)
+bool less (const StringPrim * a, const StringPrim * b)
 {
     return strcmp(a->getStr(), b->getStr()) < 0; // FIXME: UTF-8
+}
+
+bool equal (const StringPrim * a, const StringPrim * b)
+{
+    return a == b || strcmp(a->getStr(), b->getStr()) == 0;
 }
 
 

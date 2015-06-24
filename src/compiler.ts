@@ -1096,12 +1096,7 @@ export function compile (
             case "CallExpression":
                 return toLogical(scope, e, compileCallExpression(scope, NT.CallExpression.cast(e), need), need, onTrue, onFalse);
             case "NewExpression":
-                var newExpression: ESTree.NewExpression = NT.NewExpression.cast(e);
-                compileSubExpression(scope, newExpression.callee);
-                newExpression.arguments.forEach((e: ESTree.Expression) => {
-                    compileSubExpression(scope, e);
-                });
-                break;
+                return toLogical(scope, e, compileNewExpression(scope, NT.NewExpression.cast(e), need), need, onTrue, onFalse);
             case "MemberExpression":
                 return toLogical(
                     scope, e,
@@ -1200,8 +1195,11 @@ export function compile (
             return null;
         }
 
+        var objProto = ctx.allocTemp();
+        ctx.builder.genLoadSC(objProto, hir.SysConst.OBJECT_PROTOTYPE);
+        ctx.releaseTemp(objProto);
         var dest = ctx.allocTemp();
-        ctx.builder.genCreate(dest);
+        ctx.builder.genCreate(dest, objProto);
 
         e.properties.forEach((prop: ESTree.Property) => {
             var propName: hir.RValue;
@@ -1700,55 +1698,6 @@ export function compile (
         }
     }
 
-    function extractCallIdentifier (e: ESTree.CallExpression): string
-    {
-        var identifierExp: ESTree.Identifier;
-        return (identifierExp = NT.Identifier.isTypeOf(e.callee)) ? identifierExp.name : null;
-    }
-
-    function compileCallExpression (scope: Scope, e: ESTree.CallExpression, need: boolean): hir.RValue
-    {
-        // Check for compiler extensions
-        switch (extractCallIdentifier(e)) {
-            case "__asm__": return compileAsmExpression(scope, e, need);
-            case "__asmh__": return compileAsmHExpression(scope, e, need);
-        }
-
-        var ctx = scope.ctx;
-        var args: hir.RValue[] = [];
-        var fref: hir.FunctionBuilder = null;
-
-        var closure: hir.RValue;
-        var thisArg: hir.RValue;
-
-        var memb: ESTree.MemberExpression;
-        if (memb = NT.MemberExpression.isTypeOf(e.callee)) {
-            var tmp = compileMemberExpressionHelper(scope, memb, true, true);
-            closure = tmp.dest;
-            thisArg = tmp.obj;
-        } else {
-            closure = compileSubExpression(scope, e.callee, true, null, null);
-            thisArg = hir.undefinedValue;
-        }
-
-        args.push(thisArg);
-        e.arguments.forEach((e: ESTree.Expression) => {
-            args.push( compileSubExpression(scope, e, true, null, null) );
-        });
-
-        for ( var i = args.length - 1; i >= 0; --i )
-            ctx.releaseTemp(args[i]);
-        ctx.releaseTemp(thisArg);
-        ctx.releaseTemp(closure);
-
-        var dest: hir.LValue = null;
-        if (need)
-            dest = ctx.allocTemp();
-
-        ctx.builder.genCall(dest, fref, closure, args);
-        return dest;
-    }
-
     function isStringLiteral (e: ESTree.Expression): string
     {
         var lit = NT.Literal.isTypeOf(e);
@@ -1995,6 +1944,96 @@ export function compile (
             m_moduleBuilder.addAsmHeader(str);
         }
         return need ? hir.undefinedValue : null;
+    }
+
+    function extractCallIdentifier (e: ESTree.CallExpression): string
+    {
+        var identifierExp: ESTree.Identifier;
+        return (identifierExp = NT.Identifier.isTypeOf(e.callee)) ? identifierExp.name : null;
+    }
+
+    function compileCallExpression (scope: Scope, e: ESTree.CallExpression, need: boolean): hir.RValue
+    {
+        // Check for compiler extensions
+        switch (extractCallIdentifier(e)) {
+            case "__asm__": return compileAsmExpression(scope, e, need);
+            case "__asmh__": return compileAsmHExpression(scope, e, need);
+        }
+
+        var ctx = scope.ctx;
+        var args: hir.RValue[] = [];
+        var fref: hir.FunctionBuilder = null;
+
+        var closure: hir.RValue;
+        var thisArg: hir.RValue;
+
+        var memb: ESTree.MemberExpression;
+        if (memb = NT.MemberExpression.isTypeOf(e.callee)) {
+            var tmp = compileMemberExpressionHelper(scope, memb, true, true);
+            closure = tmp.dest;
+            thisArg = tmp.obj;
+        } else {
+            closure = compileSubExpression(scope, e.callee, true, null, null);
+            thisArg = hir.undefinedValue;
+        }
+
+        args.push(thisArg);
+        e.arguments.forEach((e: ESTree.Expression) => {
+            args.push( compileSubExpression(scope, e, true, null, null) );
+        });
+
+        for ( var i = args.length - 1; i >= 0; --i )
+            ctx.releaseTemp(args[i]);
+        ctx.releaseTemp(thisArg);
+        ctx.releaseTemp(closure);
+
+        var dest: hir.LValue = null;
+        if (need)
+            dest = ctx.allocTemp();
+
+        ctx.builder.genCall(dest, fref, closure, args);
+        return dest;
+    }
+
+    function compileNewExpression (scope: Scope, e: ESTree.NewExpression, need: boolean): hir.RValue
+    {
+        var ctx = scope.ctx;
+        var objLab = ctx.builder.newLabel();
+        var notObjLab = ctx.builder.newLabel();
+        var closure = compileSubExpression(scope, e.callee);
+
+        var prototype = ctx.allocTemp();
+        ctx.builder.genPropGet(prototype, closure, hir.wrapImmediate("prototype"));
+        ctx.builder.genIfIsObject(prototype, objLab, notObjLab);
+        ctx.builder.genLabel(notObjLab);
+        ctx.builder.genLoadSC(prototype, hir.SysConst.OBJECT_PROTOTYPE);
+        ctx.builder.genLabel(objLab);
+        ctx.releaseTemp(prototype);
+        var obj = ctx.allocTemp();
+        ctx.builder.genCreate(obj, prototype);
+
+        var args: hir.RValue[] = [];
+        args.push(obj);
+
+        e.arguments.forEach((e: ESTree.Expression) => {
+            args.push( compileSubExpression(scope, e, true, null, null) );
+        });
+
+        for ( var i = args.length - 1; i > 0; --i )
+            ctx.releaseTemp(args[i]);
+
+        var res = ctx.allocTemp();
+        ctx.builder.genCall(res, null, closure, args);
+
+        var undLab = ctx.builder.newLabel();
+        var notUndLab = ctx.builder.newLabel();
+        ctx.builder.genIf(hir.OpCode.IF_STRICT_EQ, res, hir.undefinedValue, undLab, notUndLab );
+        ctx.builder.genLabel(notUndLab);
+        ctx.releaseTemp(res);
+        ctx.builder.genAssign(obj, res);
+        ctx.builder.genLabel(undLab);
+
+        return obj;
     }
 
     function compileMemberExpressionHelper (scope: Scope, e: ESTree.MemberExpression, need: boolean, needObj: boolean)

@@ -198,6 +198,7 @@ export const enum OpCode
     // Special
     CLOSURE,
     CREATE,
+    LOAD_SC,
     ASM,
 
     // Binary
@@ -250,6 +251,7 @@ export const enum OpCode
 
     // Conditional jumps
     IF_TRUE,
+    IF_IS_OBJECT,
     IF_STRICT_EQ,
     IF_STRICT_NE,
     IF_LOOSE_EQ,
@@ -275,6 +277,7 @@ var g_opcodeName: string[] = [
     // Special
     "CLOSURE",
     "CREATE",
+    "LOAD_SC",
     "ASM",
 
     // Binary
@@ -327,6 +330,7 @@ var g_opcodeName: string[] = [
 
     // Conditional jumps
     "IF_TRUE",
+    "IF_IS_OBJECT",
     "IF_STRICT_EQ",
     "IF_STRICT_NE",
     "IF_LOOSE_EQ",
@@ -335,6 +339,14 @@ var g_opcodeName: string[] = [
     "IF_LE",
     "IF_GT",
     "IF_GE",
+];
+
+export const enum SysConst
+{
+    OBJECT_PROTOTYPE,
+}
+var g_sysConstName : string[] = [
+    "OBJECT_PROTOTYPE",
 ];
 
 // Note: surprisingly, 'ADD' is not commutative because 'string+x' is not the same as 'x+string'
@@ -408,6 +420,12 @@ class ClosureOp extends Instruction {
     constructor (public dest: LValue, public funcRef: FunctionBuilder) { super(OpCode.CLOSURE); }
     toString (): string {
             return `${rv2s(this.dest)} = ${oc2s(this.op)}(${this.funcRef})`;
+    }
+}
+class LoadSCOp extends Instruction {
+    constructor (public dest: LValue, public sc: SysConst) { super(OpCode.LOAD_SC); }
+    toString (): string {
+        return `${rv2s(this.dest)} = ${oc2s(this.op)}(${g_sysConstName[this.sc]})`;
     }
 }
 class BinOp extends Instruction {
@@ -801,6 +819,14 @@ export class FunctionBuilder
         this.getBB().jump(new IfOp(OpCode.IF_TRUE, value, null, onTrue, onFalse));
         this.closeBB();
     }
+    genIfIsObject(value: RValue, onTrue: Label, onFalse: Label): void
+    {
+        if (isImmediate(value))
+            return this.genGoto(onFalse);
+
+        this.getBB().jump(new IfOp(OpCode.IF_IS_OBJECT, value, null, onTrue, onFalse));
+        this.closeBB();
+    }
     genIf(op: OpCode, src1: RValue, src2: RValue, onTrue: Label, onFalse: Label): void
     {
         assert(op >= OpCode._BINCOND_FIRST && op <= OpCode._BINCOND_LAST);
@@ -851,9 +877,13 @@ export class FunctionBuilder
 
         this.getBB().push(new UnOp(op, dest, src));
     }
-    genCreate(dest: LValue, src: RValue = null): void
+    genCreate(dest: LValue, src: RValue): void
     {
         this.getBB().push(new UnOp(OpCode.CREATE, dest, src));
+    }
+    genLoadSC(dest: LValue, sc: SysConst): void
+    {
+        this.getBB().push(new LoadSCOp(dest, sc));
     }
     genAssign(dest: LValue, src: RValue): void
     {
@@ -1140,13 +1170,24 @@ export class FunctionBuilder
 
     private outCreate (createOp: UnOp): void
     {
-        if (createOp.src1 === null) {
-            this.gen("  %sjs::makeObjectValue(new (&frame) js::Object(JS_GET_RUNTIME(&frame)->objectPrototype));\n",
-                this.strDest(createOp.dest)
-            );
-        } else {
-            assert(false);
+        var callerStr: string = "&frame, ";
+        this.gen("  %sjs::makeObjectValue(js::objectCreate(%s%s));\n",
+            this.strDest(createOp.dest), callerStr, this.strRValue(createOp.src1)
+        );
+    }
+
+    private outLoadSC (loadsc: LoadSCOp): void
+    {
+        var src: string;
+        switch (loadsc.sc) {
+            case SysConst.OBJECT_PROTOTYPE:
+                src = "js::makeObjectValue(JS_GET_RUNTIME(&frame)->objectPrototype)";
+                break;
+            default:
+                assert(false, "Usupported sysconst "+ loadsc.sc);
+                return;
         }
+        this.gen("  %s%s;\n", this.strDest(loadsc.dest), src);
     }
 
     private generateAsm (asm: AsmOp): void
@@ -1345,6 +1386,7 @@ export class FunctionBuilder
                 );
                 break;
             case OpCode.CREATE: this.outCreate(<UnOp>inst); break;
+            case OpCode.LOAD_SC: this.outLoadSC(<LoadSCOp>inst); break;
             case OpCode.ASM:    this.generateAsm(<AsmOp>inst); break;
 
             case OpCode.ASSIGN:
@@ -1387,6 +1429,38 @@ export class FunctionBuilder
         }
     }
 
+    private strIfOpCond (ifop: IfOp): string
+    {
+        var callerStr: string = "&frame, ";
+        var cond: string;
+        switch (ifop.op) {
+            case OpCode.IF_IS_OBJECT:
+                cond = util.format("js::isValueTagObject(%s.tag)", this.strRValue(ifop.src1));
+                break;
+            case OpCode.IF_STRICT_EQ:
+                cond = util.format("operator_%s(%s, %s)",
+                    oc2s(ifop.op), this.strRValue(ifop.src1), this.strRValue(ifop.src2)
+                );
+                break;
+            case OpCode.IF_STRICT_NE:
+                cond = util.format("!operator_%s(%s, %s)",
+                    oc2s(OpCode.IF_STRICT_EQ), this.strRValue(ifop.src1), this.strRValue(ifop.src2)
+                );
+                break;
+
+            default:
+                if (ifop.op >= OpCode._BINCOND_FIRST && ifop.op <= OpCode._BINCOND_LAST) {
+                    cond = util.format("operator_%s(%s%s, %s)",
+                        oc2s(ifop.op), callerStr, this.strRValue(ifop.src1), this.strRValue(ifop.src2)
+                    );
+                } else {
+                    cond = util.format("operator_%s(%s)", oc2s(ifop.op), this.strRValue(ifop.src1));
+                }
+                break;
+        }
+        return cond;
+    }
+
     /**
      * Generate a jump instruction, taking care of the fall-through case.
      * @param inst
@@ -1406,14 +1480,7 @@ export class FunctionBuilder
             this.gen("  goto %s;\n", this.strBlock(bb1));
         }
         else if (jump.op >= OpCode._IF_FIRST && jump.op <= OpCode._IF_LAST) {
-            var ifop = <IfOp>(jump);
-            var cond: string;
-            if (jump.op >= OpCode._BINCOND_FIRST && jump.op <= OpCode._BINCOND_LAST) {
-                cond = util.format("operator_%s(%s%s, %s)",
-                                    oc2s(ifop.op), callerStr, this.strRValue(ifop.src1), this.strRValue(ifop.src2));
-            } else {
-                cond = util.format("operator_%s(%s)", oc2s(ifop.op), this.strRValue(ifop.src1));
-            }
+            var cond = this.strIfOpCond(<IfOp>jump);
 
             if (bb2 === nextBB)
                 this.gen("  if (%s) goto %s;\n", cond, this.strBlock(bb1));
