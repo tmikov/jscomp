@@ -26,7 +26,12 @@ function printSyntax (): void
 "   --runtime-inc-dir dir  set directory of runtime includes\n"+
 "   --runtime-lib-dir dir  set directory of runtime libraries\n"+
 "   -I dir                 additional include directories for the C/C++ compiler\n"+
-"   -L dir                 additional library directories for the C/C++ compiler\n"
+"   -L dir                 additional library directories for the C/C++ compiler\n"+
+"\n"+
+"Environment variables\n"+
+"   CC                     override which compiler to use (default is 'c++')\n"+
+"   CFLAGS                 override command line options to pass to the compiler\n"+
+""
     );
 }
 
