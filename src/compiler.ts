@@ -292,7 +292,7 @@ export function compile (
 {
     var m_globalContext: FunctionContext;
     var m_input: string;
-    var m_moduleBuilder = new hir.ModuleBuilder();
+    var m_moduleBuilder = new hir.ModuleBuilder(m_options.debug);
 
     return compileIt();
 

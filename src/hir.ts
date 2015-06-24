@@ -1368,7 +1368,8 @@ export class FunctionBuilder
 
     private outCallerLine(): void
     {
-        this.gen("  frame.setLine(__LINE__+1);\n");
+        if (this.module.debugMode)
+            this.gen("  frame.setLine(__LINE__+1);\n");
     }
 
     private generateInst(inst: Instruction): void
@@ -1696,6 +1697,13 @@ export class ModuleBuilder
     private strings : string[] = [];
     private stringMap = new StringMap<number>();
     private codeSeg = new OutputSegment();
+
+    public debugMode: boolean = false;
+
+    constructor(debugMode: boolean)
+    {
+        this.debugMode = debugMode;
+    }
 
     addAsmHeader (h: string) {
         if (!this.asmHeadersSet.has(h)) {
