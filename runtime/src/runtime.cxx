@@ -331,7 +331,7 @@ bool Function::mark (IMark * marker, unsigned markBit) const
 void Function::definePrototype (StackFrame * caller, Object * prototype)
 {
     this->prototype = prototype;
-    defineOwnProperty(caller, JS_GET_RUNTIME(caller)->permStrPrototype, 0, makeObjectValue(prototype));
+    defineOwnProperty(caller, JS_GET_RUNTIME(caller)->permStrPrototype, PROP_WRITEABLE, makeObjectValue(prototype));
 }
 
 bool Function::isCallable () const
