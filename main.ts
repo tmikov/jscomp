@@ -4,6 +4,8 @@
 
 /// <reference path="typings/tsd.d.ts" />
 
+import assert = require("assert");
+
 import compiler = require("./src/compiler");
 
 
@@ -24,6 +26,11 @@ function printSyntax (): void
     );
 }
 
+function startsWith(a: string, prefix: string): boolean
+{
+    return a.length >= prefix.length && a.substr(0,prefix.length) === prefix;
+}
+
 function main (argv: string[]): void
 {
     var options = new compiler.Options();
@@ -34,8 +41,24 @@ function main (argv: string[]): void
         process.exit(1);
     }
 
-    for ( var i = 1; i < argv.length; ++i ) {
-        var arg = argv[i];
+    for ( var argIndex = 1; argIndex < argv.length; ++argIndex ) {
+        var arg = argv[argIndex];
+
+        function needArgument(option: string): string
+        {
+            assert(startsWith(arg, option));
+            var olen = option.length;
+            if (arg.length > olen && arg[olen] === '=') // check for and skip "="
+                ++olen;
+            if (arg.length > olen)
+                return arg.slice(olen,arg.length);
+            if (argIndex+1 === argv.length) {
+                console.error("'%s' missing argument", option);
+                process.exit(1);
+            }
+            return argv[++argIndex];
+        }
+
         if (arg[0] === "-") {
             switch (arg) {
                 case "--help":
@@ -50,16 +73,9 @@ function main (argv: string[]): void
                 case "-g": options.debug = true; break;
                 case "-c": options.compileOnly = true; break;
                 case "-S": options.sourceOnly = true; break;
-                case "-o":
-                    ++i;
-                    if (i === argv.length) {
-                        console.error("'-o' missing argument");
-                        process.exit(1);
-                    }
-                    options.outputName = argv[i];
-                    break;
                 case "-v": options.verbose = true; break;
                 default:
+                    if (startsWith(arg, "-o")) { options.outputName = needArgument("-o"); break; }
                     console.error("error: unknown option '%s'", arg);
                     process.exit(1);
                     break;
