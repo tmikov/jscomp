@@ -2,3 +2,117 @@
 Tzvetan Mikov <tmikov@gmail.com>
 
 An "ahead-of-time" compiler for the JavaScript programming language.
+
+WARNING: The compiler is in an early development stage and is not intended for use.
+Even though many things work, even more things don't. This document is for
+contributors.
+
+== Goals and Motivation
+
+* Modern ECMAScript compatibility
+* Acceptable performance
+* Predictability, observability and small memory footprint
+
+When released, +jsc+ will support the ECMAScript 6 standard (or later), and will
+be compatible with Node.js libraries and extensions. Module level +eval+ will also
+be supported (with performance cost). The goal is to be able to recompile most
+existing Node.js applications without changes.
+
+It is not expected that the performance of compiled applications will rival
+Node.js (or V8). JavaScript is an awful language for static compilation - it almost
+seems designed to foil optimization attempts, and so a JIT will always have a
+performance advantage.
+
+With that said, we believe that the performance of can be acceptable (compared to,
+say, Python) and even good. We have a number of potential optimizations planned,
+including whole program type inference.
+
+Perhaps even more importantly, the statically compiled binaries will have very
+predictable performance, which doesn't change. The produced code can be trivially examined,
+debugged, and reasoned about - it is not hidden in a huge opaque JIT compiler. V8 has
+excellent diagnostic and visualization tools, but by its very nature it is very complex
+and so are its tools. Even for an experienced assembler programmer (not to say a casual
+JavaScript developer), it can be very difficult to decipher or predict what V8 is doing.
+
+A JIT, also by its very nature, has big and somewhat unpredictable memory
+requirements. Different versions of code are kept around, compiled, decompiled, etc.
+It can get very challenging especially when running multiple ones in parallel, given
+that nothing can be shared between them. A static compiler avoids all of these
+problems.
+
+Lastly, the biggest and more important motivation is for fun. We like making compilers,
+languages and runtimes. So, why not?
+
+== Status
+
+JSC is still very young. It was started on Jun 6th, after coming back from JSConf 2015,
+while still riding high on JavaScript enthusiasm, and yet keeping strong a life-long aversion
+to interpreters :-)
+
+* Syntax: it uses a mature and tested JavaScript parser (https://github.com/marijnh/acorn[Acorn]),
+so syntactically it is able to handle the complete language.
+
+* Currently we parse and support ECMAScript 5, with emphasis on strict mode. We do
+support non-strict mode, but are not putting a lot of effort into testing it. The entire
+application runs either in strict or non-strict mode. According to the standard,
+the mode can be changed on a per-function basis, but we do not intend to support that
+ever - the cost and complexity is not worth it. If an application absolutely needs that,
+it should be fixed :-), or it should use V8. (Note that strict code can usually run fine
+in non-strict mode).
+
+* Not all statements and expressions are implemented. Only ones that were absolutely
+necessary for progress are present. Specifically, this is a not-exhaustive list of
+not supported things (yet - they will be soon!):
+
+** +for+, +for-in+ : can be emulated with +while+
+** +with+ : we don't intend to support it ever. Sorry.
+** +switch+ : can be emulated with +if/else+
+** +try/catch/finally+ : coming, but not supported yet. Just don't cause any exceptions :-)
+** +,+ operator : easy to work around
+** +?:+ : use 'if' and variables instead
+
+Some operators, specifically many unary ones, are not implemented yet in the code generator.
+Again, they are coming soon. It is just a matter of time and mechanically adding the
+support in.
+
+* The object system is implemented, but none of the built-in constructors or methods
+are available. The plan is to implement as mush as possible in JavaScript.
+
+* Runtime: the runtime requires "C++11" and is very slow and wasteful. This is planned
+to change to "C" and "not slow" as soon as we have a more or less full support for the
+entire language.
+
+* The generated code also requires "C++11" (due to the runtime mainly). It will transition
+to "C".
+
+== Building and Running
+
+It has only been tested on a Mac (though it is expected it works on Linux without any
+modifications). You need Node.JS v0.12, a C++11 compiler (Apple Clang or gcc-4.9 both work),
+CMake version at least 2.8, and TypeScript (sudo npm -g install typescript).
+
+* Clone the repository
+* From the root of the repository, build the runtime:
+
+----
+make runtime
+----
+
+* From the root of the repository, build the compiler:
+
+----
+make
+----
+
+* Run the compiler (only from the project root):
+
+----
+./jsc
+----
+
+* Compile and run an example
+
+----
+./jsc examples/factorial.js -o factorial
+./factorial
+----
