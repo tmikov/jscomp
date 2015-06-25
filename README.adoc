@@ -14,25 +14,25 @@ contributors.
 * Predictability, observability and small memory footprint
 
 When released, +jsc+ will support the ECMAScript 6 standard (or later), and will
-be compatible with Node.js libraries and extensions. Module level +eval+ will also
+be compatible with 'Node.js' libraries and extensions. Module level +eval+ will also
 be supported (with performance cost). The goal is to be able to recompile most
-existing Node.js applications without changes.
+existing 'Node.js' applications without changes.
 
 It is not expected that the performance of compiled applications will rival
-Node.js (or V8). JavaScript is an awful language for static compilation - it almost
+'Node.js' (or 'v8'). JavaScript is an awful language for static compilation - it almost
 seems designed to foil optimization attempts, and so a JIT will always have a
 performance advantage.
 
-With that said, we believe that the performance of can be acceptable (compared to,
+With that said, we believe that performance can be acceptable (compared to,
 say, Python) and even good. We have a number of potential optimizations planned,
 including whole program type inference.
 
 Perhaps even more importantly, the statically compiled binaries will have very
 predictable performance, which doesn't change. The produced code can be trivially examined,
-debugged, and reasoned about - it is not hidden in a huge opaque JIT compiler. V8 has
+debugged, and reasoned about - it is not hidden in a huge opaque JIT compiler. 'v8' has
 excellent diagnostic and visualization tools, but by its very nature it is very complex
 and so are its tools. Even for an experienced assembler programmer (not to say a casual
-JavaScript developer), it can be very difficult to decipher or predict what V8 is doing.
+JavaScript developer), it can be very difficult to decipher or predict what 'v8' is doing.
 
 A JIT, also by its very nature, has big and somewhat unpredictable memory
 requirements. Different versions of code are kept around, compiled, decompiled, etc.
@@ -57,7 +57,7 @@ support non-strict mode, but are not putting a lot of effort into testing it. Th
 application runs either in strict or non-strict mode. According to the standard,
 the mode can be changed on a per-function basis, but we do not intend to support that
 ever - the cost and complexity is not worth it. If an application absolutely needs that,
-it should be fixed :-), or it should use V8. (Note that strict code can usually run fine
+it should be fixed :-), or it should use 'v8'. (Note that strict code can usually run fine
 in non-strict mode).
 
 * Not all statements and expressions are implemented. Only ones that were absolutely
@@ -85,10 +85,19 @@ entire language.
 * The generated code also requires "C++11" (due to the runtime mainly). It will transition
 to "C".
 
+== Garbage Collector
+
+The garbage collector is a very simple 'stop the world' mark and sweep. It is however
+precise. Since precise garbage collection has major implications on code generation,
+it is our belief that it must be supported early, if it is to be supported at all.
+
+We are considering making it compacting, though that would obviously have significant
+implications on the C++ runtime.
+
 == Building and Running
 
 It has only been tested on a Mac (though it is expected it works on Linux without any
-modifications). You need Node.JS v0.12, a C++11 compiler (Apple Clang or gcc-4.9 both work),
+modifications). You need 'Node.js' v0.12, a C++11 compiler (Apple Clang or gcc-4.9 both work),
 CMake version at least 2.8, and TypeScript (sudo npm -g install typescript).
 
 * Clone the repository
@@ -116,3 +125,14 @@ make
 ./jsc examples/factorial.js -o factorial
 ./factorial
 ----
+
+== License and Copyright
+
+Copyright (c) 2015 Tzvetan Mikov and contributors. See AUTHORS.
+
+This project (with the exception of components with different licenses,
+listed below) is licensed under the Apache License v2.0. See LICENSE in the project root.
+
+Components with different licenses:
+
+* Acorn is licensed under the terms of its license in +acorn/LICENSE+.
