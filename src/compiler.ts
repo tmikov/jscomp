@@ -424,10 +424,15 @@ export function compile (
     }
 
     function produceOutput () {
-        function stripExtension (fn: string): string
+        function stripPathAndExtension (fn: string): string
         {
             var pos = fn.lastIndexOf(".");
-            return pos > 0 ? fn.slice(0, pos) : fn;
+            if (pos > 0)
+                fn = fn.slice(0, pos);
+            pos = fn.lastIndexOf("/");
+            if (pos > 0)
+                fn = fn.slice(pos+1, fn.length);
+            return fn;
         }
 
         if (m_options.sourceOnly) {
@@ -442,7 +447,7 @@ export function compile (
                     if (outName.lastIndexOf(".") <= 0) // if no extension, add one (note that "." at pos 0 is not an ext)
                         outName += ext;
                 } else {
-                    outName = stripExtension(m_fileName) + ext;
+                    outName = stripPathAndExtension(m_fileName) + ext;
                 }
 
                 try {
@@ -468,7 +473,7 @@ export function compile (
                 if (outName.lastIndexOf(".") <= 0) // if no extension, add one (note that "." at pos 0 is not an ext)
                     outName += ext;
             } else {
-                outName = stripExtension(m_fileName) + ext;
+                outName = stripPathAndExtension(m_fileName) + ext;
             }
 
             var cc = "c++";
