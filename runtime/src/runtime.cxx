@@ -77,7 +77,10 @@ Object * Object::defineOwnProperty (StackFrame * caller, const StringPrim * name
         prop->flags = flags;
         prop->value = value;
     } else {
-        props.emplace(std::piecewise_construct, std::make_tuple(name->getStr()), std::make_tuple(name, flags, value));
+        Property * prop = &props.emplace(
+            std::piecewise_construct, std::make_tuple(name->getStr()), std::make_tuple(name, flags, value)
+        ).first->second;
+        this->propList.insertBefore(prop);
     }
 
     return this;
@@ -144,9 +147,14 @@ void Object::put (StackFrame * caller, const StringPrim * name, TaggedValue v)
     if (this->flags & OF_NOEXTEND)
         goto cannotWrite;
 
-    this->props.emplace(std::piecewise_construct, std::make_tuple(name->getStr()),
-                        std::make_tuple(name, PROP_WRITEABLE|PROP_ENUMERABLE|PROP_CONFIGURABLE, v));
-    return;
+    {
+        Property * prop = &this->props.emplace(
+            std::piecewise_construct, std::make_tuple(name->getStr()),
+            std::make_tuple(name, PROP_WRITEABLE|PROP_ENUMERABLE|PROP_CONFIGURABLE, v)
+        ).first->second;
+        this->propList.insertBefore(prop);
+        return;
+    }
 
 cannotWrite:;
     if (JS_IS_STRICT_MODE(caller))
@@ -176,6 +184,7 @@ bool Object::deleteProperty (StackFrame * caller, const char * name)
                 throwTypeError(caller, "Property '%s' is not deletable", name);
             return false;
         }
+        it->second.remove();
         props.erase(it);
     }
     return true;

@@ -132,7 +132,39 @@ enum PropAttr
     PROP_ENUMERABLE = 0x01, PROP_WRITEABLE = 0x02, PROP_CONFIGURABLE = 0x04, PROP_GET_SET = 0x08,
 };
 
-struct Property
+struct ListEntry
+{
+    ListEntry * prev, * next;
+
+    inline void init ()
+    {
+        this->prev = this->next = this;
+    }
+
+    inline void remove ()
+    {
+        this->prev->next = this->next;
+        this->next->prev = this->prev;
+    }
+
+    inline void insertAfter (ListEntry * entry)
+    {
+        entry->prev = this;
+        entry->next = this->next;
+        this->next->prev = entry;
+        this->next = entry;
+    }
+
+    inline void insertBefore (ListEntry * entry)
+    {
+        entry->next = this;
+        entry->prev = this->prev;
+        this->prev->next = entry;
+        this->prev = entry;
+    }
+};
+
+struct Property : public ListEntry
 {
     const StringPrim * const name;
     unsigned flags;
@@ -161,11 +193,14 @@ struct Object : public Memory
     unsigned flags;
     Object * parent;
     std::map<const char *, Property, less_cstr> props;
+    ListEntry propList; // We need to be able to enumerate properties in insertion order
 
     Object (Object * parent) :
         flags(0),
         parent(parent)
-    { }
+    {
+        this->propList.init();
+    }
 
     virtual bool mark (IMark * marker, unsigned markBit) const;
 
