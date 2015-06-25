@@ -863,6 +863,10 @@ export function compile (
                 scope.ctx.builder.genLabel(breakLab);
                 scope.ctx.popLabel();
                 break;
+            case "DebuggerStatement":
+                error(location(stmt), "'debugger' is not implemented yet");
+                var debuggerStatement: ESTree.DebuggerStatement = NT.DebuggerStatement.cast(stmt);
+                break;
 
             case "FunctionDeclaration":
                 compileFunctionDeclaration(scope, NT.FunctionDeclaration.cast(stmt), parent);
