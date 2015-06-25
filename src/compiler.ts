@@ -767,6 +767,7 @@ export function compile (
                 error(location(withStatement), "'with' is not supported");
                 break;
             case "SwitchStatement":
+                error(location(stmt), "'switch' is not implemented yet");
                 var switchStatement: ESTree.SwitchStatement = NT.SwitchStatement.cast(stmt);
                 compileExpression(scope, switchStatement.discriminant);
                 var breakLab: hir.Label = scope.ctx.builder.newLabel();
@@ -785,10 +786,12 @@ export function compile (
                 compileReturnStatement(scope, NT.ReturnStatement.cast(stmt));
                 break;
             case "ThrowStatement":
+                error(location(stmt), "'throw' is not implemented yet");
                 var throwStatement: ESTree.ThrowStatement = NT.ThrowStatement.cast(stmt);
                 compileExpression(scope, throwStatement.argument);
                 break;
             case "TryStatement":
+                error(location(stmt), "'try' is not implemented yet");
                 var tryStatement: ESTree.TryStatement = NT.TryStatement.cast(stmt);
                 compileStatement(scope, tryStatement.block, stmt);
                 if (tryStatement.handler) {
@@ -811,6 +814,7 @@ export function compile (
                 compileDoWhileStatement(scope, NT.DoWhileStatement.cast(stmt));
                 break;
             case "ForStatement":
+                error(location(stmt), "'for' is not implemented yet");
                 var forStatement: ESTree.ForStatement = NT.ForStatement.cast(stmt);
                 var forStatementInitDecl: ESTree.VariableDeclaration;
                 if (forStatement.init)
@@ -830,6 +834,7 @@ export function compile (
                 scope.ctx.popLabel();
                 break;
             case "ForInStatement":
+                error(location(stmt), "'for-in' is not implemented yet");
                 var forInStatement: ESTree.ForInStatement = NT.ForInStatement.cast(stmt);
                 var forInStatementLeftDecl: ESTree.VariableDeclaration;
                 if (forInStatementLeftDecl = NT.VariableDeclaration.isTypeOf(forInStatement.left))
@@ -844,6 +849,7 @@ export function compile (
                 scope.ctx.popLabel();
                 break;
             case "ForOfStatement":
+                error(location(stmt), "'for-of' is not implemented yet");
                 var forOfStatement: ESTree.ForOfStatement = NT.ForOfStatement.cast(stmt);
                 var forOfStatementLeftDecl: ESTree.VariableDeclaration;
                 if (forOfStatementLeftDecl = NT.VariableDeclaration.isTypeOf(forOfStatement.left))
@@ -865,6 +871,7 @@ export function compile (
                 compileVariableDeclaration(scope, NT.VariableDeclaration.cast(stmt));
                 break;
             default:
+                error(location(stmt), "unsupported statement");
                 assert(false, `unsupported statement '${stmt.type}'`);
                 break;
         }
@@ -1067,6 +1074,7 @@ export function compile (
             case "ThisExpression":
                 return toLogical(scope, e, compileThisExpression(scope, NT.ThisExpression.cast(e), need), need, onTrue, onFalse);
             case "ArrayExpression":
+                error(location(e), "'[array expression]' is not implemented yet");
                 var arrayExpression: ESTree.ArrayExpression = NT.ArrayExpression.cast(e);
                 arrayExpression.elements.forEach((elem) => {
                     if (elem && elem.type !== "SpreadElement")
@@ -1081,6 +1089,7 @@ export function compile (
                     need, onTrue, onFalse
                 );
             case "SequenceExpression":
+                error(location(e), "',' is not implemented yet");
                 var sequenceExpression: ESTree.SequenceExpression = NT.SequenceExpression.cast(e);
                 sequenceExpression.expressions.forEach((e: ESTree.Expression) => {
                     compileSubExpression(scope, e);
@@ -1105,6 +1114,7 @@ export function compile (
             case "LogicalExpression":
                 return compileLogicalExpression(scope,  NT.LogicalExpression.cast(e), need, onTrue, onFalse);
             case "ConditionalExpression":
+                error(location(e), "'?:' is not implemented yet");
                 var conditionalExpression: ESTree.ConditionalExpression = NT.ConditionalExpression.cast(e);
                 compileSubExpression(scope, conditionalExpression.test);
                 compileSubExpression(scope, conditionalExpression.alternate);
@@ -1121,6 +1131,7 @@ export function compile (
                     need, onTrue, onFalse
                 );
             default:
+                error(location(e), "unsupported expression");
                 assert(false, `unsupported expression '${e.type}'`);
                 break;
         }
