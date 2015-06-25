@@ -13,7 +13,6 @@ import child_process = require("child_process");
 import acorn = require("../js/acorn/acorn_csp");
 
 import StringMap = require("../lib/StringMap");
-import AssertionError = require("../lib/AssertionError");
 
 import hir = require("./hir");
 
@@ -57,7 +56,7 @@ class NT<T extends ESTree.Node>
         if (node && node.type === this.name)
             return <T>node;
         else
-            throw new AssertionError(`node.type/${node.type}/ === ${this.name}`);
+            assert(false, `node.type/${node.type}/ === ${this.name}`);
     }
 
     eq (node: ESTree.Node): boolean
