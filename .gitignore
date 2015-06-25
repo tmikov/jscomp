@@ -5,3 +5,9 @@ node_modules/
 /src/*.js.map
 /lib/*.js
 /lib/*.js.map
+/runtime/debug/
+/runtime/release/
+
+# Mac OS things
+.DS_Store
+*.dSYM/
