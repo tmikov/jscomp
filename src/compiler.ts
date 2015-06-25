@@ -814,24 +814,7 @@ export function compile (
                 compileDoWhileStatement(scope, NT.DoWhileStatement.cast(stmt));
                 break;
             case "ForStatement":
-                error(location(stmt), "'for' is not implemented yet");
-                var forStatement: ESTree.ForStatement = NT.ForStatement.cast(stmt);
-                var forStatementInitDecl: ESTree.VariableDeclaration;
-                if (forStatement.init)
-                    if (forStatementInitDecl = NT.VariableDeclaration.isTypeOf(forStatement.init))
-                        compileStatement(scope, forStatementInitDecl, stmt);
-                    else
-                        compileExpression(scope, forStatement.init);
-                if (forStatement.test)
-                    compileExpression(scope, forStatement.test);
-                if (forStatement.update)
-                    compileExpression(scope, forStatement.update);
-                var breakLab: hir.Label = scope.ctx.builder.newLabel();
-                var continueLab: hir.Label = scope.ctx.builder.newLabel();
-                scope.ctx.pushLabel(new Label(null, location(forStatement), breakLab, continueLab));
-                compileStatement(scope, forStatement.body, stmt);
-                scope.ctx.builder.genLabel(breakLab);
-                scope.ctx.popLabel();
+                compileForStatement(scope, NT.ForStatement.cast(stmt));
                 break;
             case "ForInStatement":
                 error(location(stmt), "'for-in' is not implemented yet");
@@ -1030,6 +1013,38 @@ export function compile (
         scope.ctx.popLabel();
         ctx.builder.genLabel(loop);
         compileExpression(scope, stmt.test, true, body, exitLoop);
+        ctx.builder.genLabel(exitLoop);
+    }
+
+    function compileForStatement (scope: Scope, stmt: ESTree.ForStatement): void
+    {
+        var ctx = scope.ctx;
+        var exitLoop = ctx.builder.newLabel();
+        var loopStart = ctx.builder.newLabel();
+        var loop = ctx.builder.newLabel();
+        var body = ctx.builder.newLabel();
+
+        fillContinueInNamedLoopLabels(stmt.labels, body);
+
+        var forStatementInitDecl: ESTree.VariableDeclaration;
+        if (stmt.init)
+            if (forStatementInitDecl = NT.VariableDeclaration.isTypeOf(stmt.init))
+                compileStatement(scope, forStatementInitDecl, stmt);
+            else
+                compileExpression(scope, stmt.init);
+
+        ctx.builder.genLabel(loopStart);
+        if (stmt.test)
+            compileExpression(scope, stmt.test, true, body, exitLoop);
+        ctx.builder.genLabel(body);
+        scope.ctx.pushLabel(new Label(null, location(stmt), exitLoop, loop));
+        compileStatement(scope, stmt.body, stmt);
+        scope.ctx.popLabel();
+
+        ctx.builder.genLabel(loop);
+        if (stmt.update)
+            compileExpression(scope, stmt.update);
+        ctx.builder.genGoto(loopStart);
         ctx.builder.genLabel(exitLoop);
     }
 
