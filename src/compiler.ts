@@ -767,20 +767,7 @@ export function compile (
                 error(location(withStatement), "'with' is not supported");
                 break;
             case "SwitchStatement":
-                error(location(stmt), "'switch' is not implemented yet");
-                var switchStatement: ESTree.SwitchStatement = NT.SwitchStatement.cast(stmt);
-                compileExpression(scope, switchStatement.discriminant);
-                var breakLab: hir.Label = scope.ctx.builder.newLabel();
-                scope.ctx.pushLabel(new Label(null, location(switchStatement), breakLab, null));
-                switchStatement.cases.forEach((sc: ESTree.SwitchCase) => {
-                    if (sc.test)
-                        compileExpression(scope, sc.test);
-                    sc.consequent.forEach((s: ESTree.Statement) => {
-                        compileStatement(scope, s, stmt);
-                    });
-                });
-                scope.ctx.builder.genLabel(breakLab);
-                scope.ctx.popLabel();
+                compileSwitchStatement(scope, NT.SwitchStatement.cast(stmt));
                 break;
             case "ReturnStatement":
                 compileReturnStatement(scope, NT.ReturnStatement.cast(stmt));
@@ -959,6 +946,68 @@ export function compile (
             compileStatement(scope, ifStatement.alternate, ifStatement);
             scope.ctx.builder.genLabel(endLabel);
         }
+    }
+
+    // TODO: check if all expressions are constant integers and generate a SWITCH instruction
+    function compileSwitchStatement (scope: Scope, stmt: ESTree.SwitchStatement): void
+    {
+        if (stmt.cases.length === 0) {
+            warning(location(stmt), "empty 'switch' statement");
+            compileExpression(scope, stmt.discriminant, false, null, null);
+            return;
+        }
+
+        var ctx = scope.ctx;
+        var breakLab: hir.Label = scope.ctx.builder.newLabel();
+        var labels: hir.Label[] = new Array<hir.Label>(stmt.cases.length);
+
+        for ( var i = 0; i < stmt.cases.length; ++i )
+            labels[i] = ctx.builder.newLabel();
+
+        var discr = compileExpression(scope, stmt.discriminant, true, null, null);
+        if (hir.isImmediate(discr))
+            warning(location(stmt.discriminant), "'switch' expression is constant");
+
+        var defaultLabel: hir.Label = null;
+        var elseLabel: hir.Label = null;
+
+        for ( var i = 0; i < stmt.cases.length; ++i ) {
+            var sc = stmt.cases[i];
+            if (!sc.test) {
+                defaultLabel = labels[i];
+                continue;
+            }
+
+            if (elseLabel != null)
+                ctx.builder.genLabel(elseLabel);
+
+            var testval = compileExpression(scope, sc.test, true, null, null);
+            ctx.releaseTemp(testval);
+            elseLabel = ctx.builder.newLabel();
+            ctx.builder.genIf(hir.OpCode.IF_STRICT_EQ, discr, testval, labels[i], elseLabel);
+        }
+
+        if (elseLabel) {
+            ctx.builder.genLabel(elseLabel);
+            if (defaultLabel)
+                ctx.builder.genGoto(defaultLabel);
+            else
+                ctx.builder.genGoto(breakLab);
+        }
+
+        ctx.releaseTemp(discr);
+
+        scope.ctx.pushLabel(new Label(null, location(stmt), breakLab, null));
+
+        for ( var i = 0; i < stmt.cases.length; ++i ) {
+            ctx.builder.genLabel(labels[i]);
+            stmt.cases[i].consequent.forEach((s: ESTree.Statement) => {
+                compileStatement(scope, s, stmt);
+            });
+        }
+
+        scope.ctx.builder.genLabel(breakLab);
+        scope.ctx.popLabel();
     }
 
     function compileReturnStatement (scope: Scope, stmt: ESTree.ReturnStatement): void
