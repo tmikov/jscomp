@@ -1108,12 +1108,7 @@ export function compile (
                     need, onTrue, onFalse
                 );
             case "SequenceExpression":
-                error(location(e), "',' is not implemented yet");
-                var sequenceExpression: ESTree.SequenceExpression = NT.SequenceExpression.cast(e);
-                sequenceExpression.expressions.forEach((e: ESTree.Expression) => {
-                    compileSubExpression(scope, e);
-                });
-                break;
+                return compileSequenceExpression(scope, NT.SequenceExpression.cast(e), need, onTrue, onFalse);
             case "UnaryExpression":
                 return compileUnaryExpression(scope, NT.UnaryExpression.cast(e), need, onTrue, onFalse);
             case "BinaryExpression":
@@ -1308,6 +1303,17 @@ export function compile (
         var funcRef = scope.ctx.addClosure(e.id);
         compileFunction(scope, e, funcRef);
         return need ? funcRef.closureVar : null;
+    }
+
+    function compileSequenceExpression (
+        scope: Scope, e: ESTree.SequenceExpression,
+        need: boolean, onTrue: hir.Label, onFalse: hir.Label
+    ): hir.RValue
+    {
+        var i: number;
+        for ( i = 0; i < e.expressions.length-1; ++i )
+            compileSubExpression(scope, e.expressions[i], false, null, null);
+        return compileSubExpression(scope, e.expressions[i], need, onTrue, onFalse);
     }
 
     function compileUnaryExpression (
