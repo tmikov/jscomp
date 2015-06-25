@@ -1128,12 +1128,7 @@ export function compile (
             case "LogicalExpression":
                 return compileLogicalExpression(scope,  NT.LogicalExpression.cast(e), need, onTrue, onFalse);
             case "ConditionalExpression":
-                error(location(e), "'?:' is not implemented yet");
-                var conditionalExpression: ESTree.ConditionalExpression = NT.ConditionalExpression.cast(e);
-                compileSubExpression(scope, conditionalExpression.test);
-                compileSubExpression(scope, conditionalExpression.alternate);
-                compileSubExpression(scope, conditionalExpression.consequent);
-                break;
+                return compileConditionalExpression(scope, NT.ConditionalExpression.cast(e), need, onTrue, onFalse);
             case "CallExpression":
                 return toLogical(scope, e, compileCallExpression(scope, NT.CallExpression.cast(e), need), need, onTrue, onFalse);
             case "NewExpression":
@@ -2003,6 +1998,50 @@ export function compile (
     {
         var identifierExp: ESTree.Identifier;
         return (identifierExp = NT.Identifier.isTypeOf(e.callee)) ? identifierExp.name : null;
+    }
+
+    function compileConditionalExpression (
+        scope: Scope, e: ESTree.ConditionalExpression, need: boolean, onTrue: hir.Label, onFalse: hir.Label
+    ): hir.RValue
+    {
+        var ctx = scope.ctx;
+        var trueLab = ctx.builder.newLabel();
+        var falseLab = ctx.builder.newLabel();
+        var endLab: hir.Label;
+        var dest: hir.Local = null;
+        var v1: hir.RValue;
+        var v2: hir.RValue;
+
+        if (!onTrue)
+            endLab = ctx.builder.newLabel();
+
+        compileSubExpression(scope, e.test, true, trueLab, falseLab);
+
+        ctx.builder.genLabel(trueLab);
+        v1 = compileSubExpression(scope, e.consequent, need, onTrue, onFalse);
+        ctx.releaseTemp(v1);
+        if (!onTrue) {
+            if (need) {
+                dest = ctx.allocTemp();
+                ctx.builder.genAssign(dest, v1);
+                ctx.releaseTemp(dest);
+            }
+            ctx.builder.genGoto(endLab);
+        }
+
+        ctx.builder.genLabel(falseLab);
+        v2 = compileSubExpression(scope, e.alternate, need, onTrue, onFalse);
+        ctx.releaseTemp(v2);
+
+        if (!onTrue) {
+            if (need) {
+                ctx.allocSpecific(dest);
+                ctx.builder.genAssign(dest, v2);
+            }
+            ctx.builder.genLabel(endLab);
+        }
+
+        return dest;
     }
 
     function compileCallExpression (scope: Scope, e: ESTree.CallExpression, need: boolean): hir.RValue

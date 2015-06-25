@@ -68,7 +68,6 @@ not supported things (yet - they will be soon!):
 ** +with+ : we don't intend to support it ever. Sorry.
 ** +switch+ : can be emulated with +if/else+
 ** +try/catch/finally+ : coming, but not supported yet. Just don't cause any exceptions :-)
-** +?:+ : use 'if' and variables instead
 
 Some operators, specifically many unary ones, are not implemented yet in the code generator.
 Again, they are coming soon. It is just a matter of time and mechanically adding the
