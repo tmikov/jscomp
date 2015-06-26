@@ -572,7 +572,7 @@ void Runtime::parseDiagEnvironment ()
     #undef _E
     if (const char * s = ::getenv("JSC_DIAG"))
     {
-        std::vector<char> buf(s, strchr(s,0)+1);
+        std::vector<char> buf(s, (const char *)strchr(s,0)+1);
         static const char SEP[] = ",:; \t";
 
         for ( char *inp = buf.data(), *tok, *last; (tok = strtok_r(inp, SEP, &last)); inp = NULL ) {
