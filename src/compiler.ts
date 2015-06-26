@@ -1978,7 +1978,7 @@ function compileSource (
         if (need)
             dest = ctx.allocTemp();
 
-        ctx.builder.genCall(dest, fref, closure, args);
+        ctx.builder.genCall(dest, closure, args);
         return dest;
     }
 
@@ -2010,7 +2010,7 @@ function compileSource (
             ctx.releaseTemp(args[i]);
 
         var res = ctx.allocTemp();
-        ctx.builder.genCall(res, null, closure, args);
+        ctx.builder.genCall(res, closure, args);
 
         var undLab = ctx.builder.newLabel();
         var notUndLab = ctx.builder.newLabel();
@@ -2110,25 +2110,39 @@ export function compile (
         m_globalContext = new FunctionContext(null, null, topLevelBuilder.name, topLevelBuilder);
         m_globalContext.strictMode = m_options.strictMode;
 
-        var name = "<"+m_fileName+">";
-        var moduleCtx = new FunctionContext(
-            m_globalContext, m_globalContext.funcScope, name, m_globalContext.builder.newClosure(name)
-        );
-
-        compileSource(moduleCtx.funcScope, moduleCtx.funcScope, m_fileName, m_reporter, m_options);
-
+        var core = compileModule(m_globalContext, "runtime/js/core.js");
         if (m_reporter.errorCount() > 0)
             return;
 
+        var moduleCtx = compileModule(core, m_fileName);
+        if (m_reporter.errorCount() > 0)
+            return;
         moduleCtx.close();
+
+        // Call the module
+        core.builder.genCall(hir.nullReg, moduleCtx.builder.closureVar, [hir.undefinedValue] );
+        moduleCtx.builder.setVarAttributes(moduleCtx.builder.closureVar, false, true, true, moduleCtx.builder);
+
+        core.close();
         topLevelBuilder.close();
         m_moduleBuilder.prepareForCodegen();
 
         if (m_options.dumpHIR)
-            moduleCtx.builder.dump();
+            core.builder.dump();
 
         if (!m_options.dumpAST && !m_options.dumpHIR)
             produceOutput();
+    }
+
+    function compileModule (parentContext: FunctionContext, fileName: string): FunctionContext
+    {
+        var name = "<"+fileName+">";
+        var moduleCtx = new FunctionContext(
+            parentContext, parentContext.funcScope, name, parentContext.builder.newClosure(name)
+        );
+
+        compileSource(moduleCtx.funcScope, moduleCtx.funcScope, fileName, m_reporter, m_options);
+        return moduleCtx;
     }
 
     function stripPathAndExtension (fn: string): string

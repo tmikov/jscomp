@@ -901,7 +901,7 @@ export class FunctionBuilder
         this.getBB().push(new PutOp(obj, propName, src));
     }
 
-    genCall(dest: LValue, fref: FunctionBuilder, closure: RValue, args: RValue[]): void
+    genCall(dest: LValue, closure: RValue, args: RValue[]): void
     {
         if (dest === null)
             dest = nullReg;
