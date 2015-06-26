@@ -9,6 +9,7 @@ import fs = require("fs");
 import assert = require("assert");
 import util = require("util");
 import child_process = require("child_process");
+import crypto = require("crypto");
 
 import acorn = require("../js/acorn/acorn_csp");
 
@@ -327,6 +328,7 @@ function compileSource (
                 }
 
                 console.log(JSON.stringify(prog, adjustRegexLiteral, 4));
+                return;
             }
 
             compileBody(m_scope, prog.body);
@@ -358,6 +360,43 @@ function compileSource (
         }
     }
 
+    function getCacheKey (fileName: string, input: string): string
+    {
+        return crypto.createHash("md5").update(input, "utf-8").digest("hex");
+    }
+
+    function getCachedAST (hash: string): ESTree.Program
+    {
+        var path = m_options.buildDir + "/" + hash + ".ast1";
+        try {
+            var astbuf = fs.readFileSync(path, "utf-8");
+        } catch(e) {
+            return null;
+        }
+        try {
+            var ast = JSON.parse(astbuf);
+        } catch (e) {
+            try { fs.unlinkSync(path); } catch (e) {}
+            return null;
+        }
+        return ast;
+    }
+
+    function cacheAST (key: string, ast: ESTree.Program): void
+    {
+        var path = m_options.buildDir + "/" + key + ".ast1";
+
+        try {
+            fs.mkdirSync(m_options.buildDir);
+        } catch(e)
+        {}
+        try {
+            fs.writeFileSync(path, JSON.stringify(ast),"utf-8");
+        } catch (e) {
+            try { fs.unlinkSync(path); } catch (e) {}
+        }
+    }
+
     function parse (fileName: string): ESTree.Program
     {
         var options: acorn.Options = {
@@ -375,8 +414,13 @@ function compileSource (
             return null;
         }
 
+        var cacheKey = getCacheKey(fileName, m_input);
+        var ast = getCachedAST(cacheKey);
+        if (ast)
+            return ast;
+
         try {
-            return acorn.parse(m_input, options);
+            ast = acorn.parse(m_input, options);
         } catch (e) {
             if (e instanceof SyntaxError)
                 error({source: fileName, start: e.loc, end: e.loc}, e.message);
@@ -385,6 +429,9 @@ function compileSource (
 
             return null;
         }
+
+        cacheAST(cacheKey, ast);
+        return ast;
     }
 
     function matchStrictMode (stmt: ESTree.Statement): boolean
