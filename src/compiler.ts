@@ -182,7 +182,7 @@ class FunctionContext
     strictMode: boolean;
 
     funcScope: Scope;
-    thisParam: Variable = null;
+    thisParam: Variable;
     argumentsVar: Variable;
 
     labelList: Label = null;
@@ -201,9 +201,25 @@ class FunctionContext
         this.strictMode = parent && parent.strictMode;
         this.funcScope = new Scope(this, parentScope);
 
+        var param = this.builder.newParam("this");
+        this.thisParam = this.funcScope.newVariable("this", param.variable);
+        this.thisParam.initialized = true;
+        this.thisParam.declared = true;
+
         this.argumentsVar = this.funcScope.newVariable("arguments");
         this.argumentsVar.declared = true;
         this.argumentsVar.initialized = true;
+    }
+
+    close (): void
+    {
+        this.funcScope.vars.forEach( (v: Variable) => {
+            this.builder.setVarAttributes(v.hvar,
+                v.escapes, v.accessed || v.assigned, v.initialized && !v.assigned, v.funcRef
+            );
+        });
+
+        this.builder.close();
     }
 
     findLabel (name: string): Label
@@ -283,17 +299,38 @@ class AsmBinding {
     constructor(public index: number, public name: string, public e: ESTree.Expression) {}
 }
 
-// NOTE: since we have a very dumb backend (for now), we have to perform some optimizations
-// that wouldn't normally be necessary
-export function compile (
-    m_fileName: string, m_reporter: IErrorReporter, m_options: Options, m_doneCB: () => void
+
+function compileSource (
+    m_scope: Scope, m_undefinedVarScope: Scope,
+    m_fileName: string, m_reporter: IErrorReporter, m_options: Options
 ): void
 {
-    var m_globalContext: FunctionContext;
     var m_input: string;
-    var m_moduleBuilder = new hir.ModuleBuilder(m_options.debug);
 
     return compileIt();
+
+    function compileIt (): void
+    {
+        var prog: ESTree.Program;
+        if ((prog = parse(m_fileName))) {
+            if (m_options.dumpAST) {
+                // Special handling for regular expression literal since we need to
+                // convert it to a string literal, otherwise it will be decoded
+                // as object "{}" and the regular expression would be lost.
+                function adjustRegexLiteral(key: any, value: any)
+                {
+                    if (key === 'value' && value instanceof RegExp) {
+                        value = value.toString();
+                    }
+                    return value;
+                }
+
+                console.log(JSON.stringify(prog, adjustRegexLiteral, 4));
+            }
+
+            compileBody(m_scope, prog.body);
+        }
+    }
 
     function error (loc: ESTree.SourceLocation, msg: string)
     {
@@ -308,23 +345,6 @@ export function compile (
     function note (loc: ESTree.SourceLocation, msg: string)
     {
         m_reporter.note(loc, msg);
-    }
-
-    function fireCB (): void
-    {
-        if (!m_doneCB)
-            return;
-        var cb = m_doneCB;
-        m_doneCB = null;
-        process.nextTick(cb);
-    }
-
-    function compileIt (): void
-    {
-        var prog: ESTree.Program;
-        if ((prog = parse(m_fileName)))
-            compileProgram(prog);
-        fireCB();
     }
 
     function location (node: ESTree.Node): ESTree.SourceLocation
@@ -358,7 +378,7 @@ export function compile (
             return acorn.parse(m_input, options);
         } catch (e) {
             if (e instanceof SyntaxError)
-                error({source: m_fileName, start: e.loc, end: e.loc}, e.message);
+                error({source: fileName, start: e.loc, end: e.loc}, e.message);
             else
                 error(null, e.message);
 
@@ -376,169 +396,6 @@ export function compile (
                     return true;
         return false;
     }
-
-    function compileProgram (prog: ESTree.Program): void
-    {
-        if (m_options.dumpAST) {
-            // Special handling for regular expression literal since we need to
-            // convert it to a string literal, otherwise it will be decoded
-            // as object "{}" and the regular expression would be lost.
-            function adjustRegexLiteral(key: any, value: any)
-            {
-                if (key === 'value' && value instanceof RegExp) {
-                    value = value.toString();
-                }
-                return value;
-            }
-
-            console.log(JSON.stringify(prog, adjustRegexLiteral, 4));
-        }
-
-        var funcRef = m_moduleBuilder.createTopLevel();
-
-        m_globalContext = new FunctionContext(null, null, funcRef.name, funcRef);
-        m_globalContext.strictMode = m_options.strictMode;
-
-        var ast: ESTree.Function = {
-            start: prog.start,
-            end: prog.end,
-            type: "Function",
-            params: [],
-            body: { start: prog.start, end: prog.end, type: NT.BlockStatement.name, body: prog.body },
-            generator: false
-        };
-        var fctx: FunctionContext = compileFunction(m_globalContext.funcScope, ast, m_globalContext.addClosure(null));
-
-        if (m_reporter.errorCount() > 0)
-            return;
-
-        m_moduleBuilder.prepareForCodegen();
-
-        if (m_options.dumpHIR)
-            fctx.builder.dump();
-
-        if (!m_options.dumpAST && !m_options.dumpHIR) {
-            produceOutput();
-        }
-    }
-
-    function produceOutput () {
-        function stripPathAndExtension (fn: string): string
-        {
-            var pos = fn.lastIndexOf(".");
-            if (pos > 0)
-                fn = fn.slice(0, pos);
-            pos = fn.lastIndexOf("/");
-            if (pos > 0)
-                fn = fn.slice(pos+1, fn.length);
-            return fn;
-        }
-
-        if (m_options.sourceOnly) {
-            if (m_options.outputName === "-") { // output to pipe?
-                m_moduleBuilder.generateC(process.stdout);
-            } else {
-                var ext = ".cxx";
-                var outName: string = null;
-
-                if (m_options.outputName !== null) {
-                    outName = m_options.outputName;
-                    if (outName.lastIndexOf(".") <= 0) // if no extension, add one (note that "." at pos 0 is not an ext)
-                        outName += ext;
-                } else {
-                    outName = stripPathAndExtension(m_fileName) + ext;
-                }
-
-                try {
-                    var fd = fs.openSync(outName, "w");
-                    var out = fs.createWriteStream(null, {fd: fd});
-                    m_moduleBuilder.generateC(out);
-                    out.end();
-                    out.once("error", (e: any) => {
-                        error(null, e.message);
-                        fireCB();
-                    });
-                    out.once("finish", () => fireCB());
-                } catch (e) {
-                    error(null, e.message);
-                }
-            }
-        } else {
-            var ext = m_options.compileOnly ? ".o" : "";
-            var outName: string = null;
-
-            if (m_options.outputName !== null) {
-                outName = m_options.outputName;
-                if (outName.lastIndexOf(".") <= 0) // if no extension, add one (note that "." at pos 0 is not an ext)
-                    outName += ext;
-            } else {
-                outName = stripPathAndExtension(m_fileName) + ext;
-            }
-
-            var cc = "c++";
-            if (process.env["CC"])
-                cc = process.env["CC"];
-            var cflags: string[] = [];
-            if (process.env["CFLAGS"])
-                cflags = process.env["CFLAGS"].split(" ");
-
-            var args: string[] = [];
-
-            if (m_options.runtimeIncDir)
-                args.push("-I" + m_options.runtimeIncDir);
-            m_options.includeDirs.forEach((d) => args.push("-I"+d));
-
-            args.push("-xc++", "--std=c++11");
-            if (cflags.length > 0) {
-                args = args.concat(cflags);
-            } else {
-                if (m_options.debug)
-                    args.push("-g");
-                else
-                    args.push("-O1");
-            }
-            if (m_options.debug)
-                args.push("-DJS_DEBUG");
-
-            if (m_options.compileOnly) {
-                args.push("-c");
-            } else {
-                if (m_options.runtimeLibDir)
-                    args.push("-L"+m_options.runtimeLibDir);
-                m_options.libDirs.forEach((d) => args.push("-L"+d));
-                args.push("-ljsruntime");
-            }
-            args.push("-o", outName);
-            args.push("-");
-
-            if (m_options.verbose)
-                console.log(cc, args.join(" "));
-
-            var child = child_process.spawn(
-                cc,
-                args,
-                {stdio: ['pipe', process.stdout, process.stderr] }
-            );
-            child.stdin.once("error", (e: any) => {
-                error(null, e.message);
-            });
-            child.stdin.write(util.format("#line 1 \"%s\"\n", m_fileName));
-            m_moduleBuilder.generateC(child.stdin);
-            child.stdin.end();
-            child.once("error", (e: any) => {
-                error(null, e.message);
-                fireCB();
-            });
-            child.once("exit", (code: number, signal: string) => {
-                if (code !== 0)
-                    error(null, "child process terminated with code "+ code);
-                else if (signal)
-                    error(null, "child process terminated with an error");
-                fireCB();
-            });
-        }
-    }
-
 
     /**
      * Declare a variable at the function-level scope with letrec semantics.
@@ -564,12 +421,6 @@ export function compile (
 
         // Declare the parameters
         // Create a HIR param+var binding for each of them
-        // First, "this"
-        var param = funcCtx.builder.newParam("this");
-        funcCtx.thisParam = funcScope.newVariable("this", param.variable);
-        funcCtx.thisParam.initialized = true;
-        funcCtx.thisParam.declared = true;
-
         ast.params.forEach( (pat: ESTree.Pattern): void => {
             var ident = NT.Identifier.cast(pat);
 
@@ -593,13 +444,8 @@ export function compile (
         else
             assert(false, "TODO: implement ES6");
 
-        funcScope.vars.forEach( (v: Variable) => {
-            funcRef.setVarAttributes(v.hvar,
-                v.escapes, v.accessed || v.assigned, v.initialized && !v.assigned, v.funcRef
-            );
-        });
+        funcCtx.close();
 
-        funcCtx.builder.close();
         return funcCtx;
     }
 
@@ -1222,16 +1068,16 @@ export function compile (
     {
         return v;
         /*
-        var t : hir.RValue;
-        if (hir.isImmediate(v))
-            if ((t = hir.foldUnary(hir.OpCode.TO_NUMBER, v)) !== null)
-                return t;
+         var t : hir.RValue;
+         if (hir.isImmediate(v))
+         if ((t = hir.foldUnary(hir.OpCode.TO_NUMBER, v)) !== null)
+         return t;
 
-        scope.ctx.releaseTemp(v);
-        var r = scope.ctx.allocTemp();
-        scope.ctx.builder.genUnop(hir.OpCode.TO_NUMBER, r, v);
-        return r;
-        */
+         scope.ctx.releaseTemp(v);
+         var r = scope.ctx.allocTemp();
+         scope.ctx.builder.genUnop(hir.OpCode.TO_NUMBER, r, v);
+         return r;
+         */
     }
 
     function compileLiteral (scope: Scope, literal: ESTree.Literal, need: boolean): hir.RValue
@@ -1311,7 +1157,7 @@ export function compile (
                 variable = scope.ctx.funcScope.newVariable(identifier.name);
             } else {
                 warning(location(identifier), `undefined identifier '${identifier.name}'`);
-                variable = m_globalContext.funcScope.newVariable(identifier.name);
+                variable = m_undefinedVarScope.newVariable(identifier.name);
             }
         } else if (!scope.ctx.strictMode && !variable.declared) {
             // Report all warnings in non-strict mode
@@ -2025,7 +1871,7 @@ export function compile (
         }
 
 
-    exit:
+        exit:
         {
             if (e.arguments.length !== 2) {
                 error(location(e), "'__asmh__' requires exactly two arguments");
@@ -2037,7 +1883,7 @@ export function compile (
             if (!str)
                 break exit;
 
-            m_moduleBuilder.addAsmHeader(str);
+            scope.ctx.builder.module.addAsmHeader(str);
         }
         return need ? hir.undefinedValue : null;
     }
@@ -2177,7 +2023,7 @@ export function compile (
     }
 
     function compileMemberExpressionHelper (scope: Scope, e: ESTree.MemberExpression, need: boolean, needObj: boolean)
-        : { obj: hir.RValue; dest: hir.RValue }
+    : { obj: hir.RValue; dest: hir.RValue }
     {
         var propName: hir.RValue;
         if (e.computed)
@@ -2205,5 +2051,199 @@ export function compile (
     function compileMemberExpression (scope: Scope, e: ESTree.MemberExpression, need: boolean): hir.RValue
     {
         return compileMemberExpressionHelper(scope, e, need, false).dest;
+    }
+}
+
+// NOTE: since we have a very dumb backend (for now), we have to perform some optimizations
+// that wouldn't normally be necessary
+export function compile (
+    m_fileName: string, m_reporter: IErrorReporter, m_options: Options, m_doneCB: () => void
+): void
+{
+    var m_globalContext: FunctionContext;
+    var m_input: string;
+    var m_moduleBuilder = new hir.ModuleBuilder(m_options.debug);
+
+    compileProgram();
+    fireCB();
+    return;
+
+    function error (loc: ESTree.SourceLocation, msg: string)
+    {
+        m_reporter.error(loc, msg);
+    }
+
+    function warning (loc: ESTree.SourceLocation, msg: string)
+    {
+        m_reporter.warning(loc, msg);
+    }
+
+    function note (loc: ESTree.SourceLocation, msg: string)
+    {
+        m_reporter.note(loc, msg);
+    }
+
+    function location (node: ESTree.Node): ESTree.SourceLocation
+    {
+        if (!node.loc) {
+            var pos = acorn.getLineInfo(m_input, node.start);
+            return { source: m_fileName, start: pos, end: pos };
+        } else {
+            return node.loc;
+        }
+    }
+
+    function fireCB (): void
+    {
+        if (!m_doneCB)
+            return;
+        var cb = m_doneCB;
+        m_doneCB = null;
+        process.nextTick(cb);
+    }
+
+    function compileProgram (): void
+    {
+        var topLevelBuilder = m_moduleBuilder.createTopLevel();
+
+        m_globalContext = new FunctionContext(null, null, topLevelBuilder.name, topLevelBuilder);
+        m_globalContext.strictMode = m_options.strictMode;
+
+        var name = "<"+m_fileName+">";
+        var moduleCtx = new FunctionContext(
+            m_globalContext, m_globalContext.funcScope, name, m_globalContext.builder.newClosure(name)
+        );
+
+        compileSource(moduleCtx.funcScope, moduleCtx.funcScope, m_fileName, m_reporter, m_options);
+
+        if (m_reporter.errorCount() > 0)
+            return;
+
+        moduleCtx.close();
+        topLevelBuilder.close();
+        m_moduleBuilder.prepareForCodegen();
+
+        if (m_options.dumpHIR)
+            moduleCtx.builder.dump();
+
+        if (!m_options.dumpAST && !m_options.dumpHIR)
+            produceOutput();
+    }
+
+    function stripPathAndExtension (fn: string): string
+    {
+        var pos = fn.lastIndexOf(".");
+        if (pos > 0)
+            fn = fn.slice(0, pos);
+        pos = fn.lastIndexOf("/");
+        if (pos > 0)
+            fn = fn.slice(pos+1, fn.length);
+        return fn;
+    }
+
+    function produceOutput () {
+        if (m_options.sourceOnly) {
+            if (m_options.outputName === "-") { // output to pipe?
+                m_moduleBuilder.generateC(process.stdout);
+            } else {
+                var ext = ".cxx";
+                var outName: string = null;
+
+                if (m_options.outputName !== null) {
+                    outName = m_options.outputName;
+                    if (outName.lastIndexOf(".") <= 0) // if no extension, add one (note that "." at pos 0 is not an ext)
+                        outName += ext;
+                } else {
+                    outName = stripPathAndExtension(m_fileName) + ext;
+                }
+
+                try {
+                    var fd = fs.openSync(outName, "w");
+                    var out = fs.createWriteStream(null, {fd: fd});
+                    m_moduleBuilder.generateC(out);
+                    out.end();
+                    out.once("error", (e: any) => {
+                        error(null, e.message);
+                        fireCB();
+                    });
+                    out.once("finish", () => fireCB());
+                } catch (e) {
+                    error(null, e.message);
+                }
+            }
+        } else {
+            var ext = m_options.compileOnly ? ".o" : "";
+            var outName: string = null;
+
+            if (m_options.outputName !== null) {
+                outName = m_options.outputName;
+                if (outName.lastIndexOf(".") <= 0) // if no extension, add one (note that "." at pos 0 is not an ext)
+                    outName += ext;
+            } else {
+                outName = stripPathAndExtension(m_fileName) + ext;
+            }
+
+            var cc = "c++";
+            if (process.env["CC"])
+                cc = process.env["CC"];
+            var cflags: string[] = [];
+            if (process.env["CFLAGS"])
+                cflags = process.env["CFLAGS"].split(" ");
+
+            var args: string[] = [];
+
+            if (m_options.runtimeIncDir)
+                args.push("-I" + m_options.runtimeIncDir);
+            m_options.includeDirs.forEach((d) => args.push("-I"+d));
+
+            args.push("-xc++", "--std=c++11");
+            if (cflags.length > 0) {
+                args = args.concat(cflags);
+            } else {
+                if (m_options.debug)
+                    args.push("-g");
+                else
+                    args.push("-O1");
+            }
+            if (m_options.debug)
+                args.push("-DJS_DEBUG");
+
+            if (m_options.compileOnly) {
+                args.push("-c");
+            } else {
+                if (m_options.runtimeLibDir)
+                    args.push("-L"+m_options.runtimeLibDir);
+                m_options.libDirs.forEach((d) => args.push("-L"+d));
+                args.push("-ljsruntime");
+            }
+            args.push("-o", outName);
+            args.push("-");
+
+            if (m_options.verbose)
+                console.log(cc, args.join(" "));
+
+            var child = child_process.spawn(
+                cc,
+                args,
+                {stdio: ['pipe', process.stdout, process.stderr] }
+            );
+            child.stdin.once("error", (e: any) => {
+                error(null, e.message);
+            });
+            child.stdin.write(util.format("#line 1 \"%s\"\n", m_fileName));
+            m_moduleBuilder.generateC(child.stdin);
+            child.stdin.end();
+            child.once("error", (e: any) => {
+                error(null, e.message);
+                fireCB();
+            });
+            child.once("exit", (code: number, signal: string) => {
+                if (code !== 0)
+                    error(null, "child process terminated with code "+ code);
+                else if (signal)
+                    error(null, "child process terminated with an error");
+                fireCB();
+            });
+        }
     }
 }
