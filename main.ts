@@ -27,6 +27,7 @@ function printSyntax (): void
 "   --runtime-lib-dir dir  set directory of runtime libraries\n"+
 "   -I dir                 additional include directories for the C/C++ compiler\n"+
 "   -L dir                 additional library directories for the C/C++ compiler\n"+
+"   --build-dir dir        directory for keeping state for faster builds (default '.jsbuild/')\n"+
 "\n"+
 "Environment variables\n"+
 "   CC                     override which compiler to use (default is 'c++')\n"+
@@ -94,6 +95,8 @@ function main (argv: string[]): void
                         options.includeDirs.push(needArgument("-I"));
                     else if (startsWith(arg, "-L"))
                         options.libDirs.push(needArgument("-L"));
+                    else if (startsWith(arg, "--build-dir"))
+                        options.buildDir = needArgument("--build-dir");
                     else {
                         console.error("error: unknown option '%s'", arg);
                         process.exit(1);

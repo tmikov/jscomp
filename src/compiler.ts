@@ -38,6 +38,7 @@ export class Options
     runtimeLibDir: string = null;
     includeDirs: string[] = [];
     libDirs: string[] = [];
+    buildDir: string = ".jsbuild";
 }
 
 class NT<T extends ESTree.Node>
