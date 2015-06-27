@@ -586,6 +586,8 @@ function compileSource (
         if (!stmt)
             return;
         switch (stmt.type) {
+            case "EmptyStatement":
+                break;
             case "BlockStatement":
                 var blockStatement: ESTree.BlockStatement = NT.BlockStatement.cast(stmt);
                 blockStatement.body.forEach((s: ESTree.Statement) => {
