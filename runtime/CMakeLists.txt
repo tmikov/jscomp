@@ -10,4 +10,4 @@ endif()
 include_directories(include)
 
 set(SOURCE_FILES src/runtime.cxx src/gc.cxx include/jsc/runtime.h src/operators.cpp)
-add_library(jsruntime ${SOURCE_FILES})
+add_library(jsruntime ${SOURCE_FILES} v8compat/include/v8.h)
