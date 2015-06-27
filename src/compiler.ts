@@ -135,7 +135,7 @@ class Scope
     ctx: FunctionContext;
     parent: Scope;
     level: number;
-    vars: StringMap<Variable>;
+    private vars: StringMap<Variable>;
 
     constructor (ctx: FunctionContext, parent: Scope)
     {
@@ -148,9 +148,20 @@ class Scope
     newVariable (name: string, hvar?: hir.Var): Variable
     {
         var variable = new Variable(this.ctx, name);
-        this.vars.set(name, variable);
         variable.hvar = hvar ? hvar : this.ctx.builder.newVar(name);
+        this.setVar(variable);
         return variable;
+    }
+
+    getVar (name: string): Variable
+    {
+        return this.vars.get(name);
+    }
+
+    setVar (v: Variable): void
+    {
+        this.vars.set(v.name, v);
+        this.ctx.vars.push(v);
     }
 
     lookup (name: string): Variable
@@ -189,6 +200,8 @@ class FunctionContext
     labelList: Label = null;
     labels = new StringMap<Label>();
 
+    vars: Variable[] = [];
+
     builder: hir.FunctionBuilder = null;
 
     private tempStack: hir.Local[] = [];
@@ -214,7 +227,7 @@ class FunctionContext
 
     close (): void
     {
-        this.funcScope.vars.forEach( (v: Variable) => {
+        this.vars.forEach( (v: Variable) => {
             this.builder.setVarAttributes(v.hvar,
                 v.escapes, v.accessed || v.assigned, v.initialized && !v.assigned, v.funcRef
             );
@@ -409,7 +422,7 @@ function compileSource (
         var scope = ctx.funcScope;
         var name = ident.name;
         var v: Variable;
-        if (!(v = scope.vars.get(name)))
+        if (!(v = scope.getVar(name)))
             v = scope.newVariable(name);
         v.declared = true;
         return v;
@@ -428,7 +441,7 @@ function compileSource (
             var param = funcCtx.builder.newParam(ident.name);
             var v: Variable;
 
-            if (v = funcScope.vars.get(ident.name)) {
+            if (v = funcScope.getVar(ident.name)) {
                 (funcCtx.strictMode ? error : warning)(location(ident), `parameter '${ident.name}' already declared`);
                 // Overwrite the assigned hvar. When we have duplicate parameter names, the last one wins
                 v.hvar = param.variable;
@@ -562,13 +575,13 @@ function compileSource (
         var funcScope = ctx.funcScope;
         var name = stmt.id.name;
 
-        var variable = funcScope.vars.get(name);
+        var variable = funcScope.getVar(name);
         if (variable) {
             if (variable.funcRef)
                 warning( location(stmt),  `hiding previous declaration of function '${variable.name}'` );
         } else {
             variable = new Variable(ctx, name);
-            funcScope.vars.set(name, variable);
+            funcScope.setVar(variable);
         }
         variable.declared = true;
         variable.funcRef = ctx.addClosure(stmt.id);
@@ -1193,7 +1206,15 @@ function compileSource (
             warning(location(e), "unused function");
 
         var funcRef = scope.ctx.addClosure(e.id);
-        compileFunction(scope, e, funcRef);
+        var nameScope = new Scope(scope.ctx, scope); // A scope for the function name
+        if (e.id) {
+            var funcVar = nameScope.newVariable(e.id.name);
+            funcVar.funcRef = funcRef;
+            funcVar.declared = true;
+            funcVar.initialized = true;
+            scope.ctx.builder.genAssign(funcVar.hvar, funcRef.closureVar);
+        }
+        compileFunction(nameScope, e, funcRef);
         return need ? funcRef.closureVar : null;
     }
 
