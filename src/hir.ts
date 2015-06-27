@@ -1296,6 +1296,18 @@ export class FunctionBuilder
             this.strUnwrapN(binop.src1), coper, this.strUnwrapN(binop.src2));
     }
 
+    private outNumericUnop (unop: UnOp, coper: string): void
+    {
+        this.gen("  %sjs::makeNumberValue(%s%s);\n", this.strDest(unop.dest),
+            coper, this.strToNumber(unop.src1));
+    }
+
+    private outIntegerUnop (unop: UnOp, coper: string): void
+    {
+        this.gen("  %sjs::makeNumberValue(%s%s);\n", this.strDest(unop.dest),
+            coper, this.strToInt32(unop.src1));
+    }
+
     private generateBinop (binop: BinOp): void
     {
         var callerStr: string = "";
@@ -1330,14 +1342,16 @@ export class FunctionBuilder
 
     private generateUnop (unop: UnOp): void
     {
-       switch (unop.op) {
-           case OpCode.TO_NUMBER:
-               this.gen("  %sjs::makeNumberValue(%s);\n", this.strDest(unop.dest), this.strToNumber(unop.src1));
-               break;
-           default:
-               assert(false, "Unsupported instruction "+ unop);
-               break;
-       }
+        switch (unop.op) {
+            case OpCode.NEG_N: this.outNumericUnop(unop, "-"); break;
+            case OpCode.BIN_NOT_N: this.outIntegerUnop(unop, "~"); break;
+            case OpCode.TO_NUMBER:
+                this.gen("  %sjs::makeNumberValue(%s);\n", this.strDest(unop.dest), this.strToNumber(unop.src1));
+                break;
+            default:
+                assert(false, "Unsupported instruction "+ unop);
+                break;
+        }
     }
 
     private generateGet (getop: BinOp): void
