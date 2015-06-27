@@ -670,6 +670,26 @@ function buildBlockList (entry: BasicBlock, exit: BasicBlock): BasicBlock[]
     return blockList;
 }
 
+function mangleName (name: string): string
+{
+    var res: string = "";
+    var lastIndex = 0;
+    for ( var i = 0, len = name.length; i < len; ++i ) {
+        var ch = name[i];
+        if (!(ch >= 'a' && ch <= 'z' || ch >= 'A' && ch <= 'Z' || ch >= '0' && ch <= '9' || ch === '_')) {
+            if (lastIndex < i)
+                res += name.slice(lastIndex, i);
+            res += '_';
+            lastIndex = i + 1;
+        }
+    }
+    if (lastIndex === 0)
+        return name;
+    if (lastIndex < i)
+        res += name.slice(lastIndex, i);
+    return res;
+}
+
 export class FunctionBuilder
 {
     public id: number;
@@ -677,6 +697,7 @@ export class FunctionBuilder
     public parentBuilder: FunctionBuilder;
     public closureVar: Var; //< variable in the parent where this closure is kept
     public name: string;
+    public mangledName: string; // Name suitable for code generation
 
     // The nesting level of this function's environment
     private envLevel: number;
@@ -712,6 +733,9 @@ export class FunctionBuilder
         this.parentBuilder = parentBuilder;
         this.closureVar = closureVar;
         this.name = name;
+        this.mangledName = "fn" + id;
+        if (name)
+            this.mangledName += "_" + mangleName(name);
 
         this.envLevel = parentBuilder ? parentBuilder.envLevel + 1 : 0;
 
@@ -1044,7 +1068,7 @@ export class FunctionBuilder
             return `${slots[0].index}..${slots[slots.length-1].index}`;
         }
 
-        console.log(`\nFUNC_${this.id}://${this.name}`);
+        console.log(`\n${this.mangledName}://${this.name}`);
 
         var pslots: string;
         if (!this.paramSlots || !this.paramSlots.length)
@@ -1742,7 +1766,7 @@ export class ModuleBuilder
 
     strFunc (fref: FunctionBuilder): string
     {
-        return util.format("fn%d", fref.id);
+        return fref.mangledName;
     }
 
     private gen (...params: any[])
@@ -1863,7 +1887,7 @@ int main()
     frame.setLine(__LINE__+1);
     frame.locals[0] = js::makeObjectValue(new(&frame) js::Object(JS_GET_RUNTIME(&frame)->objectPrototype));
     frame.setLine(__LINE__+1);
-    fn1(&frame, JS_GET_RUNTIME(&frame)->env, 1, frame.locals);
+    ${this.topLevel.closures[0].mangledName}(&frame, JS_GET_RUNTIME(&frame)->env, 1, frame.locals);
 
     if (JS_GET_RUNTIME(&frame)->diagFlags & (js::Runtime::DIAG_HEAP_GC | js::Runtime::DIAG_FORCE_GC))
         js::forceGC(&frame);
