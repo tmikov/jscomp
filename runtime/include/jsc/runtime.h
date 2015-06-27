@@ -404,7 +404,7 @@ struct StackFrame
         this->line = line;
 #endif
         this->localCount = localCount;
-        memset(locals + skipInit, 0, sizeof(locals[0]) * (localCount - skipInit));
+        memset(locals, 0, sizeof(locals[0]) * (localCount - skipInit));
 
         // Note: tricky. We use ourselves as a stack frame here
         if (escapedCount)
