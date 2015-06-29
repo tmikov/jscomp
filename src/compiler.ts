@@ -1208,11 +1208,10 @@ function compileSource (
         var funcRef = scope.ctx.addClosure(e.id);
         var nameScope = new Scope(scope.ctx, scope); // A scope for the function name
         if (e.id) {
-            var funcVar = nameScope.newVariable(e.id.name);
+            var funcVar = nameScope.newVariable(e.id.name, funcRef.closureVar);
             funcVar.funcRef = funcRef;
             funcVar.declared = true;
             funcVar.initialized = true;
-            scope.ctx.builder.genAssign(funcVar.hvar, funcRef.closureVar);
         }
         compileFunction(nameScope, e, funcRef);
         return need ? funcRef.closureVar : null;
