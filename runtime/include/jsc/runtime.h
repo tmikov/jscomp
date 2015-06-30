@@ -23,7 +23,6 @@ struct Memory;
 struct Object;
 struct Function;
 struct StringPrim;
-struct String;
 struct StackFrame;
 struct Runtime;
 
@@ -202,6 +201,8 @@ struct Object : public Memory
         this->propList.init();
     }
 
+    virtual Object * createDescendant (StackFrame * caller);
+
     virtual bool mark (IMark * marker, unsigned markBit) const;
 
     Object * defineOwnProperty (
@@ -240,6 +241,17 @@ struct Object : public Memory
     virtual TaggedValue defaultValue (StackFrame * caller, ValueTag preferredType);
     virtual bool isCallable () const;
     virtual TaggedValue call (StackFrame * caller, unsigned argc, const TaggedValue * argv);
+};
+
+template<class BASE, class TOCREATE>
+struct PrototypeCreator : public BASE
+{
+    PrototypeCreator (Object * parent): BASE(parent) {}
+
+    virtual Object * createDescendant (StackFrame * caller)
+    {
+        return new (caller) TOCREATE(this);
+    }
 };
 
 struct PropertyAccessor : public Memory
@@ -299,8 +311,10 @@ struct Function : public Object
     unsigned length; //< number of argumenrs
     CodePtr code;
 
-    Function (Object * parent, Env * env, CodePtr code);
-    void init (StackFrame * caller, const StringPrim * name, unsigned length);
+    Function (Object * parent):
+        Object(parent), env(NULL), length(0), code(NULL)
+    {}
+    void init (StackFrame * caller, Env * env, CodePtr code, const StringPrim * name, unsigned length);
 
     virtual bool mark (IMark * marker, unsigned markBit) const;
 
@@ -339,43 +353,26 @@ struct StringPrim : public Memory
     }
 };
 
-struct String : public Object
+struct Box : public Object
 {
     TaggedValue value;
 
-    String (Object * parent, TaggedValue value) :
+    Box (Object * parent, TaggedValue value = JS_UNDEFINED_VALUE) :
         Object(parent), value(value)
+    {}
+
+    void setValue ( TaggedValue value )
     {
-        freeze();
+        this->value = value;
     }
 
     bool mark (IMark * marker, unsigned markBit) const;
     virtual TaggedValue defaultValue (StackFrame * caller, ValueTag preferredType);
 };
 
-struct Number : public Object
-{
-    TaggedValue value;
-
-    Number (Object * parent, TaggedValue value) :
-        Object(parent), value(value)
-    {
-        freeze();
-    }
-    virtual TaggedValue defaultValue (StackFrame * caller, ValueTag preferredType);
-};
-
-struct Boolean : public Object
-{
-    TaggedValue value;
-
-    Boolean (Object * parent, TaggedValue value) :
-        Object(parent), value(value)
-    {
-        freeze();
-    }
-    virtual TaggedValue defaultValue (StackFrame * caller, ValueTag preferredType);
-};
+typedef Box String;
+typedef Box Number;
+typedef Box Boolean;
 
 struct StackFrame
 {
@@ -490,9 +487,6 @@ struct Runtime
     Function * number;
     Object * booleanPrototype;
     Function * boolean;
-
-    Boolean * trueObject;
-    Boolean * falseObject;
 
     Env * env;
 
@@ -646,6 +640,7 @@ void putComputed (StackFrame * caller, TaggedValue obj, TaggedValue propName, Ta
 TaggedValue get (StackFrame * caller, TaggedValue obj, const StringPrim * propName);
 TaggedValue getComputed (StackFrame * caller, TaggedValue obj, TaggedValue propName);
 
+bool toBoolean (TaggedValue v);
 Object * toObject (StackFrame * caller, TaggedValue v);
 
 TaggedValue toPrimitive (StackFrame * caller, TaggedValue v, ValueTag preferredType = (ValueTag)0);

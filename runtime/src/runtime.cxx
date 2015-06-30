@@ -51,6 +51,11 @@ TaggedValue * Env::var (unsigned level, unsigned index)
     return &penv->vars[index];
 }
 
+Object * Object::createDescendant (StackFrame * caller)
+{
+    return new (caller) Object(this);
+}
+
 bool Object::mark (IMark * marker, unsigned markBit) const
 {
     if (!markMemory(marker, markBit, parent))
@@ -315,14 +320,11 @@ void Array::putComputed (StackFrame * caller, TaggedValue propName, TaggedValue 
     this->put(&frame, frame.locals[0].raw.sval, v);
 }
 
-Function::Function (Object * parent, Env * env, CodePtr code) :
-    Object(parent), prototype(NULL), env(env), length(0), code(code)
-{
-}
-
-void Function::init (StackFrame * caller, const StringPrim * name, unsigned length)
+void Function::init (StackFrame * caller, Env * env, CodePtr code, const StringPrim * name, unsigned length)
 {
     Runtime * r = JS_GET_RUNTIME(caller);
+    this->env = env;
+    this->code = code;
     if (!name)
         name = r->permStrEmpty;
     this->length = length;
@@ -370,22 +372,12 @@ StringPrim * StringPrim::make (StackFrame * caller, const char * str, unsigned l
     return res;
 }
 
-bool String::mark (IMark * marker, unsigned markBit) const
+bool Box::mark (IMark * marker, unsigned markBit) const
 {
-    return Object::mark(marker, markBit) && markMemory(marker, markBit, this->value.raw.mval);
+    return Object::mark(marker, markBit) && markValue(marker, markBit, this->value);
 }
 
-TaggedValue String::defaultValue (StackFrame *, ValueTag)
-{
-    return this->value;
-}
-
-TaggedValue Number::defaultValue (StackFrame *, ValueTag)
-{
-    return this->value;
-}
-
-TaggedValue Boolean::defaultValue (StackFrame *, ValueTag)
+TaggedValue Box::defaultValue (StackFrame *, ValueTag)
 {
     return this->value;
 }
@@ -417,34 +409,81 @@ static TaggedValue emptyFunc (StackFrame * caller, Env *, unsigned, const Tagged
     return JS_UNDEFINED_VALUE;
 }
 
-TaggedValue objectConstructor (StackFrame * caller, Env *, unsigned, const TaggedValue *)
+TaggedValue objectConstructor (StackFrame * caller, Env *, unsigned argc, const TaggedValue * argv)
 {
-    // TODO: implement
-    return JS_UNDEFINED_VALUE;
+    TaggedValue thisp = argc > 0 ? argv[0] : JS_UNDEFINED_VALUE;
+    TaggedValue value = argc > 1 ? argv[1] : JS_UNDEFINED_VALUE;
+
+    if (thisp.tag == VT_UNDEFINED) { // Called as a function?
+        if (value.tag == VT_UNDEFINED || value.tag == VT_NULL)
+            return makeObjectValue(new (caller) Object(JS_GET_RUNTIME(caller)->objectPrototype));
+        else
+            return makeObjectValue(toObject(caller, value));
+    }
+
+    if (value.tag != VT_UNDEFINED && value.tag != VT_NULL)
+        return makeObjectValue(toObject(caller, value));
+
+    return thisp.tag == VT_OBJECT ? thisp : makeObjectValue(toObject(caller, thisp));
 }
 
 TaggedValue functionConstructor (StackFrame * caller, Env *, unsigned, const TaggedValue *)
 {
-    // TODO: implement
-    return JS_UNDEFINED_VALUE;
+    throwTypeError(caller, "'Function' (module-level 'eval') is not supported");
 }
 
-TaggedValue stringConstructor (StackFrame * caller, Env *, unsigned, const TaggedValue *)
+TaggedValue stringConstructor (StackFrame * caller, Env *, unsigned argc, const TaggedValue * argv)
 {
-    // TODO: implement
-    return JS_UNDEFINED_VALUE;
+    TaggedValue thisp = argv[0];
+    TaggedValue value = argc > 1 ? argv[1] : JS_UNDEFINED_VALUE;
+
+    TaggedValue v  = value.tag != VT_UNDEFINED ? toString(caller, value) : makeStringValue(JS_GET_RUNTIME(caller)->permStrEmpty);
+
+    if (thisp.tag == VT_UNDEFINED) // called as a function?
+        return v;
+
+    if (thisp.tag == VT_OBJECT && thisp.raw.oval->parent == JS_GET_RUNTIME(caller)->stringPrototype) {
+        ((String *)thisp.raw.oval)->setValue(v);
+        return thisp;
+    }
+    else
+        throwTypeError(caller, "Not an instance of String");
 }
 
-TaggedValue numberConstructor (StackFrame * caller, Env *, unsigned, const TaggedValue *)
+TaggedValue numberConstructor (StackFrame * caller, Env *, unsigned argc, const TaggedValue * argv)
 {
-    // TODO: implement
-    return JS_UNDEFINED_VALUE;
+    TaggedValue thisp = argv[0];
+    TaggedValue value = argc > 1 ? argv[1] : JS_UNDEFINED_VALUE;
+
+    TaggedValue v = makeNumberValue(value.tag != VT_UNDEFINED ? toNumber(caller, value) : 0);
+
+    if (thisp.tag == VT_UNDEFINED) // called as a function?
+        return v;
+
+    if (thisp.tag == VT_OBJECT && thisp.raw.oval->parent == JS_GET_RUNTIME(caller)->numberPrototype) {
+        ((Number *)thisp.raw.oval)->setValue(v);
+        return thisp;
+    }
+    else
+        throwTypeError(caller, "Not an instance of Number");
 }
 
-TaggedValue booleanConstructor (StackFrame * caller, Env *, unsigned, const TaggedValue *)
+TaggedValue booleanConstructor (StackFrame * caller, Env *, unsigned argc, const TaggedValue * argv)
 {
-    // TODO: implement
-    return JS_UNDEFINED_VALUE;
+    TaggedValue thisp = argv[0];
+    TaggedValue value = argc > 1 ? argv[1] : JS_UNDEFINED_VALUE;
+
+    TaggedValue v = makeBooleanValue(toBoolean(value));
+
+    if (thisp.tag == VT_UNDEFINED) // called as a function?
+        return v;
+
+    if (thisp.tag == VT_OBJECT && thisp.raw.oval->parent == JS_GET_RUNTIME(caller)->booleanPrototype) {
+        ((Boolean *)thisp.raw.oval)->setValue(v);
+        return thisp;
+    }
+    else
+        throwTypeError(caller, "Not an instance of Boolean");
 }
 
 bool Runtime::MemoryHead::mark (IMark *, unsigned) const
@@ -490,23 +529,23 @@ Runtime::Runtime (bool strictMode)
     // TODO: 'toString', 'toLocaleString', 'valueOf', 'hasOwnProperty', 'isPrototypeOf', 'propertyIsEnumerable',
     // TODO: '__defineGetter__', '__lookupGetter__', '__defineSetter__', '__lookupSetter__', '__proto__'
 
-    functionPrototype = new(&frame) Function(objectPrototype, env, emptyFunc);
+    functionPrototype = new(&frame) PrototypeCreator<Function,Function>(objectPrototype);
     frame.locals[1] = makeObjectValue(functionPrototype);
-    functionPrototype->init(&frame, internString(&frame,"functionPrototype"), 0);
+    functionPrototype->init(&frame, env, emptyFunc, internString(&frame,"functionPrototype"), 0);
     // TODO: in functionPrototype define bind, toString, call, apply
 
-    object = new(&frame) Function(functionPrototype, env, objectConstructor);
+    object = new(&frame) Function(functionPrototype);
     env->vars[0] = makeObjectValue(object);
-    object->init(&frame, internString(&frame,"Object"), 1);
+    object->init(&frame, env, objectConstructor, internString(&frame,"Object"), 1);
     // TODO: keys, create, defineOwnProperty, defineProperties, freeze, getPrototypeOf, setPrototypeOf,
     // TODO: getOwnPropertyDescriptor(), getOwnPropertyNames(), is, isExtensible, isFrozen, isSealed, preventExtensions,
     // TODO: seal, getOwnPropertySymbols, deliverChangeRecords, getNotifier, observe, unobserve
     // TODO: arity? (from spidermonkey)
     object->definePrototype(&frame, objectPrototype);
 
-    function = new(&frame) Function(functionPrototype, env, functionConstructor);
+    function = new(&frame) Function(functionPrototype);
     env->vars[1] = makeObjectValue(function);
-    function->init(&frame, internString(&frame,"Function"), 1);
+    function->init(&frame, env, functionConstructor, internString(&frame,"Function"), 1);
     function->definePrototype(&frame, functionPrototype);
 
     objectPrototype->defineOwnProperty(
@@ -516,12 +555,12 @@ Runtime::Runtime (bool strictMode)
 
     // String
     //
-    stringPrototype = new(&frame) Object(objectPrototype);
+    stringPrototype = new(&frame) PrototypeCreator<Object,String>(objectPrototype);
     frame.locals[2] = makeObjectValue(stringPrototype);
 
-    string = new(&frame) Function(functionPrototype, env, stringConstructor);
+    string = new(&frame) Function(functionPrototype);
     env->vars[2] = makeObjectValue(string);
-    string->init(&frame, internString(&frame,"String"), 1);
+    string->init(&frame, env, stringConstructor, internString(&frame,"String"), 1);
     string->definePrototype(&frame, stringPrototype);
 
     stringPrototype->defineOwnProperty(
@@ -529,12 +568,12 @@ Runtime::Runtime (bool strictMode)
 
     // Number
     //
-    numberPrototype = new(&frame) Object(objectPrototype);
+    numberPrototype = new(&frame) PrototypeCreator<Object,Number>(objectPrototype);
     frame.locals[3] = makeObjectValue(numberPrototype);
 
-    number = new(&frame) Function(functionPrototype, env, numberConstructor);
+    number = new(&frame) Function(functionPrototype);
     env->vars[3] = makeObjectValue(number);
-    number->init(&frame, internString(&frame,"Number"), 1);
+    number->init(&frame, env, numberConstructor, internString(&frame,"Number"), 1);
     number->definePrototype(&frame, numberPrototype);
 
     numberPrototype->defineOwnProperty(
@@ -542,20 +581,16 @@ Runtime::Runtime (bool strictMode)
 
     // Boolean
     //
-    booleanPrototype = new(&frame) Object(objectPrototype);
+    booleanPrototype = new(&frame) PrototypeCreator<Object,Boolean>(objectPrototype);
     frame.locals[4] = makeObjectValue(booleanPrototype);
 
-    boolean = new(&frame) Function(functionPrototype, env, booleanConstructor);
+    boolean = new(&frame) Function(functionPrototype);
     env->vars[4] = makeObjectValue(boolean);
-    boolean->init(&frame, internString(&frame,"Boolean"), 1);
+    boolean->init(&frame, env, booleanConstructor, internString(&frame,"Boolean"), 1);
     boolean->definePrototype(&frame, booleanPrototype);
 
     booleanPrototype->defineOwnProperty(
         &frame, permStrConstructor, PROP_WRITEABLE | PROP_CONFIGURABLE, makeObjectValue(boolean));
-
-    // True and False objects
-    env->vars[5] = makeObjectValue(trueObject = new (&frame) Boolean(booleanPrototype, makeBooleanValue(true)));
-    env->vars[6] = makeObjectValue(falseObject = new (&frame) Boolean(booleanPrototype, makeBooleanValue(false)));
 }
 
 void Runtime::parseDiagEnvironment ()
@@ -637,15 +672,14 @@ void Runtime::initStrings (
  */
 Object * objectCreate (StackFrame * caller, TaggedValue parent)
 {
-    Object * p;
     if (isValueTagObject(parent.tag))
-        p = parent.raw.oval;
+        return parent.raw.oval->createDescendant(caller);
     else if (parent.tag == VT_NULL)
-        p = NULL;
-    else
+        return new (caller) Object(NULL);
+    else {
         throwTypeError(caller, "Object prototype may only be an Object or null");
-
-    return new (caller) Object(p);
+        return NULL;
+    }
 }
 
 TaggedValue newFunction (StackFrame * caller, Env * env, const StringPrim * name, unsigned length, CodePtr code)
@@ -653,8 +687,8 @@ TaggedValue newFunction (StackFrame * caller, Env * env, const StringPrim * name
     StackFrameN<0, 2, 0> frame(caller, env, __FILE__ ":newFunction", __LINE__);
     Function * func;
     frame.locals[0] = makeObjectValue(
-        func = new(&frame) Function(JS_GET_RUNTIME(&frame)->functionPrototype, env, code));
-    func->init(&frame, name, length);
+        func = new(&frame) Function(JS_GET_RUNTIME(&frame)->functionPrototype));
+    func->init(&frame, env, code, name, length);
 
     frame.locals[1] = makeObjectValue(new(&frame) Object(JS_GET_RUNTIME(&frame)->objectPrototype));
     frame.locals[1].raw.oval->defineOwnProperty(
@@ -798,6 +832,23 @@ TaggedValue getComputed (StackFrame * caller, TaggedValue obj, TaggedValue propN
     return JS_UNDEFINED_VALUE;
 }
 
+bool toBoolean (TaggedValue v)
+{
+    switch (v.tag) {
+        case VT_UNDEFINED:
+        case VT_NULL:
+            return false;
+        case VT_BOOLEAN:
+            return v.raw.bval;
+        case VT_NUMBER:
+            return !isnan(v.raw.nval) && v.raw.nval;
+        case VT_STRINGPRIM:
+            return v.raw.sval->length != 0;
+        default:
+            return true;
+    }
+}
+
 Object * toObject (StackFrame * caller, TaggedValue v)
 {
     switch (v.tag) {
@@ -805,7 +856,7 @@ Object * toObject (StackFrame * caller, TaggedValue v)
         case VT_NULL:
             throwTypeError(caller, "Cannot be converted to an object");
 
-        case VT_BOOLEAN:    return v.raw.bval ? JS_GET_RUNTIME(caller)->trueObject : JS_GET_RUNTIME(caller)->falseObject;
+        case VT_BOOLEAN:    return new (caller) Boolean(JS_GET_RUNTIME(caller)->booleanPrototype, v);
         case VT_NUMBER:     return new (caller) Number(JS_GET_RUNTIME(caller)->numberPrototype, v);
         case VT_STRINGPRIM: return new (caller) String(JS_GET_RUNTIME(caller)->stringPrototype, v);
         default:
@@ -935,6 +986,5 @@ bool equal (const StringPrim * a, const StringPrim * b)
 {
     return a == b || strcmp(a->getStr(), b->getStr()) == 0;
 }
-
 
 }
