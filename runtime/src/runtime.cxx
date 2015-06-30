@@ -417,31 +417,31 @@ static TaggedValue emptyFunc (StackFrame * caller, Env *, unsigned, const Tagged
     return JS_UNDEFINED_VALUE;
 }
 
-static TaggedValue objectFunc (StackFrame * caller, Env *, unsigned, const TaggedValue *)
+TaggedValue objectConstructor (StackFrame * caller, Env *, unsigned, const TaggedValue *)
 {
     // TODO: implement
     return JS_UNDEFINED_VALUE;
 }
 
-static TaggedValue functionFunc (StackFrame * caller, Env *, unsigned, const TaggedValue *)
+TaggedValue functionConstructor (StackFrame * caller, Env *, unsigned, const TaggedValue *)
 {
     // TODO: implement
     return JS_UNDEFINED_VALUE;
 }
 
-static TaggedValue stringFunc (StackFrame * caller, Env *, unsigned, const TaggedValue *)
+TaggedValue stringConstructor (StackFrame * caller, Env *, unsigned, const TaggedValue *)
 {
     // TODO: implement
     return JS_UNDEFINED_VALUE;
 }
 
-static TaggedValue numberFunc (StackFrame * caller, Env *, unsigned, const TaggedValue *)
+TaggedValue numberConstructor (StackFrame * caller, Env *, unsigned, const TaggedValue *)
 {
     // TODO: implement
     return JS_UNDEFINED_VALUE;
 }
 
-static TaggedValue booleanFunc (StackFrame * caller, Env *, unsigned, const TaggedValue *)
+TaggedValue booleanConstructor (StackFrame * caller, Env *, unsigned, const TaggedValue *)
 {
     // TODO: implement
     return JS_UNDEFINED_VALUE;
@@ -495,7 +495,7 @@ Runtime::Runtime (bool strictMode)
     functionPrototype->init(&frame, internString(&frame,"functionPrototype"), 0);
     // TODO: in functionPrototype define bind, toString, call, apply
 
-    object = new(&frame) Function(functionPrototype, env, objectFunc);
+    object = new(&frame) Function(functionPrototype, env, objectConstructor);
     env->vars[0] = makeObjectValue(object);
     object->init(&frame, internString(&frame,"Object"), 1);
     // TODO: keys, create, defineOwnProperty, defineProperties, freeze, getPrototypeOf, setPrototypeOf,
@@ -504,7 +504,7 @@ Runtime::Runtime (bool strictMode)
     // TODO: arity? (from spidermonkey)
     object->definePrototype(&frame, objectPrototype);
 
-    function = new(&frame) Function(functionPrototype, env, functionFunc);
+    function = new(&frame) Function(functionPrototype, env, functionConstructor);
     env->vars[1] = makeObjectValue(function);
     function->init(&frame, internString(&frame,"Function"), 1);
     function->definePrototype(&frame, functionPrototype);
@@ -519,7 +519,7 @@ Runtime::Runtime (bool strictMode)
     stringPrototype = new(&frame) Object(objectPrototype);
     frame.locals[2] = makeObjectValue(stringPrototype);
 
-    string = new(&frame) Function(functionPrototype, env, stringFunc);
+    string = new(&frame) Function(functionPrototype, env, stringConstructor);
     env->vars[2] = makeObjectValue(string);
     string->init(&frame, internString(&frame,"String"), 1);
     string->definePrototype(&frame, stringPrototype);
@@ -532,7 +532,7 @@ Runtime::Runtime (bool strictMode)
     numberPrototype = new(&frame) Object(objectPrototype);
     frame.locals[3] = makeObjectValue(numberPrototype);
 
-    number = new(&frame) Function(functionPrototype, env, numberFunc);
+    number = new(&frame) Function(functionPrototype, env, numberConstructor);
     env->vars[3] = makeObjectValue(number);
     number->init(&frame, internString(&frame,"Number"), 1);
     number->definePrototype(&frame, numberPrototype);
@@ -545,7 +545,7 @@ Runtime::Runtime (bool strictMode)
     booleanPrototype = new(&frame) Object(objectPrototype);
     frame.locals[4] = makeObjectValue(booleanPrototype);
 
-    boolean = new(&frame) Function(functionPrototype, env, booleanFunc);
+    boolean = new(&frame) Function(functionPrototype, env, booleanConstructor);
     env->vars[4] = makeObjectValue(boolean);
     boolean->init(&frame, internString(&frame,"Boolean"), 1);
     boolean->definePrototype(&frame, booleanPrototype);

@@ -531,6 +531,7 @@ struct Runtime
     const StringPrim * internString (StackFrame * caller, const char * str);
     void initStrings (StackFrame * caller, const StringPrim ** prims, const char * strconst, const unsigned * offsets, unsigned count);
 
+
 private:
     void parseDiagEnvironment();
 };
@@ -546,7 +547,11 @@ inline Runtime * getRuntime (StackFrame * frame) { return g_runtime; }
 
 #define JS_IS_STRICT_MODE(frame) (JS_GET_RUNTIME(frame)->strictMode != false)
 
-
+TaggedValue objectConstructor (StackFrame * caller, Env *, unsigned, const TaggedValue *);
+TaggedValue functionConstructor (StackFrame * caller, Env *, unsigned, const TaggedValue *);
+TaggedValue stringConstructor (StackFrame * caller, Env *, unsigned, const TaggedValue *);
+TaggedValue numberConstructor (StackFrame * caller, Env *, unsigned, const TaggedValue *);
+TaggedValue booleanConstructor (StackFrame * caller, Env *, unsigned, const TaggedValue *);
 
 inline bool markValue (IMark * marker, unsigned markBit, const TaggedValue & value)
 {

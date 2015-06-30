@@ -306,6 +306,10 @@ class FunctionContext
     {
         return this.builder.newClosure(id && id.name);
     }
+    public addBuiltinClosure (name: string, mangledName: string, runtimeVar: string): hir.FunctionBuilder
+    {
+        return this.builder.newBuiltinClosure(name, mangledName, runtimeVar);
+    }
 }
 
 class AsmBinding {
@@ -1143,7 +1147,7 @@ function compileSource (
         }
 
         var objProto = ctx.allocTemp();
-        ctx.builder.genLoadSC(objProto, hir.SysConst.OBJECT_PROTOTYPE);
+        ctx.builder.genLoadRuntimeVar(objProto, "objectPrototype");
         ctx.releaseTemp(objProto);
         var dest = ctx.allocTemp();
         ctx.builder.genCreate(dest, objProto);
@@ -2016,7 +2020,7 @@ function compileSource (
         ctx.builder.genPropGet(prototype, closure, hir.wrapImmediate("prototype"));
         ctx.builder.genIfIsObject(prototype, objLab, notObjLab);
         ctx.builder.genLabel(notObjLab);
-        ctx.builder.genLoadSC(prototype, hir.SysConst.OBJECT_PROTOTYPE);
+        ctx.builder.genLoadRuntimeVar(prototype, "objectPrototype");
         ctx.builder.genLabel(objLab);
         ctx.releaseTemp(prototype);
         var obj = ctx.allocTemp();
@@ -2133,7 +2137,7 @@ export function compile (
         m_globalContext = new FunctionContext(null, null, topLevelBuilder.name, topLevelBuilder);
         m_globalContext.strictMode = m_options.strictMode;
 
-        var core = compileModule(m_globalContext, "runtime/js/core.js");
+        var core = compileCoreModule(m_globalContext, "runtime/js/core.js");
         if (m_reporter.errorCount() > 0)
             return;
 
@@ -2155,6 +2159,32 @@ export function compile (
 
         if (!m_options.dumpAST && !m_options.dumpHIR)
             produceOutput();
+    }
+
+    function compileCoreModule (parentContext: FunctionContext, fileName: string): FunctionContext
+    {
+        var name = "<"+fileName+">";
+        var moduleCtx = new FunctionContext(
+            parentContext, parentContext.funcScope, name, parentContext.builder.newClosure(name)
+        );
+
+        function declareBuiltin (name: string, mangled: string, runtimeVar: string): void
+        {
+            var fobj = moduleCtx.addBuiltinClosure(name, mangled, runtimeVar);
+            var vobj = moduleCtx.funcScope.newVariable(fobj.name, fobj.closureVar);
+            vobj.funcRef = fobj;
+            vobj.declared = true;
+            vobj.initialized = true;
+        }
+
+        declareBuiltin("Object", "js::objectConstructor", "object");
+        declareBuiltin("Function", "js::functionConstructor", "function");
+        declareBuiltin("String", "js::stringConstructor", "string");
+        declareBuiltin("Number", "js::numberConstructor", "number");
+        declareBuiltin("Boolean", "js::booleanConstructor", "boolean");
+
+        compileSource(moduleCtx.funcScope, moduleCtx.funcScope, fileName, m_reporter, m_options);
+        return moduleCtx;
     }
 
     function compileModule (parentContext: FunctionContext, fileName: string): FunctionContext

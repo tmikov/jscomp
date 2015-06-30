@@ -343,10 +343,10 @@ var g_opcodeName: string[] = [
 
 export const enum SysConst
 {
-    OBJECT_PROTOTYPE,
+    RUNTIME_VAR,
 }
 var g_sysConstName : string[] = [
-    "OBJECT_PROTOTYPE",
+    "RUNTIME_VAR",
 ];
 
 // Note: surprisingly, 'ADD' is not commutative because 'string+x' is not the same as 'x+string'
@@ -423,9 +423,12 @@ class ClosureOp extends Instruction {
     }
 }
 class LoadSCOp extends Instruction {
-    constructor (public dest: LValue, public sc: SysConst) { super(OpCode.LOAD_SC); }
+    constructor (public dest: LValue, public sc: SysConst, public arg?: string) { super(OpCode.LOAD_SC); }
     toString (): string {
-        return `${rv2s(this.dest)} = ${oc2s(this.op)}(${g_sysConstName[this.sc]})`;
+        if (!this.arg)
+            return `${rv2s(this.dest)} = ${oc2s(this.op)}(${g_sysConstName[this.sc]})`;
+        else
+            return `${rv2s(this.dest)} = ${oc2s(this.op)}(${g_sysConstName[this.sc]}, ${this.arg})`;
     }
 }
 class BinOp extends Instruction {
@@ -698,6 +701,8 @@ export class FunctionBuilder
     public closureVar: Var; //< variable in the parent where this closure is kept
     public name: string;
     public mangledName: string; // Name suitable for code generation
+    public runtimeVar: string = null;
+    public isBuiltIn = false;
 
     // The nesting level of this function's environment
     private envLevel: number;
@@ -751,6 +756,15 @@ export class FunctionBuilder
     {
         var fref = new FunctionBuilder(this.module.newFunctionId(), this.module, this, this.newVar(name), name);
         this.closures.push(fref);
+        return fref;
+    }
+
+    newBuiltinClosure (name: string, mangledName: string, runtimeVar: string): FunctionBuilder
+    {
+        var fref = this.newClosure(name);
+        fref.mangledName = mangledName;
+        fref.runtimeVar = runtimeVar;
+        fref.isBuiltIn = true;
         return fref;
     }
 
@@ -905,9 +919,9 @@ export class FunctionBuilder
     {
         this.getBB().push(new UnOp(OpCode.CREATE, dest, src));
     }
-    genLoadSC(dest: LValue, sc: SysConst): void
+    genLoadRuntimeVar(dest: LValue, runtimeVar: string): void
     {
-        this.getBB().push(new LoadSCOp(dest, sc));
+        this.getBB().push(new LoadSCOp(dest, SysConst.RUNTIME_VAR, runtimeVar));
     }
     genAssign(dest: LValue, src: RValue): void
     {
@@ -945,6 +959,8 @@ export class FunctionBuilder
 
     close (): void
     {
+        if (this.isBuiltIn)
+            return;
         if (this.closed)
             return;
         this.closed = true;
@@ -959,6 +975,8 @@ export class FunctionBuilder
 
     prepareForCodegen (): void
     {
+        if (this.isBuiltIn)
+            return;
         this.processVars();
         this.closures.forEach((fb: FunctionBuilder) => fb.prepareForCodegen());
     }
@@ -1004,8 +1022,14 @@ export class FunctionBuilder
         // Create closures
         this.closures.forEach((fb: FunctionBuilder) => {
             var clvar = fb.closureVar;
-            if (clvar && clvar.accessed)
-                this.entryBB.insertAt(instIndex++, new ClosureOp(clvar, fb));
+            if (clvar && clvar.accessed) {
+                var inst: Instruction;
+                if (!fb.isBuiltIn)
+                    inst = new ClosureOp(clvar, fb);
+                else
+                    inst = new LoadSCOp(clvar, SysConst.RUNTIME_VAR, fb.runtimeVar);
+                this.entryBB.insertAt(instIndex++, inst);
+            }
         });
 
         this.scanAllInstructions();
@@ -1056,6 +1080,8 @@ export class FunctionBuilder
 
     dump (): void
     {
+        if (this.isBuiltIn)
+            return;
         assert(this.closed);
 
         this.closures.forEach((ifb: FunctionBuilder) => {
@@ -1204,8 +1230,8 @@ export class FunctionBuilder
     {
         var src: string;
         switch (loadsc.sc) {
-            case SysConst.OBJECT_PROTOTYPE:
-                src = "js::makeObjectValue(JS_GET_RUNTIME(&frame)->objectPrototype)";
+            case SysConst.RUNTIME_VAR:
+                src = util.format("js::makeObjectValue(JS_GET_RUNTIME(&frame)->%s)", loadsc.arg);
                 break;
             default:
                 assert(false, "Usupported sysconst "+ loadsc.sc);
@@ -1568,6 +1594,8 @@ export class FunctionBuilder
 
     generateC (obuf: OutputSegment): void
     {
+        if (this.isBuiltIn)
+            return;
         this.obuf = obuf;
         try
         {
@@ -1874,9 +1902,10 @@ export class ModuleBuilder
         };
 
         forEachFunc(this.topLevel, (fb) => {
-            this.gen("static js::TaggedValue %s (js::StackFrame*, js::Env*, unsigned, const js::TaggedValue*); // %s\n",
-                this.strFunc(fb), fb.name || "<unnamed>"
-            );
+            if (!fb.isBuiltIn)
+                this.gen("static js::TaggedValue %s (js::StackFrame*, js::Env*, unsigned, const js::TaggedValue*); // %s\n",
+                    this.strFunc(fb), fb.name || "<unnamed>"
+                );
         });
         this.gen("\n");
         forEachFunc(this.topLevel, (fb) => fb.generateC(this.codeSeg));
