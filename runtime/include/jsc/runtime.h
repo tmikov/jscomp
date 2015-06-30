@@ -650,7 +650,7 @@ double primToNumber (TaggedValue v);
 int32_t toInt32 (StackFrame * caller, TaggedValue v);
 inline int32_t toInt32 (double num)
 {
-    return isnan(num) || isinf(num) ? 0 : (int32_t)num;
+    return isfinite(num) ? (int32_t)num : 0;
 }
 TaggedValue toString (StackFrame * caller, double n);
 TaggedValue toString (StackFrame * caller, TaggedValue v);
