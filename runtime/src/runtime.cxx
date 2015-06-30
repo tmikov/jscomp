@@ -642,13 +642,25 @@ bool Runtime::mark (IMark * marker, unsigned markBit)
     return markMemory(marker, markBit, env);
 }
 
+bool Runtime::less_PasStr::operator() (const PasStr & a, const PasStr & b) const
+{
+    int rel;
+    if (a.first == b.first)
+        return memcmp(a.second, b.second, a.first) < 0;
+    else if (a.first < b.first)
+        return (rel = memcmp(a.second, b.second, a.first)) != 0 ? rel < 0 : true;
+    else
+        return (rel = memcmp(a.second, b.second, b.first)) != 0 ? rel < 0 : false;
+}
+
 const StringPrim * Runtime::internString (StackFrame * caller, const char * str, unsigned len)
 {
     StringPrim * res;
-    auto it = permStrings.find(str);
+    PasStr key(len, str);
+    auto it = permStrings.find(key);
     if (it == permStrings.end()) {
         res = StringPrim::make(caller, str, len);
-        permStrings[res->getStr()] = res;
+        permStrings[PasStr(len, res->_str)] = res;
     } else {
         res = it->second;
     }

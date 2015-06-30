@@ -490,7 +490,13 @@ struct Runtime
 
     Env * env;
 
-    std::map<const char *,StringPrim*,less_cstr> permStrings;
+    typedef std::pair<unsigned,const char*> PasStr;
+
+    struct less_PasStr {
+        bool operator() (const PasStr & a, const PasStr & b) const;
+    };
+
+    std::map<PasStr,StringPrim*,less_PasStr> permStrings;
 
     const StringPrim * permStrEmpty;
     const StringPrim * permStrUndefined;
