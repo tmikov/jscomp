@@ -70,7 +70,7 @@ Object * Object::defineOwnProperty (StackFrame * caller, const StringPrim * name
 
     auto it = props.find(name->getStr());
     if (it != props.end()) {
-        if (!(it->second.flags & PROP_CONFIGURABLE))
+        if ((this->flags & OF_NOCONFIG) || !(it->second.flags & PROP_CONFIGURABLE))
             throwTypeError(caller, "Cannot redefine property '%s'", name->getStr());
 
         Property * prop = &it->second;
@@ -179,7 +179,7 @@ bool Object::deleteProperty (StackFrame * caller, const char * name)
 {
     auto it = props.find(name);
     if (it != props.end()) {
-        if (!(it->second.flags & PROP_CONFIGURABLE)) {
+        if ((this->flags & OF_NOCONFIG) || !(it->second.flags & PROP_CONFIGURABLE)) {
             if (JS_IS_STRICT_MODE(caller))
                 throwTypeError(caller, "Property '%s' is not deletable", name);
             return false;
