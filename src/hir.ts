@@ -1499,6 +1499,9 @@ export class FunctionBuilder
         var callerStr: string = "&frame, ";
         var cond: string;
         switch (ifop.op) {
+            case OpCode.IF_TRUE:
+                cond = util.format("js::toBoolean(%s)", this.strRValue(ifop.src1));
+                break;
             case OpCode.IF_IS_OBJECT:
                 cond = util.format("js::isValueTagObject(%s.tag)", this.strRValue(ifop.src1));
                 break;
