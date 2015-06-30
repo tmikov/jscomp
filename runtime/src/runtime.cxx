@@ -840,6 +840,7 @@ TaggedValue toString (StackFrame * caller, TaggedValue v)
         }
         default:
             assert(false);
+            return JS_UNDEFINED_VALUE;
     };
 }
 
@@ -856,6 +857,7 @@ TaggedValue toPrimitive (StackFrame * caller, TaggedValue v, ValueTag preferredT
             return v.raw.oval->defaultValue(caller, preferredType);
         default:
             assert(false);
+            return JS_UNDEFINED_VALUE;
     }
 }
 
@@ -893,6 +895,7 @@ double toNumber (StackFrame * caller, TaggedValue v)
         }
         default:
             assert(false);
+            return NAN;
     };
 }
 
@@ -906,6 +909,7 @@ double primToNumber (TaggedValue v)
         case VT_STRINGPRIM: return toNumber(v.raw.sval);
         default:
             assert(false);
+            return NAN;
     };
 }
 
