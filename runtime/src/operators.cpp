@@ -2,13 +2,12 @@
 // Licensed under the Apache License v2.0. See LICENSE in the project
 // root for complete license information.
 
+#include <assert.h>
 #include "jsc/runtime.h"
 
 namespace js
 {
 
-TaggedValue operator_STRICT_EQ (TaggedValue a, TaggedValue b);
-TaggedValue operator_STRICT_NE (TaggedValue a, TaggedValue b);
 TaggedValue operator_LOOSE_EQ (TaggedValue a, TaggedValue b);
 TaggedValue operator_LOOSE_NE (TaggedValue a, TaggedValue b);
 TaggedValue operator_LT (TaggedValue a, TaggedValue b);
@@ -35,11 +34,23 @@ TaggedValue operator_ADD (StackFrame * caller, TaggedValue a, TaggedValue b)
 TaggedValue operator_IN (TaggedValue a, TaggedValue b);
 TaggedValue operator_INSTANCEOF (TaggedValue a, TaggedValue b);
 
-TaggedValue operator_LOG_NOT (TaggedValue a);
-TaggedValue operator_TYPEOF (TaggedValue a);
-TaggedValue operator_VOID (TaggedValue a);
+const StringPrim * operator_TYPEOF (StackFrame * caller, TaggedValue a)
+{
+    switch (a.tag) {
+        case VT_UNDEFINED: return JS_GET_RUNTIME(caller)->permStrUndefined;
+        case VT_NULL:      return JS_GET_RUNTIME(caller)->permStrObject;
+        case VT_BOOLEAN:   return JS_GET_RUNTIME(caller)->permStrBoolean;
+        case VT_NUMBER:    return JS_GET_RUNTIME(caller)->permStrNumber;
+        case VT_STRINGPRIM:return JS_GET_RUNTIME(caller)->permStrString;
+        case VT_OBJECT:    return JS_GET_RUNTIME(caller)->permStrObject;
+        case VT_FUNCTION:  return JS_GET_RUNTIME(caller)->permStrFunction;
+        default:
+            assert(false);
+            return JS_GET_RUNTIME(caller)->permStrEmpty;
+    }
+}
+
 TaggedValue operator_DELETE (TaggedValue a);
-TaggedValue operator_TO_NUMBER (StackFrame * caller, TaggedValue a);
 
 bool operator_IF_TRUE (TaggedValue a);
 

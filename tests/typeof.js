@@ -1,0 +1,22 @@
+print(typeof void 0);
+print(typeof null);
+print(typeof true);
+print(typeof 1);
+print(typeof "foo");
+print(typeof {});
+print(typeof function() {});
+
+var x;
+print(typeof x);
+x = null;
+print(typeof x);
+x = true;
+print(typeof x);
+x = 1;
+print(typeof x);
+x = "foo";
+print(typeof x);
+x = {};
+print(typeof x);
+x = function () {};
+print(typeof x);

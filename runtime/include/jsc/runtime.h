@@ -510,6 +510,11 @@ struct Runtime
     const StringPrim * permStrName;
     const StringPrim * permStrArguments;
     const StringPrim * permStrCaller;
+    const StringPrim * permStrObject;
+    const StringPrim * permStrBoolean;
+    const StringPrim * permStrNumber;
+    const StringPrim * permStrString;
+    const StringPrim * permStrFunction;
 
     unsigned markBit; // the value that was used for marking during the previous collection
 
@@ -666,8 +671,6 @@ bool less (const StringPrim * a, const StringPrim * b);
 bool equal (const StringPrim * a, const StringPrim * b);
 
 // Operators
-TaggedValue operator_STRICT_EQ (TaggedValue a, TaggedValue b);
-TaggedValue operator_STRICT_NE (TaggedValue a, TaggedValue b);
 TaggedValue operator_LOOSE_EQ (TaggedValue a, TaggedValue b);
 TaggedValue operator_LOOSE_NE (TaggedValue a, TaggedValue b);
 TaggedValue operator_LT (TaggedValue a, TaggedValue b);
@@ -676,11 +679,8 @@ TaggedValue operator_ADD (StackFrame * caller, TaggedValue a, TaggedValue b);
 TaggedValue operator_IN (TaggedValue a, TaggedValue b);
 TaggedValue operator_INSTANCEOF (TaggedValue a, TaggedValue b);
 
-TaggedValue operator_LOG_NOT (TaggedValue a);
-TaggedValue operator_TYPEOF (TaggedValue a);
-TaggedValue operator_VOID (TaggedValue a);
+const StringPrim * operator_TYPEOF (StackFrame * caller, TaggedValue a);
 TaggedValue operator_DELETE (TaggedValue a);
-TaggedValue operator_TO_NUMBER (StackFrame * caller, TaggedValue a);
 
 bool operator_IF_TRUE (TaggedValue a);
 bool operator_IF_STRICT_EQ (TaggedValue a, TaggedValue b);

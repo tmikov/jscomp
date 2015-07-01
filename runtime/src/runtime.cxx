@@ -520,6 +520,11 @@ Runtime::Runtime (bool strictMode)
     permStrName = internString(&frame, "name");
     permStrArguments = internString(&frame, "arguments");
     permStrCaller = internString(&frame, "caller");
+    permStrObject = internString(&frame, "object");
+    permStrBoolean = internString(&frame, "boolean");
+    permStrNumber = internString(&frame, "number");
+    permStrString = internString(&frame, "string");
+    permStrFunction = internString(&frame, "function");
 
     // Global env
     env = Env::make(&frame, NULL, 10);

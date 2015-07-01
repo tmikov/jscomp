@@ -1368,12 +1368,18 @@ export class FunctionBuilder
 
     private generateUnop (unop: UnOp): void
     {
+        var callerStr = "&frame, ";
         switch (unop.op) {
             case OpCode.NEG_N: this.outNumericUnop(unop, "-"); break;
             case OpCode.LOG_NOT:
                 this.gen("  %sjs::makeBooleanValue(!js::toBoolean(%s));\n", this.strDest(unop.dest), this.strRValue(unop.src1));
                 break;
             case OpCode.BIN_NOT_N: this.outIntegerUnop(unop, "~"); break;
+            case OpCode.TYPEOF:
+                this.gen("  %sjs::makeStringValue(js::operator_TYPEOF(%s%s));\n",
+                    this.strDest(unop.dest), callerStr, this.strRValue(unop.src1)
+                );
+                break;
             case OpCode.TO_NUMBER:
                 this.gen("  %sjs::makeNumberValue(%s);\n", this.strDest(unop.dest), this.strToNumber(unop.src1));
                 break;
