@@ -91,7 +91,7 @@ Object * Object::defineOwnProperty (StackFrame * caller, const StringPrim * name
     return this;
 }
 
-Property * Object::getProperty (const char * name)
+Property * Object::getProperty (const StringPrim * name)
 {
     Object * cur = this;
     do {
@@ -101,7 +101,7 @@ Property * Object::getProperty (const char * name)
     return NULL;
 }
 
-TaggedValue Object::get (StackFrame * caller, const char * name)
+TaggedValue Object::get (StackFrame * caller, const StringPrim * name)
 {
     if (Property * p = getProperty(name)) {
         if ((p->flags & PROP_GET_SET) == 0) {
@@ -121,7 +121,7 @@ void Object::put (StackFrame * caller, const StringPrim * name, TaggedValue v)
 {
     Object * cur = this;
     do {
-        if (Property * p = cur->getOwnProperty(name->getStr())) {
+        if (Property * p = cur->getOwnProperty(name)) {
             if ((cur->flags & OF_NOWRITE) || !(p->flags & PROP_WRITEABLE)) {
                 goto cannotWrite;
             }
@@ -170,7 +170,7 @@ TaggedValue Object::getComputed (StackFrame * caller, TaggedValue propName)
 {
     StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":Object::getComputed()", __LINE__);
     frame.locals[0] = toString(&frame, propName);
-    return this->get(&frame, frame.locals[0].raw.sval->getStr());
+    return this->get(&frame, frame.locals[0].raw.sval);
 }
 
 void Object::putComputed (StackFrame * caller, TaggedValue propName, TaggedValue v)
@@ -214,7 +214,7 @@ TaggedValue Object::defaultValue (StackFrame * caller, ValueTag preferredType)
         goto preferNumber;
 
 preferString:
-    frame.locals[0] = get(&frame, "toString");
+    frame.locals[0] = get(&frame, JS_GET_RUNTIME(&frame)->permStrToString);
     if (js::isCallable(frame.locals[0])) {
         tmp = frame.locals[0].raw.oval->call(&frame, 1, &frame.locals[1]);
         if (isValueTagPrimitive(tmp.tag))
@@ -224,7 +224,7 @@ preferString:
         goto error;
 
 preferNumber:
-    frame.locals[0] = get(&frame, "valueOf");
+    frame.locals[0] = get(&frame, JS_GET_RUNTIME(&frame)->permStrValueOf);
     if (js::isCallable(frame.locals[0])) {
         tmp = frame.locals[0].raw.oval->call(&frame, 1, &frame.locals[1]);
         if (isValueTagPrimitive(tmp.tag))
@@ -298,7 +298,7 @@ TaggedValue Array::getComputed (StackFrame * caller, TaggedValue propName)
     if ((index = isIndexString(frame.locals[0].raw.sval->getStr())) >= 0)
         return getElem(index);
 
-    return this->get(&frame, frame.locals[0].raw.sval->getStr());
+    return this->get(&frame, frame.locals[0].raw.sval);
 }
 
 void Array::putComputed (StackFrame * caller, TaggedValue propName, TaggedValue v)
@@ -342,6 +342,17 @@ bool Function::mark (IMark * marker, unsigned markBit) const
 void Function::definePrototype (StackFrame * caller, Object * prototype)
 {
     defineOwnProperty(caller, JS_GET_RUNTIME(caller)->permStrPrototype, PROP_WRITEABLE, makeObjectValue(prototype));
+}
+
+bool Function::hasInstance (StackFrame * caller, Object * inst)
+{
+    TaggedValue prototype = this->get(caller, JS_GET_RUNTIME(caller)->permStrPrototype);
+    if (!isValueTagObject(prototype.tag))
+        throwTypeError(caller, "Function has no valid 'prototype' property");
+    while ((inst = inst->parent) != NULL)
+        if (inst == prototype.raw.oval)
+            return true;
+    return false;
 }
 
 bool Function::isCallable () const
@@ -524,6 +535,8 @@ Runtime::Runtime (bool strictMode)
     permStrNumber = internString(&frame, "number");
     permStrString = internString(&frame, "string");
     permStrFunction = internString(&frame, "function");
+    permStrToString = internString(&frame, "toString");
+    permStrValueOf = internString(&frame, "valueOf");
 
     // Global env
     env = Env::make(&frame, NULL, 10);
@@ -796,7 +809,7 @@ TaggedValue get (StackFrame * caller, TaggedValue obj, const StringPrim * propNa
         case VT_NULL:      throwTypeError(caller, "cannot read property '%s' of null", propName->getStr()); break;
 
         case VT_OBJECT:
-        case VT_FUNCTION: return obj.raw.oval->get(caller, propName->getStr()); break;
+        case VT_FUNCTION: return obj.raw.oval->get(caller, propName); break;
 
         case VT_NUMBER:
         case VT_BOOLEAN:
@@ -805,7 +818,7 @@ TaggedValue get (StackFrame * caller, TaggedValue obj, const StringPrim * propNa
             StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":get", __LINE__);
             Object * o = toObject(&frame, obj);
             frame.locals[0] = makeObjectValue(o);
-            return o->get(&frame, propName->getStr());
+            return o->get(&frame, propName);
         }
         break;
         default:

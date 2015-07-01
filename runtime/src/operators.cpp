@@ -124,5 +124,4 @@ MAKE_IF_REL(GE, !less(frame.locals[0].raw.sval, frame.locals[1].raw.sval), >=);
 
 #undef MAKE_IF_REL
 
-
 }; // namespace js

@@ -210,6 +210,8 @@ export const enum OpCode
     LE,
     GT,
     GE,
+    IN,
+    INSTANCEOF,
     SHL_N,
     SHR_N,
     ASR_N,
@@ -222,8 +224,8 @@ export const enum OpCode
     OR_N,
     XOR_N,
     AND_N,
-    IN,
-    INSTANCEOF,
+    ASSERT_OBJECT,
+    ASSERT_FUNC,
 
     // Unary
     NEG_N,
@@ -233,6 +235,7 @@ export const enum OpCode
     VOID,
     DELETE,
     TO_NUMBER,
+    TO_STRING,
 
     // Assignment
     ASSIGN,
@@ -260,17 +263,19 @@ export const enum OpCode
     IF_LE,
     IF_GT,
     IF_GE,
+    IF_IN,
+    IF_INSTANCEOF,
 
     _BINOP_FIRST = STRICT_EQ,
-    _BINOP_LAST = INSTANCEOF,
+    _BINOP_LAST = ASSERT_FUNC,
     _UNOP_FIRST = NEG_N,
-    _UNOP_LAST = TO_NUMBER,
+    _UNOP_LAST = TO_STRING,
     _IF_FIRST = IF_TRUE,
-    _IF_LAST = IF_GE,
+    _IF_LAST = IF_INSTANCEOF,
     _BINCOND_FIRST = IF_STRICT_EQ,
-    _BINCOND_LAST = IF_GE,
+    _BINCOND_LAST = IF_INSTANCEOF,
     _JUMP_FIRST = RET,
-    _JUMP_LAST = IF_LE,
+    _JUMP_LAST = IF_INSTANCEOF,
 }
 
 var g_opcodeName: string[] = [
@@ -289,6 +294,8 @@ var g_opcodeName: string[] = [
     "LE",
     "GT",
     "GE",
+    "IN",
+    "INSTANCEOF",
     "SHL_N",
     "SHR_N",
     "ASR_N",
@@ -301,8 +308,8 @@ var g_opcodeName: string[] = [
     "OR_N",
     "XOR_N",
     "AND_N",
-    "IN",
-    "INSTANCEOF",
+    "ASSERT_OBJECT",
+    "ASSERT_FUNC",
 
     // Unary
     "NEG_N",
@@ -312,6 +319,7 @@ var g_opcodeName: string[] = [
     "VOID",
     "DELETE",
     "TO_NUMBER",
+    "TO_STRING",
 
     // Assignment
     "ASSIGN",
@@ -339,6 +347,8 @@ var g_opcodeName: string[] = [
     "IF_LE",
     "IF_GT",
     "IF_GE",
+    "IF_IN",
+    "IF_INSTANCEOF",
 ];
 
 export const enum SysConst
@@ -600,6 +610,8 @@ export function foldBinary (op: OpCode, v1: RValue, v2: RValue): RValue
         case OpCode.AND_N:     r = a1 & a2; break;
         case OpCode.IN:        return null;
         case OpCode.INSTANCEOF: return null;
+        case OpCode.ASSERT_OBJECT: return null;
+        case OpCode.ASSERT_FUNC: return null;
         default:               return null;
     }
 
@@ -638,6 +650,7 @@ export function foldUnary (op: OpCode, v: RValue): RValue
         case OpCode.VOID:      r = void 0; break;
         case OpCode.DELETE:    return null;
         case OpCode.TO_NUMBER: r = Number(a); break;
+        case OpCode.TO_STRING: r = String(a); break;
         default: return null;
     }
     return wrapImmediate(r);
@@ -1192,6 +1205,16 @@ export class FunctionBuilder
         return res;
     }
 
+    private strNumberImmediate (n: number): string
+    {
+        if (isNaN(n))
+            return "NAN";
+        else if (!isFinite(n))
+            return n > 0 ? "INFINITY" : "-INFINITY";
+        else
+            return String(n);
+    }
+
     private strRValue (rv: RValue): string
     {
         if (<any>rv instanceof MemValue)
@@ -1201,7 +1224,7 @@ export class FunctionBuilder
         else if (rv === nullValue)
             return "JS_NULL_VALUE";
         else if (typeof rv === "number")
-            return `js::makeNumberValue(${rv})`;
+            return util.format("js::makeNumberValue(%s)", this.strNumberImmediate(rv));
         else if (typeof rv === "boolean")
             return `js::makeBooleanValue(${rv ? "true":"false"})`;
         else if (typeof rv === "string")
@@ -1274,18 +1297,14 @@ export class FunctionBuilder
 
     private strToNumber (rv: RValue): string
     {
-        var callerStr: string = "&frame, ";
         if (isImmediate(rv)) {
-            var n = Number(unwrapImmedate(rv));
-            if (isNaN(n))
-                return "NAN";
-            else if (!isFinite(n))
-                return n > 0 ? "INFINITY" : "-INFINITY";
-            else
-                return String(n);
-        } else {
-            return util.format("js::toNumber(%s%s)", callerStr, this.strRValue(rv));
+            var folded = foldUnary(OpCode.TO_NUMBER, rv);
+            if (folded !== null)
+                return this.strNumberImmediate(<number>folded);
         }
+
+        var callerStr: string = "&frame, ";
+        return util.format("js::toNumber(%s%s)", callerStr, this.strRValue(rv));
     }
     private strToInt32 (rv: RValue): string
     {
@@ -1293,6 +1312,18 @@ export class FunctionBuilder
         return isImmediate(rv) ?
             util.format("%d", unwrapImmedate(rv)|0) :
             util.format("js::toInt32(%s%s)", callerStr, this.strRValue(rv));
+    }
+
+    private strToString (rv: RValue): string
+    {
+        if (isImmediate(rv)) {
+            var folded = foldUnary(OpCode.TO_STRING, rv);
+            if (folded !== null)
+                return this.strRValue(rv);
+        }
+
+        var callerStr: string = "&frame, ";
+        return util.format("js::toString(%s%s)", callerStr, this.strRValue(rv));
     }
 
     /**
@@ -1341,9 +1372,7 @@ export class FunctionBuilder
 
     private generateBinop (binop: BinOp): void
     {
-        var callerStr: string = "";
-        if (binop.op === OpCode.ADD)
-            callerStr = "&frame, ";
+        var callerStr = "&frame, ";
 
         switch (binop.op) {
             case OpCode.ADD:   this.generateBinopOutofline(binop); break;
@@ -1364,6 +1393,25 @@ export class FunctionBuilder
             case OpCode.OR_N: this.outIntegerBinop(binop, "|"); break;
             case OpCode.XOR_N: this.outIntegerBinop(binop, "^"); break;
             case OpCode.AND_N: this.outIntegerBinop(binop, "&"); break;
+
+            case OpCode.ASSERT_OBJECT:
+                this.gen("  if (!js::isValueTagObject(%s.tag)) js::throwTypeError(%s\"%%s\", %s.raw.sval->getStr());\n",
+                    this.strRValue(binop.src1),
+                    callerStr,
+                    this.strToString(binop.src2)
+                );
+                if (binop.dest !== binop.src1 && binop.dest !== nullReg)
+                    this.gen("  %s%s;\n", this.strDest(binop.dest), this.strRValue(binop.src1));
+                break;
+            case OpCode.ASSERT_FUNC:
+                this.gen("  if (!js::isValueTagFunction(%s.tag)) js::throwTypeError(%s\"%%s\", %s.raw.sval->getStr());\n",
+                    this.strRValue(binop.src1),
+                    callerStr,
+                    this.strToString(binop.src2)
+                );
+                if (binop.dest !== binop.src1 && binop.dest !== nullReg)
+                    this.gen("  %s%s;\n", this.strDest(binop.dest), this.strRValue(binop.src1));
+                break;
 
             default:
                 if (isBinopConditional(binop.op)) {
@@ -1394,6 +1442,9 @@ export class FunctionBuilder
                 break;
             case OpCode.TO_NUMBER:
                 this.gen("  %sjs::makeNumberValue(%s);\n", this.strDest(unop.dest), this.strToNumber(unop.src1));
+                break;
+            case OpCode.TO_STRING:
+                this.gen("  %s%s;\n", this.strDest(unop.dest), this.strToString(unop.src1));
                 break;
             default:
                 assert(false, "Unsupported instruction "+ unop);
@@ -1547,6 +1598,17 @@ export class FunctionBuilder
             case OpCode.IF_LOOSE_NE:
                 cond = util.format("!operator_%s(%s%s, %s)",
                     oc2s(OpCode.IF_LOOSE_EQ), callerStr, this.strRValue(src1), this.strRValue(src2)
+                );
+                break;
+
+            case OpCode.IF_IN:
+                cond = util.format("(%s.raw.oval->getProperty(%s.raw.sval) != 0)",
+                    this.strRValue(src2), this.strRValue(src1)
+                );
+                break;
+            case OpCode.IF_INSTANCEOF:
+                cond = util.format("operator_IF_INSTANCEOF(%s%s, %s.raw.fval)",
+                    callerStr, this.strRValue(src1), this.strRValue(src2)
                 );
                 break;
 

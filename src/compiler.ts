@@ -1320,6 +1320,11 @@ function compileSource (
     {
         var ctx = scope.ctx;
 
+        switch (e.operator) {
+            case "in":  return compileInInstanceOf(ctx, e, hir.OpCode.IN, need, onTrue, onFalse);
+            case "instanceof": return compileInInstanceOf(ctx, e, hir.OpCode.INSTANCEOF, need, onTrue, onFalse);
+        }
+
         if (!need) {
             ctx.releaseTemp(compileSubExpression(scope, e.left, false, null, null));
             ctx.releaseTemp(compileSubExpression(scope, e.right, false, null, null));
@@ -1344,8 +1349,6 @@ function compileSource (
             case "<=":  return compileLogBinary(ctx, e, hir.OpCode.LE, v1, v2, onTrue, onFalse);
             case ">":   return compileLogBinary(ctx, e, hir.OpCode.GT, v1, v2, onTrue, onFalse);
             case ">=":  return compileLogBinary(ctx, e, hir.OpCode.GE, v1, v2, onTrue, onFalse);
-            case "in":  return compileLogBinary(ctx, e, hir.OpCode.IN, v1, v2, onTrue, onFalse);
-            case "instanceof": return compileLogBinary(ctx, e, hir.OpCode.INSTANCEOF, v1, v2, onTrue, onFalse);
 
             case "<<":  return toLogical(scope, e, compileArithBinary(ctx, hir.OpCode.SHL_N, v1, v2), true, onTrue, onFalse);
             case ">>":  return toLogical(scope, e, compileArithBinary(ctx, hir.OpCode.ASR_N, v1, v2), true, onTrue, onFalse);
@@ -1398,6 +1401,57 @@ function compileSource (
                 return null;
             } else {
                 return compileArithBinary(ctx, op, v1, v2);
+            }
+        }
+
+        function compileInInstanceOf (
+            ctx: FunctionContext, e: ESTree.BinaryExpression, op: hir.OpCode,
+            need: boolean, onTrue: hir.Label, onFalse: hir.Label
+        ): hir.RValue
+        {
+            var v1 = compileSubExpression(scope, e.left, true);
+            var v2r = compileSubExpression(scope, e.right, true);
+
+            ctx.releaseTemp(v2r);
+            var v2 = ctx.allocTemp();
+
+            if (op === hir.OpCode.IN)
+                ctx.builder.genBinop(hir.OpCode.ASSERT_OBJECT, v2, v2r,
+                    hir.wrapImmediate("second operand of 'in' is not an object")
+                );
+            else
+                ctx.builder.genBinop(hir.OpCode.ASSERT_FUNC, v2, v2r,
+                    hir.wrapImmediate("second operand of 'instanceof' is not a function")
+                );
+
+            if (op === hir.OpCode.IN) {
+                // Convert operand 1 to string
+                ctx.releaseTemp(v1);
+                var strTmp = ctx.allocTemp();
+                ctx.builder.genUnop(hir.OpCode.TO_STRING, strTmp, v1);
+                v1 = strTmp;
+            }
+
+            ctx.releaseTemp(v2);
+            ctx.releaseTemp(v1);
+
+            if (!need)
+                return null;
+
+            if (onTrue) {
+                var folded = hir.foldBinary(op, v1, v2);
+                if (folded !== null) {
+                    var boolv = hir.isImmediateTrue(folded);
+                    warning(location(e), `condition is always ${boolv?'true':'false'}`);
+                    ctx.builder.genGoto(boolv ? onTrue : onFalse);
+                } else {
+                    ctx.builder.genIf(hir.binopToBincond(op), v1, v2, onTrue, onFalse);
+                }
+                return null;
+            } else {
+                var dest = ctx.allocTemp();
+                ctx.builder.genBinop(op, dest, v1, v2);
+                return dest;
             }
         }
     }

@@ -54,6 +54,10 @@ inline bool isValueTagObject (unsigned t)
 {
     return t >= VT_OBJECT;
 }
+inline bool isValueTagFunction (unsigned t)
+{
+    return t == VT_FUNCTION;
+}
 
 struct TaggedValue
 {
@@ -211,15 +215,11 @@ struct Object : public Memory
         TaggedValue value = JS_UNDEFINED_VALUE, Function * get = NULL, Function * set = NULL
     );
 
-    Property * getOwnProperty (const char * name)
-    {
-        auto it = this->props.find(name);
-        return it != this->props.end() ? &it->second : NULL;
-    }
+    Property * getOwnProperty (const StringPrim * name);
 
-    Property * getProperty (const char * name);
+    Property * getProperty (const StringPrim * name);
 
-    TaggedValue get (StackFrame * caller, const char * name);
+    TaggedValue get (StackFrame * caller, const StringPrim * name);
     void put (StackFrame * caller, const StringPrim * name, TaggedValue v);
     virtual TaggedValue getComputed (StackFrame * caller, TaggedValue propName);
     virtual void putComputed (StackFrame * caller, TaggedValue propName, TaggedValue v);
@@ -320,6 +320,8 @@ struct Function : public Object
 
     /** Define the 'prototype' property */
     void definePrototype (StackFrame * caller, Object * prototype);
+
+    bool hasInstance (StackFrame * caller, Object * inst);
 
     virtual bool isCallable () const;
     virtual TaggedValue call (StackFrame * caller, unsigned argc, const TaggedValue * argv);
@@ -516,6 +518,8 @@ struct Runtime
     const StringPrim * permStrNumber;
     const StringPrim * permStrString;
     const StringPrim * permStrFunction;
+    const StringPrim * permStrToString;
+    const StringPrim * permStrValueOf;
 
     unsigned markBit; // the value that was used for marking during the previous collection
 
@@ -552,6 +556,12 @@ inline Runtime * getRuntime (StackFrame * frame) { return g_runtime; }
 #endif
 
 #define JS_IS_STRICT_MODE(frame) (JS_GET_RUNTIME(frame)->strictMode != false)
+
+inline Property * Object::getOwnProperty (const StringPrim * name)
+{
+    auto it = this->props.find(name->getStr());
+    return it != this->props.end() ? &it->second : NULL;
+}
 
 TaggedValue objectConstructor (StackFrame * caller, Env *, unsigned, const TaggedValue *);
 TaggedValue functionConstructor (StackFrame * caller, Env *, unsigned, const TaggedValue *);
@@ -686,4 +696,10 @@ bool operator_IF_LT (StackFrame * caller, TaggedValue x, TaggedValue y);
 bool operator_IF_LE (StackFrame * caller, TaggedValue x, TaggedValue y);
 bool operator_IF_GT (StackFrame * caller, TaggedValue x, TaggedValue y);
 bool operator_IF_GE (StackFrame * caller, TaggedValue x, TaggedValue y);
+
+inline bool operator_IF_INSTANCEOF (StackFrame * caller, TaggedValue x, Function * y)
+{
+    return isValueTagObject(x.tag) && y->hasInstance(caller, x.raw.oval);
+}
+
 };
