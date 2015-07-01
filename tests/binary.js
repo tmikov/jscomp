@@ -1,0 +1,24 @@
+var a, b;
+var r;
+
+r = a === b;
+r = a !== b;
+r = a == b;
+r = a != b;
+r = a < b;
+r = a <= b;
+r = a > b;
+r = a >= b;
+r = a << b;
+r = a >> b;
+r = a >>> b;
+r = a + b;
+r = a - b;
+r = a * b;
+r = a / b;
+r = a % b;
+r = a | b;
+r = a ^ b;
+r = a & b;
+r = a in {};
+r = a instanceof (function () {});
