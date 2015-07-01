@@ -8,11 +8,6 @@
 namespace js
 {
 
-TaggedValue operator_LOOSE_EQ (TaggedValue a, TaggedValue b);
-TaggedValue operator_LOOSE_NE (TaggedValue a, TaggedValue b);
-TaggedValue operator_LT (TaggedValue a, TaggedValue b);
-TaggedValue operator_LE (TaggedValue a, TaggedValue b);
-
 TaggedValue operator_ADD (StackFrame * caller, TaggedValue a, TaggedValue b)
 {
     // TODO: we can speed this up significantly by dispatching on the combination of types
@@ -68,7 +63,47 @@ bool operator_IF_STRICT_EQ (TaggedValue a, TaggedValue b)
     }
 }
 
-bool operator_IF_LOOSE_EQ (TaggedValue a, TaggedValue b);
+bool operator_IF_LOOSE_EQ (StackFrame * caller, TaggedValue a, TaggedValue b)
+{
+tailcall:
+    if (a.tag == b.tag)
+        return operator_IF_STRICT_EQ(a, b);
+
+#define C(a,b) (((a) << _VT_SHIFT) + (b))
+    switch (C(a.tag, b.tag)) {
+        case C(VT_NULL, VT_UNDEFINED):
+        case C(VT_UNDEFINED, VT_NULL):
+            return true;
+        case C(VT_NUMBER, VT_STRINGPRIM):
+            return a.raw.nval == toNumber(caller, b);
+        case C(VT_STRINGPRIM, VT_NUMBER):
+            return toNumber(caller, a) == b.raw.nval;
+
+        case C(VT_STRINGPRIM, VT_OBJECT):
+        case C(VT_NUMBER, VT_OBJECT):
+        case C(VT_STRINGPRIM, VT_FUNCTION):
+        case C(VT_NUMBER, VT_FUNCTION):
+            b = toPrimitive(caller, b);
+            goto tailcall;
+        case C(VT_OBJECT, VT_STRINGPRIM):
+        case C(VT_OBJECT, VT_NUMBER):
+        case C(VT_FUNCTION, VT_STRINGPRIM):
+        case C(VT_FUNCTION, VT_NUMBER):
+            a = toPrimitive(caller, a);
+            goto tailcall;
+    }
+#undef C
+    if (a.tag == VT_BOOLEAN) {
+        a = makeNumberValue(a.raw.bval);
+        goto tailcall;
+    }
+    if (b.tag == VT_BOOLEAN) {
+        b = makeNumberValue(b.raw.bval);
+        goto tailcall;
+    }
+
+    return false;
+}
 
 #define MAKE_IF_REL(NAME, LESS, CMP) \
     bool operator_IF_ ## NAME (StackFrame * caller, TaggedValue x, TaggedValue y)\

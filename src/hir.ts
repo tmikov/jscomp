@@ -392,9 +392,14 @@ export function isJump (op: OpCode): boolean
     return op >= OpCode._JUMP_FIRST && op <= OpCode._JUMP_LAST;
 }
 
+function isBinopConditional (op: OpCode): boolean
+{
+    return op >= OpCode._BINOP_FIRST && op <= OpCode._BINOP_FIRST + OpCode._BINCOND_LAST - OpCode._BINCOND_FIRST;
+}
+
 export function binopToBincond (op: OpCode): OpCode
 {
-    assert(op >= OpCode._BINOP_FIRST && op <= OpCode._BINOP_FIRST + OpCode._BINCOND_LAST - OpCode._BINCOND_FIRST);
+    assert(isBinopConditional(op));
     return op + OpCode._BINCOND_FIRST - OpCode._BINOP_FIRST;
 }
 
@@ -1347,7 +1352,7 @@ export class FunctionBuilder
             case OpCode.MUL_N: this.outNumericBinop(binop, "*"); break;
             case OpCode.DIV_N: this.outNumericBinop(binop, "/"); break;
             case OpCode.MOD_N:
-                this.gen("  %sjs::makeNumberValue(fmod(%s, %s);\n", this.strDest(binop.dest),
+                this.gen("  %sjs::makeNumberValue(fmod(%s, %s));\n", this.strDest(binop.dest),
                     this.strToNumber(binop.src1), this.strToNumber(binop.src2));
                 break;
             case OpCode.SHL_N: this.outIntegerBinop(binop, "<<"); break;
@@ -1361,7 +1366,14 @@ export class FunctionBuilder
             case OpCode.AND_N: this.outIntegerBinop(binop, "&"); break;
 
             default:
-                this.generateBinopOutofline(binop);
+                if (isBinopConditional(binop.op)) {
+                    this.gen("  %sjs::makeBooleanValue(%s);\n",
+                        this.strDest(binop.dest),
+                        this.strIfOpCond(binopToBincond(binop.op), binop.src1, binop.src2)
+                    );
+                } else {
+                    this.generateBinopOutofline(binop);
+                }
                 break;
         }
     }
@@ -1503,35 +1515,48 @@ export class FunctionBuilder
         }
     }
 
-    private strIfOpCond (ifop: IfOp): string
+    private strIfOpCond (op: OpCode, src1: RValue, src2: RValue): string
     {
         var callerStr: string = "&frame, ";
         var cond: string;
-        switch (ifop.op) {
+
+        assert(op >= OpCode._IF_FIRST && op <= OpCode._IF_LAST);
+
+        switch (op) {
             case OpCode.IF_TRUE:
-                cond = util.format("js::toBoolean(%s)", this.strRValue(ifop.src1));
+                cond = util.format("js::toBoolean(%s)", this.strRValue(src1));
                 break;
             case OpCode.IF_IS_OBJECT:
-                cond = util.format("js::isValueTagObject(%s.tag)", this.strRValue(ifop.src1));
+                cond = util.format("js::isValueTagObject(%s.tag)", this.strRValue(src1));
                 break;
             case OpCode.IF_STRICT_EQ:
                 cond = util.format("operator_%s(%s, %s)",
-                    oc2s(ifop.op), this.strRValue(ifop.src1), this.strRValue(ifop.src2)
+                    oc2s(op), this.strRValue(src1), this.strRValue(src2)
                 );
                 break;
             case OpCode.IF_STRICT_NE:
                 cond = util.format("!operator_%s(%s, %s)",
-                    oc2s(OpCode.IF_STRICT_EQ), this.strRValue(ifop.src1), this.strRValue(ifop.src2)
+                    oc2s(OpCode.IF_STRICT_EQ), this.strRValue(src1), this.strRValue(src2)
+                );
+                break;
+            case OpCode.IF_LOOSE_EQ:
+                cond = util.format("operator_%s(%s%s, %s)",
+                    oc2s(op), callerStr, this.strRValue(src1), this.strRValue(src2)
+                );
+                break;
+            case OpCode.IF_LOOSE_NE:
+                cond = util.format("!operator_%s(%s%s, %s)",
+                    oc2s(OpCode.IF_LOOSE_EQ), callerStr, this.strRValue(src1), this.strRValue(src2)
                 );
                 break;
 
             default:
-                if (ifop.op >= OpCode._BINCOND_FIRST && ifop.op <= OpCode._BINCOND_LAST) {
+                if (op >= OpCode._BINCOND_FIRST && op <= OpCode._BINCOND_LAST) {
                     cond = util.format("operator_%s(%s%s, %s)",
-                        oc2s(ifop.op), callerStr, this.strRValue(ifop.src1), this.strRValue(ifop.src2)
+                        oc2s(op), callerStr, this.strRValue(src1), this.strRValue(src2)
                     );
                 } else {
-                    cond = util.format("operator_%s(%s)", oc2s(ifop.op), this.strRValue(ifop.src1));
+                    cond = util.format("operator_%s(%s)", oc2s(op), this.strRValue(src1));
                 }
                 break;
         }
@@ -1557,7 +1582,8 @@ export class FunctionBuilder
             this.gen("  goto %s;\n", this.strBlock(bb1));
         }
         else if (jump.op >= OpCode._IF_FIRST && jump.op <= OpCode._IF_LAST) {
-            var cond = this.strIfOpCond(<IfOp>jump);
+            var ifop = <IfOp>jump;
+            var cond = this.strIfOpCond(ifop.op, ifop.src1, ifop.src2);
 
             if (bb2 === nextBB)
                 this.gen("  if (%s) goto %s;\n", cond, this.strBlock(bb1));

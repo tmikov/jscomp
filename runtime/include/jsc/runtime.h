@@ -39,6 +39,7 @@ union RawValue
 enum ValueTag
 {
     VT_UNDEFINED, VT_NULL, VT_BOOLEAN, VT_NUMBER, VT_STRINGPRIM, VT_MEMORY, VT_OBJECT, VT_FUNCTION,
+    _VT_SHIFT = 3,
 };
 
 inline bool isValueTagPointer (unsigned t)
@@ -671,10 +672,6 @@ bool less (const StringPrim * a, const StringPrim * b);
 bool equal (const StringPrim * a, const StringPrim * b);
 
 // Operators
-TaggedValue operator_LOOSE_EQ (TaggedValue a, TaggedValue b);
-TaggedValue operator_LOOSE_NE (TaggedValue a, TaggedValue b);
-TaggedValue operator_LT (TaggedValue a, TaggedValue b);
-TaggedValue operator_LE (TaggedValue a, TaggedValue b);
 TaggedValue operator_ADD (StackFrame * caller, TaggedValue a, TaggedValue b);
 TaggedValue operator_IN (TaggedValue a, TaggedValue b);
 TaggedValue operator_INSTANCEOF (TaggedValue a, TaggedValue b);
@@ -684,7 +681,7 @@ TaggedValue operator_DELETE (TaggedValue a);
 
 bool operator_IF_TRUE (TaggedValue a);
 bool operator_IF_STRICT_EQ (TaggedValue a, TaggedValue b);
-bool operator_IF_LOOSE_EQ (TaggedValue a, TaggedValue b);
+bool operator_IF_LOOSE_EQ (StackFrame * caller, TaggedValue a, TaggedValue b);
 bool operator_IF_LT (StackFrame * caller, TaggedValue x, TaggedValue y);
 bool operator_IF_LE (StackFrame * caller, TaggedValue x, TaggedValue y);
 bool operator_IF_GT (StackFrame * caller, TaggedValue x, TaggedValue y);
