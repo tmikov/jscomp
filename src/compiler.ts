@@ -1238,7 +1238,7 @@ function compileSource (
         need: boolean, onTrue: hir.Label, onFalse: hir.Label
     ): hir.RValue
     {
-        if (!need) {
+        if (!need && e.operator !== "delete") {
             scope.ctx.releaseTemp(compileSubExpression(scope, e.argument, false, null, null));
             return null;
         }
@@ -1256,7 +1256,7 @@ function compileSource (
             case "~":
                 return toLogical(scope, e, compileSimpleUnary(scope, hir.OpCode.BIN_NOT_N, true, e.argument), true, onTrue, onFalse);
             case "delete":
-                assert(false, "FIXME"); // FIXME
+                error(location(e), "'delete' is not implemented");
                 return toLogical(scope, e, compileSimpleUnary(scope, hir.OpCode.DELETE, false, e.argument), true, onTrue, onFalse);
 
             case "!":
