@@ -336,12 +336,11 @@ void Function::init (StackFrame * caller, Env * env, CodePtr code, const StringP
 
 bool Function::mark (IMark * marker, unsigned markBit) const
 {
-    return Object::mark(marker, markBit) && markMemory(marker, markBit, prototype) && markMemory(marker, markBit, env);
+    return Object::mark(marker, markBit) && markMemory(marker, markBit, env);
 }
 
 void Function::definePrototype (StackFrame * caller, Object * prototype)
 {
-    this->prototype = prototype;
     defineOwnProperty(caller, JS_GET_RUNTIME(caller)->permStrPrototype, PROP_WRITEABLE, makeObjectValue(prototype));
 }
 

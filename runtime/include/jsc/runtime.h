@@ -307,7 +307,6 @@ typedef TaggedValue (* CodePtr) (StackFrame * caller, Env * env, unsigned argc, 
 
 struct Function : public Object
 {
-    Object * prototype;
     Env * env;
     unsigned length; //< number of argumenrs
     CodePtr code;
@@ -319,6 +318,7 @@ struct Function : public Object
 
     virtual bool mark (IMark * marker, unsigned markBit) const;
 
+    /** Define the 'prototype' property */
     void definePrototype (StackFrame * caller, Object * prototype);
 
     virtual bool isCallable () const;
