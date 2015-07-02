@@ -5,7 +5,7 @@ function Base (a) {
 }
 
 function Child (a,b) {
-    //Base.call(this.a);
+    Base.call(this, a);
     this.b = b;
 }
 

@@ -1,6 +1,6 @@
-function Parent ()
+function Parent (id)
 {
-    this.id = 0;
+    this.id = id;
 }
 
 Parent.prototype.base = function() {
@@ -11,8 +11,8 @@ Parent.prototype.base = function() {
 
 function Maker (id)
 {
+    Parent.call(this, id);
     this.value = "hello";
-    this.id = id;
 }
 
 Maker.prototype = new Parent();
@@ -23,7 +23,7 @@ Maker.prototype.method = function() {
     this.base();
 }
 
-var p = new Parent();
+var p = new Parent(1);
 p.base();
 
 print("\n");
