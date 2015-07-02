@@ -1212,6 +1212,7 @@ function compileSource (
             funcVar.funcRef = funcRef;
             funcVar.declared = true;
             funcVar.initialized = true;
+            funcVar.accessed = need;
         }
         compileFunction(nameScope, e, funcRef);
         return need ? funcRef.closureVar : null;
