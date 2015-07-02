@@ -164,13 +164,15 @@ class Scope
         this.ctx.vars.push(v);
     }
 
-    lookup (name: string): Variable
+    lookup (name: string, lastScope?: Scope): Variable
     {
         var v: Variable;
         var scope = this;
         do {
             if (v = scope.vars.get(name))
                 return v;
+            if (scope === lastScope)
+                break;
         } while (scope = scope.parent);
         return null;
     }
@@ -195,7 +197,7 @@ class FunctionContext
 
     funcScope: Scope;
     thisParam: Variable;
-    argumentsVar: Variable;
+    argumentsVar: Variable = null;
 
     labelList: Label = null;
     labels = new StringMap<Label>();
@@ -220,9 +222,6 @@ class FunctionContext
         this.thisParam.initialized = true;
         this.thisParam.declared = true;
 
-        this.argumentsVar = this.funcScope.newVariable("arguments");
-        this.argumentsVar.declared = true;
-        this.argumentsVar.initialized = true;
     }
 
     close (): void
@@ -346,7 +345,7 @@ function compileSource (
                 console.log(JSON.stringify(prog, adjustRegexLiteral, 4));
             }
 
-            compileBody(m_scope, prog.body);
+            compileBody(m_scope, prog.body, prog, false);
         }
     }
 
@@ -456,18 +455,40 @@ function compileSource (
             }
         });
 
+        var builder = funcCtx.builder;
+        var entryLabel = builder.newLabel();
+        var nextLabel = builder.newLabel();
+        builder.genLabel(entryLabel);
+        builder.genGoto(nextLabel);
+        builder.genLabel(nextLabel);
+
         var bodyBlock: ESTree.BlockStatement;
         if (bodyBlock = NT.BlockStatement.isTypeOf(ast.body))
-            compileBody(funcScope, bodyBlock.body);
+            compileBody(funcScope, bodyBlock.body, bodyBlock, true);
         else
             error(location(ast.body), "ES6 not supported");
+
+        if (funcCtx.argumentsVar && funcCtx.argumentsVar.accessed) {
+            var bb = builder.getCurBB();
+            builder.closeBB();
+            builder.openLabel(entryLabel);
+            builder.genCreateArguments(funcCtx.argumentsVar.hvar);
+            builder.openBB(bb);
+        }
 
         funcCtx.close();
 
         return funcCtx;
     }
 
-    function compileBody (scope: Scope, body: ESTree.Statement[]): void
+    /**
+     *
+     * @param scope
+     * @param body
+     * @param parentNode the parent node of 'body' used only for error location
+     * @param functionBody is this a function body (whether to generate 'arguments')
+     */
+    function compileBody (scope: Scope, body: ESTree.Statement[], parentNode: ESTree.Node, functionBody: boolean): void
     {
         var startIndex: number = 0;
         if (body.length && matchStrictMode(body[0])) {
@@ -479,6 +500,17 @@ function compileSource (
         // Scan for declarations
         for (var i = startIndex, e = body.length; i < e; ++i)
             scanStatementForDeclarations(scope, body[i]);
+
+        if (functionBody) {
+            if (scope.lookup("arguments", scope.ctx.funcScope)) {
+                warning(location(parentNode), "'arguments' bound to a local");
+            } else {
+                var ctx = scope.ctx;
+                ctx.argumentsVar = ctx.funcScope.newVariable("arguments");
+                ctx.argumentsVar.declared = true;
+                ctx.argumentsVar.initialized = true;
+            }
+        }
 
         // Bind
         for (var i = startIndex, e = body.length; i < e; ++i)

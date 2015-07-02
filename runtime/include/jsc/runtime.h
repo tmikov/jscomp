@@ -276,18 +276,17 @@ struct PropertyAccessor : public Memory
     virtual void putComputed (StackFrame * caller, TaggedValue propName, TaggedValue v);
 };*/
 
-struct Array : public Object
+struct ArrayBase : public Object
 {
     std::vector<TaggedValue> elems;
 
-    Array (Object * parent):
+    ArrayBase (Object * parent):
         Object(parent)
     {}
 
     virtual bool mark (IMark * marker, unsigned markBit) const;
 
-    unsigned getLength ()
-    { return elems.size(); }
+    unsigned getLength () const { return elems.size(); }
 
     void setLength (unsigned newLen);
 
@@ -301,6 +300,27 @@ struct Array : public Object
     virtual void putComputed (StackFrame * caller, TaggedValue propName, TaggedValue v);
 
     static int32_t isIndexString (const char * str);
+};
+
+struct Array : public ArrayBase
+{
+    Array (Object * parent):
+        ArrayBase(parent)
+    {}
+
+    void init (StackFrame * caller);
+
+    static TaggedValue lengthGetter (StackFrame * caller, Env * env, unsigned argc, const TaggedValue * argv);
+    static TaggedValue lengthSetter (StackFrame * caller, Env * env, unsigned argc, const TaggedValue * argv);
+};
+
+struct Arguments : public ArrayBase
+{
+    Arguments (Object * parent):
+        ArrayBase(parent)
+    {}
+
+    void init (StackFrame * caller, int argc, const TaggedValue * argv);
 };
 
 typedef TaggedValue (* CodePtr) (StackFrame * caller, Env * env, unsigned argc, const TaggedValue * args);

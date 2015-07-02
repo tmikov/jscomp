@@ -252,7 +252,7 @@ bool PropertyAccessor::mark (IMark * marker, unsigned markBit) const
     return markMemory(marker, markBit, get) && markMemory(marker, markBit, set);
 }
 
-bool Array::mark (IMark * marker, unsigned markBit) const
+bool ArrayBase::mark (IMark * marker, unsigned markBit) const
 {
     if (!Object::mark(marker, markBit))
         return false;
@@ -262,19 +262,19 @@ bool Array::mark (IMark * marker, unsigned markBit) const
     return true;
 }
 
-void Array::setLength (unsigned newLen)
+void ArrayBase::setLength (unsigned newLen)
 {
     elems.resize(newLen, TaggedValue{VT_UNDEFINED});
 }
 
-void Array::setElem (unsigned index, TaggedValue v)
+void ArrayBase::setElem (unsigned index, TaggedValue v)
 {
     if (index >= elems.size())
         setLength(index + 1);
     elems[index] = v;
 }
 
-int32_t Array::isIndexString (const char * str)
+int32_t ArrayBase::isIndexString (const char * str)
 {
     if (str[0] >= '0' && str[0] <= '9') { // Filter out the obvious cases
         char * end;
@@ -286,14 +286,14 @@ int32_t Array::isIndexString (const char * str)
     return -1;
 }
 
-TaggedValue Array::getComputed (StackFrame * caller, TaggedValue propName)
+TaggedValue ArrayBase::getComputed (StackFrame * caller, TaggedValue propName)
 {
     int32_t index;
     // Fast path
     if ((index = isNonNegativeInteger(propName)) >= 0)
         return getElem(index);
 
-    StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":Object::getComputed()", __LINE__);
+    StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":ArrayBase::getComputed()", __LINE__);
     frame.locals[0] = toString(&frame, propName);
     if ((index = isIndexString(frame.locals[0].raw.sval->getStr())) >= 0)
         return getElem(index);
@@ -301,7 +301,7 @@ TaggedValue Array::getComputed (StackFrame * caller, TaggedValue propName)
     return this->get(&frame, frame.locals[0].raw.sval);
 }
 
-void Array::putComputed (StackFrame * caller, TaggedValue propName, TaggedValue v)
+void ArrayBase::putComputed (StackFrame * caller, TaggedValue propName, TaggedValue v)
 {
     int32_t index;
     // Fast path
@@ -310,7 +310,7 @@ void Array::putComputed (StackFrame * caller, TaggedValue propName, TaggedValue 
         return;
     }
 
-    StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":Object::getComputed()", __LINE__);
+    StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":ArrayBase::putComputed()", __LINE__);
     frame.locals[0] = toString(&frame, propName);
     if ((index = isIndexString(frame.locals[0].raw.sval->getStr())) >= 0) {
         setElem(index, v);
@@ -318,6 +318,33 @@ void Array::putComputed (StackFrame * caller, TaggedValue propName, TaggedValue 
     }
 
     this->put(&frame, frame.locals[0].raw.sval, v);
+}
+
+void Array::init (StackFrame * caller)
+{
+    //StackFrameN<0,2,0> frame(caller, NULL, __FILE__ ":Array::init", __LINE__);
+    //Runtime * r = JS_GET_RUNTIME(&frame);
+    //
+    //
+    //
+    //defineOwnProperty(&frame, r->permStrLength, PROP_ENUMERABLE|PROP_WRITEABLE|PROP_GET_SET, JS_UNDEFINED_VALUE,  )
+}
+
+//TaggedValue Array::lengthGetter (StackFrame * caller, Env * env, unsigned argc, const TaggedValue * argv)
+//{
+//    assert(argc == 1);
+//}
+//
+//TaggedValue Array::lengthSetter (StackFrame * caller, Env * env, unsigned argc, const TaggedValue * argv)
+//{
+//    assert(argc == 2);
+//}
+
+void Arguments::init (StackFrame * caller, int argc, const TaggedValue * argv)
+{
+    elems.assign(argv, argv+argc);
+    defineOwnProperty(caller, JS_GET_RUNTIME(caller)->permStrLength, PROP_WRITEABLE|PROP_CONFIGURABLE,
+                      makeNumberValue(argc), NULL, NULL);
 }
 
 void Function::init (StackFrame * caller, Env * env, CodePtr code, const StringPrim * name, unsigned length)

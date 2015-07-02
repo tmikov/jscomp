@@ -198,6 +198,7 @@ export const enum OpCode
     // Special
     CLOSURE,
     CREATE,
+    CREATE_ARGUMENTS,
     LOAD_SC,
     ASM,
 
@@ -282,6 +283,7 @@ var g_opcodeName: string[] = [
     // Special
     "CLOSURE",
     "CREATE",
+    "CREATE_ARGUMENTS",
     "LOAD_SC",
     "ASM",
 
@@ -354,9 +356,11 @@ var g_opcodeName: string[] = [
 export const enum SysConst
 {
     RUNTIME_VAR,
+    ARGUMENTS_LEN,
 }
 var g_sysConstName : string[] = [
     "RUNTIME_VAR",
+    "ARGUMENTS_LEN",
 ];
 
 // Note: surprisingly, 'ADD' is not commutative because 'string+x' is not the same as 'x+string'
@@ -961,6 +965,10 @@ export class FunctionBuilder
     {
         this.getBB().push(new UnOp(OpCode.CREATE, dest, src));
     }
+    genCreateArguments(dest: LValue): void
+    {
+        this.getBB().push(new UnOp(OpCode.CREATE_ARGUMENTS, dest, undefinedValue));
+    }
     genLoadRuntimeVar(dest: LValue, runtimeVar: string): void
     {
         this.getBB().push(new LoadSCOp(dest, SysConst.RUNTIME_VAR, runtimeVar));
@@ -1278,12 +1286,28 @@ export class FunctionBuilder
         );
     }
 
+    private outCreateArguments (createOp: UnOp): void
+    {
+        var frameStr = "&frame";
+        if (createOp.dest === nullReg)
+            return;
+        this.gen("  %s = js::makeObjectValue(new (%s) js::Arguments(JS_GET_RUNTIME(%s)->objectPrototype));\n",
+            this.strMemValue(createOp.dest), frameStr, frameStr
+        );
+        this.gen("  ((js::Arguments*)%s.raw.oval)->init(%s, argc-1, argv+1);\n",
+            this.strRValue(createOp.dest), frameStr
+        );
+    }
+
     private outLoadSC (loadsc: LoadSCOp): void
     {
         var src: string;
         switch (loadsc.sc) {
             case SysConst.RUNTIME_VAR:
                 src = util.format("js::makeObjectValue(JS_GET_RUNTIME(&frame)->%s)", loadsc.arg);
+                break;
+            case SysConst.ARGUMENTS_LEN:
+                src = "js::makeNumberValue(argc)";
                 break;
             default:
                 assert(false, "Usupported sysconst "+ loadsc.sc);
@@ -1547,6 +1571,7 @@ export class FunctionBuilder
                 );
                 break;
             case OpCode.CREATE: this.outCreate(<UnOp>inst); break;
+            case OpCode.CREATE_ARGUMENTS: this.outCreateArguments(<UnOp>inst); break;
             case OpCode.LOAD_SC: this.outLoadSC(<LoadSCOp>inst); break;
             case OpCode.ASM:    this.generateAsm(<AsmOp>inst); break;
 
