@@ -65,8 +65,12 @@ necessary for progress are present. Specifically, this is a not-exhaustive list 
 not supported things (yet - they will be soon!):
 
 ** +for-in+ : requires missing runtime support
-** +with+ : we don't intend to support it ever. Sorry.
+** +with+ : it is last on our list
+** +Object.setPrototypeOf()+ and +\_\_proto__+ : the plan is not to support prototype modification.
+  This is not a judgement, but if you really need that you should use a different JavaScript
+  implementation.
 ** +try/catch/finally+ : coming, but not supported yet. Just don't cause any exceptions :-)
+** +bind/call/apply/arguments/+ : coming soon
 
 Some operators, specifically many unary ones, are not implemented yet in the code generator.
 Again, they are coming soon. It is just a matter of time and mechanically adding the
