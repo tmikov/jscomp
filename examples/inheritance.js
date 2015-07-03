@@ -4,9 +4,9 @@ function Parent (id)
 }
 
 Parent.prototype.base = function() {
-    print("in base");
-    print(this.id);
-    print(this.value);
+    console.log("in base");
+    console.log(this.id);
+    console.log(this.value);
 }
 
 function Maker (id)
@@ -17,16 +17,16 @@ function Maker (id)
 
 Maker.prototype = new Parent();
 Maker.prototype.method = function() {
-    print("in method");
-    print(this.value);
-    print(this.id);
+    console.log("in method");
+    console.log(this.value);
+    console.log(this.id);
     this.base();
 }
 
 var p = new Parent(1);
 p.base();
 
-print("\n");
+console.log("\n");
 
 var m = new Maker("id");
 m.method();

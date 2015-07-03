@@ -29,10 +29,7 @@ function fact3(n)
 var cnt = 0;
 ++cnt;
 
-print("fact");
-print(fact(100));
-print("fact2");
-print(fact2(100));
-print("fact3");
-print(fact3(100));
+console.log("fact", fact(100));
+console.log("fact2", fact2(100));
+console.log("fact3", fact3(100));
 
