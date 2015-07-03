@@ -65,12 +65,17 @@ necessary for progress are present. Specifically, this is a not-exhaustive list 
 not supported things (yet - they will be soon!):
 
 ** +for-in+ : requires missing runtime support
-** +with+ : it is last on our list
+** +with+ : it is last on our list. We think we have come up with a reasonable way to implement
+it without a huge performance penalty, but since we don't use +with+ at all, our motivation is low.
 ** +Object.setPrototypeOf()+ and +\_\_proto__+ : the plan is not to support prototype modification.
   This is not a judgement, but if you really need that you should use a different JavaScript
   implementation.
 ** +try/catch/finally+ : coming, but not supported yet. Just don't cause any exceptions :-)
-** +bind/call/apply/arguments/+ : coming soon
+** +bind/apply+ : coming soon
+** +arguments+ : implemented only in its 'strict mode' functionality. In other words, changes
+to +arguments+ do not propagate back to the actual arguments. There is also no +caller/callee+,
+properties. We can implement all of that (non-strict mode stuff), but it is not high on
+our current list of priorities.
 
 Some operators, specifically many unary ones, are not implemented yet in the code generator.
 Again, they are coming soon. It is just a matter of time and mechanically adding the
