@@ -460,7 +460,7 @@ function compileSource (
         if (bodyBlock = NT.BlockStatement.isTypeOf(ast.body))
             compileBody(funcScope, bodyBlock.body);
         else
-            assert(false, "TODO: implement ES6");
+            error(location(ast.body), "ES6 not supported");
 
         funcCtx.close();
 
