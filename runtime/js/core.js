@@ -1,10 +1,17 @@
-function print(x) {
+function print() {
     __asmh__({},"#include <stdio.h>");
-    __asm__({},[],[["x", x]],
-            '%[x] = js::toString(&frame, %[x]);\n'+
-            'printf("%s\\n", %[x].raw.sval->getStr());'
-   );
+    for ( var i = 0, e = arguments.length; i < e; ++i ) {
+        if (i > 0)
+            __asm__({},[],[],"putchar(' ');");
+        __asm__({},[],[["x", arguments[i]]],
+                '%[x] = js::toString(&frame, %[x]);\n'+
+                'printf("%s", %[x].raw.sval->getStr());'
+        );
+    }
+    __asm__({},[],[],"putchar('\\n');");
 }
+
+var console = { log: print };
 
 Function.prototype.call = function call (thisArg)
 {
