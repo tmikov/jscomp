@@ -535,7 +535,7 @@ export class Label
     toString() { return `B${this.bb.id}`; }
 }
 
-class BasicBlock
+export class BasicBlock
 {
     id: number;
     body: Instruction[] = [];
@@ -554,12 +554,18 @@ class BasicBlock
 
     push (inst: Instruction): void
     {
-        this.body.push(inst);
+        // If the BasicBlock hasn't been "closed" with a jump, just add to the end,
+        // otherwise insert before the jump
+        if (!this.succ.length)
+            this.body.push(inst);
+        else
+            this.body.splice(this.body.length-1, 0, inst)
     }
 
     jump (inst: JumpInstruction): void
     {
-        this.push(inst);
+        assert(!this.succ.length);
+        this.body.push(inst);
         if (inst.label1)
             this.succ.push(inst.label1);
         if (inst.label2)
@@ -842,9 +848,18 @@ export class FunctionBuilder
             return this.curBB = new BasicBlock(this.nextBBId++);
     }
 
-    private closeBB (): void
+    getCurBB (): BasicBlock
+    {
+        return this.curBB;
+    }
+    closeBB (): void
     {
         this.curBB = null;
+    }
+    openBB (bb: BasicBlock): void
+    {
+        this.closeBB();
+        this.curBB = bb;
     }
 
     genClosure(dest: LValue, func: FunctionBuilder): void
@@ -908,6 +923,15 @@ export class FunctionBuilder
         }
         bb.placeLabel(label);
     }
+    openLabel (label: Label): void
+    {
+        assert(label.bb);
+        if (this.curBB !== label.bb) {
+            assert(!this.curBB); // The last BB must have been closed
+            this.curBB = label.bb;
+        }
+    }
+
     genBinop(op: OpCode, dest: LValue, src1: RValue, src2: RValue): void
     {
         assert(op >= OpCode._BINOP_FIRST && op <= OpCode._BINOP_LAST);
