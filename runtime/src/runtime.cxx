@@ -951,7 +951,7 @@ TaggedValue toString (StackFrame * caller, TaggedValue v)
         case VT_NUMBER:     return toString(caller, v.raw.nval);
         case VT_STRINGPRIM: return v;
         case VT_OBJECT: {
-            StackFrameN<0,1,1> frame(caller, NULL, __FILE__ ":toString", __LINE__);
+            StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":toString", __LINE__);
             frame.locals[0] = toPrimitive(&frame, v, VT_STRINGPRIM);
             return toString(&frame, frame.locals[0]);
         }
@@ -1006,7 +1006,7 @@ double toNumber (StackFrame * caller, TaggedValue v)
         case VT_NUMBER: return v.raw.nval;
         case VT_STRINGPRIM: return toNumber(v.raw.sval);
         case VT_OBJECT: {
-            StackFrameN<0,1,1> frame(caller, NULL, __FILE__ ":toNumber", __LINE__);
+            StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":toNumber", __LINE__);
             frame.locals[0] = toPrimitive(&frame, v, VT_NUMBER);
             return toNumber(&frame, frame.locals[0]);
         }
