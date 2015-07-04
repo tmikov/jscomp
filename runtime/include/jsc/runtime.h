@@ -661,6 +661,7 @@ Object * objectCreate (StackFrame * caller, TaggedValue parent);
 TaggedValue newFunction (StackFrame * caller, Env * env, const StringPrim * name, unsigned length, CodePtr code);
 
 void throwTypeError (StackFrame * caller, const char * str, ...) JS_NORETURN;
+void throwValue (StackFrame * caller, TaggedValue val) JS_NORETURN;
 
 bool isCallable (TaggedValue val);
 TaggedValue call(StackFrame * caller, TaggedValue value, unsigned argc, const TaggedValue * argv);

@@ -672,9 +672,7 @@ function compileSource (
                 compileReturnStatement(scope, NT.ReturnStatement.cast(stmt));
                 break;
             case "ThrowStatement":
-                error(location(stmt), "'throw' is not implemented yet");
-                var throwStatement: ESTree.ThrowStatement = NT.ThrowStatement.cast(stmt);
-                compileExpression(scope, throwStatement.argument);
+                compileThrowStatement(scope, NT.ThrowStatement.cast(stmt));
                 break;
             case "TryStatement":
                 error(location(stmt), "'try' is not implemented yet");
@@ -918,6 +916,16 @@ function compileSource (
             value = hir.undefinedValue;
         scope.ctx.releaseTemp(value);
         scope.ctx.builder.genRet(value);
+    }
+
+    function compileThrowStatement (scope: Scope, stmt: ESTree.ThrowStatement): void
+    {
+        warning(location(stmt), "'throw' is not fully implemented yet");
+        var value = compileExpression(scope, stmt.argument, true, null, null);
+
+        var hbnd: hir.RValue[] = [hir.frameReg, value];
+        var pat: hir.AsmPattern = ["js::throwValue(", 0, ", ", 1, ");"];
+        scope.ctx.builder.genAsm(null, hbnd, pat);
     }
 
     function fillContinueInNamedLoopLabels (labels: Label[], continueLab: hir.Label): void

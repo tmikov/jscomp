@@ -756,7 +756,7 @@ TaggedValue newFunction (StackFrame * caller, Env * env, const StringPrim * name
     return frame.locals[0];
 }
 
-void throwTypeError (StackFrame *, const char * msg, ...)
+void throwTypeError (StackFrame * caller, const char * msg, ...)
 {
     char * buf;
     va_list ap;
@@ -767,6 +767,16 @@ void throwTypeError (StackFrame *, const char * msg, ...)
     if (buf)
         fprintf(stderr, "TypeError: %s\n", buf);
     free(buf);
+    caller->printStackTrace();
+    abort();
+}
+
+void throwValue (StackFrame * caller, TaggedValue val)
+{
+    StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":throwValue", __LINE__);
+    frame.locals[0] = toString(&frame, val);
+    fprintf(stderr, "***Exception throw: %s\n", frame.locals[0].raw.sval->getStr());
+    caller->printStackTrace();
     abort();
 }
 
