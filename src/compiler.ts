@@ -314,6 +314,7 @@ class FunctionContext
 class AsmBinding {
     public used: boolean = false;
     public hv: hir.RValue = null;
+    public result: boolean = false;
     constructor(public index: number, public name: string, public e: ESTree.Expression) {}
 }
 
@@ -1831,6 +1832,7 @@ function compileSource (
                 return;
             }
             resultBinding = addBinding(name, null);
+            resultBinding.result = true;
             if (arrE.elements.length > 1) {
                 error(location(arrE.elements[1]), "unsupported __asm__ result options");
                 return;
@@ -1874,6 +1876,40 @@ function compileSource (
                 return;
             }
             arrE.elements.forEach(parseInputDeclaration);
+        }
+
+        function parseClobberDeclaration (e: ESTree.Expression): void
+        {
+            var arrE = NT.ArrayExpression.isTypeOf(e);
+            if (!arrE) {
+                error(location(e), "'__asm__' every clobber declaration must be an array literal");
+                return;
+            }
+            var name = isStringLiteral(arrE.elements[0]);
+            if (!name) {
+                error(location(e), "'__asm__' every clobber declaration must begin with a string literal");
+                return;
+            }
+            if (bindingMap.has(name)) {
+                error(location(e), `'__asm__' binding '${name}' already declared`);
+                return;
+            }
+
+            addBinding(name, null);
+
+            if (arrE.elements.length > 1) {
+                error(location(e), "'__asm__' input declaration options not supported yet");
+                return;
+            }
+        }
+        function parseClobbers (e: ESTree.Expression): void
+        {
+            var arrE = NT.ArrayExpression.isTypeOf(e);
+            if (!arrE) {
+                error(location(e), "'__asm__' parameter 4 (clobbers) must be an array literal");
+                return;
+            }
+            arrE.elements.forEach(parseClobberDeclaration);
         }
 
         function parsePattern (e: ESTree.Expression): void
@@ -1937,13 +1973,14 @@ function compileSource (
         }
 
 
-        if (e.arguments.length !== 4) {
-            error(location(e), "'__asm__' requires exactly four arguments");
+        if (e.arguments.length !== 5) {
+            error(location(e), "'__asm__' requires exactly five arguments");
         } else {
             parseOptions(e.arguments[0]);
             parseResult(e.arguments[1]);
             parseInputs(e.arguments[2]);
-            parsePattern(e.arguments[3]);
+            parseClobbers(e.arguments[3]);
+            parsePattern(e.arguments[4]);
         }
 
         if (!pattern) // error?
@@ -1960,13 +1997,17 @@ function compileSource (
                 hbnd[i] = b.hv;
             else if (b.e)
                 hbnd[i] = compileSubExpression(scope, b.e, true, null, null);
-            else
-                hbnd[i] = dest = scope.ctx.allocTemp();
+            else {
+                var temp = scope.ctx.allocTemp();
+                hbnd[i] = temp;
+                if (b.result)
+                    dest = temp;
+            }
         }
 
         // Release the temporaries in reverse order, except the result
         for ( var i = bindings.length-1; i >= 0; --i )
-            if (bindings[i].e) // if not an output
+            if (!bindings[i].result) // if not an output
                 scope.ctx.releaseTemp(hbnd[i]);
 
         scope.ctx.builder.genAsm(dest, hbnd, pattern);
@@ -1979,6 +2020,8 @@ function compileSource (
                 return hir.undefinedValue;
             }
         } else {
+            if (dest)
+                warning(location(e), "'__asm__': result value ignored");
             scope.ctx.releaseTemp(dest);
             return null;
         }
