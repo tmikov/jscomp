@@ -1606,7 +1606,8 @@ export class FunctionBuilder
             case OpCode.CALLIND:
                 var callop = <CallOp>inst;
                 this.outCallerLine();
-                this.gen("  js::call(&frame, %s, %d, &%s);\n",
+                this.gen("  %sjs::call(&frame, %s, %d, &%s);\n",
+                    this.strDest(callop.dest),
                     this.strRValue(callop.closure),
                     callop.args.length,
                     this.strMemValue(callop.args[0])
