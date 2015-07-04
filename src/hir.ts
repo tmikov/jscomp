@@ -20,9 +20,10 @@ export class LValue extends MemValue
 {
 }
 
-export class NullReg extends LValue
+export class SystemReg extends LValue
 {
-    toString (): string { return "#nullReg"; }
+    constructor (id: number, public name: string) {super(id);}
+    toString (): string { return this.name; }
 }
 
 export class Regex
@@ -116,7 +117,10 @@ export class Local extends LValue
 
 export var nullValue = new SpecialConstantClass("null");
 export var undefinedValue = new SpecialConstantClass("undefined");
-export var nullReg = new NullReg(0);
+export var nullReg = new SystemReg(0, "#nullReg");
+export var frameReg = new SystemReg(-1, "#frameReg");
+export var argcReg = new SystemReg(-2, "#argcReg");
+export var argvReg = new SystemReg(-3, "#argvReg");
 
 export function unwrapImmedate (v: RValue): any
 {
@@ -1223,10 +1227,16 @@ export class FunctionBuilder
         else if (lv instanceof Local) {
             return `frame.locals[${lv.index}]`;
         }
-        else {
-            assert(false, "unsupported LValue "+ lv);
-            return "???";
+        else if (lv instanceof SystemReg) {
+            switch (lv) {
+                case frameReg: return "&frame";
+                case argcReg:  return "argc";
+                case argvReg:  return "argv";
+            }
         }
+
+        assert(false, "unsupported LValue "+ lv);
+        return "???";
     }
 
     private strStringPrim(s: string): string

@@ -313,6 +313,7 @@ class FunctionContext
 
 class AsmBinding {
     public used: boolean = false;
+    public hv: hir.RValue = null;
     constructor(public index: number, public name: string, public e: ESTree.Expression) {}
 }
 
@@ -1792,6 +1793,10 @@ function compileSource (
         var bindings: AsmBinding[] = [];
         var bindingMap = new StringMap<AsmBinding>();
         var pattern: hir.AsmPattern = null;
+        var sysBindings : {[name: string]: hir.SystemReg} = Object.create(null);
+        sysBindings["%frame"] = hir.frameReg;
+        sysBindings["%argc"] = hir.argcReg;
+        sysBindings["%argv"] = hir.argvReg;
 
         function addBinding (name: string, e: ESTree.Expression): AsmBinding
         {
@@ -1900,8 +1905,13 @@ function compileSource (
                     var name = match[3];
                     var bnd = bindingMap.get(name);
                     if (!bnd) {
-                        error(location(e), `undeclared binding '%[${name}]'`);
-                        return;
+                        var sysbnd = sysBindings[name];
+                        if (!sysbnd) {
+                            error(location(e), `undeclared binding '%[${name}]'`);
+                            return;
+                        }
+                        bnd = addBinding(name, null);
+                        bnd.hv = sysbnd;
                     }
                     bnd.used = true;
                     asmPat.push(bnd.index);
@@ -1946,6 +1956,8 @@ function compileSource (
             var b = bindings[i];
             if (!b.used)
                 hbnd[i] = null;
+            else if (b.hv !== null)
+                hbnd[i] = b.hv;
             else if (b.e)
                 hbnd[i] = compileSubExpression(scope, b.e, true, null, null);
             else
