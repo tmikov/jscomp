@@ -28,3 +28,13 @@ Object.create = function Object_create (proto)
         "%[result] = js::makeObjectValue(js::objectCreate(%[%frame], %[proto]));"
     );
 };
+
+function Error (message)
+{
+    this.message = message;
+}
+
+Error.prototype.toString = function error_toString ()
+{
+    return "Error: "+ this.message;
+};
