@@ -9,7 +9,7 @@ function Child (a,b) {
     this.b = b;
 }
 
-Child.prototype = new Base();
+Child.prototype = Object.create(Base.prototype);
 
 var ch = new Child(10,20);
 

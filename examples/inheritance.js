@@ -15,7 +15,7 @@ function Maker (id)
     this.value = "hello";
 }
 
-Maker.prototype = new Parent();
+Maker.prototype = Object.create(Parent.prototype);
 Maker.prototype.method = function() {
     console.log("in method");
     console.log(this.value);
