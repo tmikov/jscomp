@@ -21,3 +21,10 @@ Function.prototype.call = function call (thisArg)
             ': js::call(%[%frame], %[%argv][0], 1, &%[thisArg]);'
     );
 };
+
+Object.create = function Object_create (proto)
+{
+    return __asm__({},["result"],[["proto",proto]],[],
+        "%[result] = js::makeObjectValue(js::objectCreate(%[%frame], %[proto]));"
+    );
+};
