@@ -327,6 +327,11 @@ TaggedValue ArrayBase::getComputed (StackFrame * caller, TaggedValue propName)
 
 void ArrayBase::putComputed (StackFrame * caller, TaggedValue propName, TaggedValue v)
 {
+    if (JS_UNLIKELY(this->flags & OF_NOWRITE)) { // Let the base implementation handle the error
+        Object::putComputed(caller, propName, v);
+        return;
+    }
+
     uint32_t index;
     // Fast path
     if (!(this->flags & OF_INDEX_PROPERTIES) && isNonNegativeInteger(propName, &index)) {
@@ -340,10 +345,9 @@ void ArrayBase::putComputed (StackFrame * caller, TaggedValue propName, TaggedVa
     if (this->flags & OF_INDEX_PROPERTIES) {
         // index-like properties exist in the object, so we must check them first
         Object * propObj;
-        if (Property * p = getProperty(frame.locals[0].raw.sval, &propObj)) {
+        if (Property * p = getProperty(frame.locals[0].raw.sval, &propObj))
             if (updatePropertyValue(caller, propObj, p, v))
                 return;
-        }
     }
 
     if (isIndexString(frame.locals[0].raw.sval->getStr(), &index)) {
@@ -356,23 +360,57 @@ void ArrayBase::putComputed (StackFrame * caller, TaggedValue propName, TaggedVa
 
 void Array::init (StackFrame * caller)
 {
-    //StackFrameN<0,2,0> frame(caller, NULL, __FILE__ ":Array::init", __LINE__);
-    //Runtime * r = JS_GET_RUNTIME(&frame);
-    //
-    //
-    //
-    //defineOwnProperty(&frame, r->permStrLength, PROP_ENUMERABLE|PROP_WRITEABLE|PROP_GET_SET, JS_UNDEFINED_VALUE,  )
+    StackFrameN<0,2,0> frame(caller, NULL, __FILE__ ":Array::init", __LINE__);
+    Runtime * r = JS_GET_RUNTIME(&frame);
+    frame.locals[0] = newFunction(&frame, NULL, r->permStrLength, 0, lengthGetter);
+    frame.locals[1] = newFunction(&frame, NULL, r->permStrLength, 1, lengthSetter);
+
+    defineOwnProperty(&frame, r->permStrLength, PROP_ENUMERABLE|PROP_WRITEABLE|PROP_GET_SET, JS_UNDEFINED_VALUE,
+        frame.locals[0].raw.fval,
+        frame.locals[1].raw.fval
+    );
 }
 
-//TaggedValue Array::lengthGetter (StackFrame * caller, Env * env, unsigned argc, const TaggedValue * argv)
-//{
-//    assert(argc == 1);
-//}
-//
-//TaggedValue Array::lengthSetter (StackFrame * caller, Env * env, unsigned argc, const TaggedValue * argv)
-//{
-//    assert(argc == 2);
-//}
+Array * Array::findArrayInstance (StackFrame * caller, TaggedValue thisp)
+{
+    Object * arrayProto = JS_GET_RUNTIME(caller)->arrayPrototype;
+
+    if (isValueTagObject(thisp.tag)) {
+        Object * obj = thisp.raw.oval;
+        do
+            if (obj->parent == arrayProto)
+                return (Array *)obj;
+        while ((obj = obj->parent) != NULL);
+    }
+
+    throwTypeError(caller, "not an instance of Array");
+    return NULL;
+}
+
+TaggedValue Array::lengthGetter (StackFrame * caller, Env *, unsigned argc, const TaggedValue * argv)
+{
+    assert(argc == 1);
+    return makeNumberValue(findArrayInstance(caller, argv[0])->getLength());
+}
+
+TaggedValue Array::lengthSetter (StackFrame * caller, Env *, unsigned argc, const TaggedValue * argv)
+{
+    assert(argc == 2);
+    TaggedValue n = makeNumberValue(toNumber(caller, argv[1]));
+    uint32_t len;
+    if (!isNonNegativeInteger(n, &len))
+        throwTypeError(caller, "Invalid array length");
+    findArrayInstance(caller, argv[0])->setLength(len);
+    return JS_UNDEFINED_VALUE;
+}
+
+Object * ArrayCreator::createDescendant (StackFrame * caller)
+{
+    StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":ArrayCreator::createDescendant", __LINE__);
+    frame.locals[0] = makeObjectValue(new (&frame) Array(this));
+    ((Array*)frame.locals[0].raw.oval)->init(&frame);
+    return frame.locals[0].raw.oval;
+}
 
 void Arguments::init (StackFrame * caller, int argc, const TaggedValue * argv)
 {
@@ -557,6 +595,34 @@ TaggedValue booleanConstructor (StackFrame * caller, Env *, unsigned argc, const
         throwTypeError(caller, "Not an instance of Boolean");
 }
 
+TaggedValue arrayConstructor (StackFrame * caller, Env * env, unsigned argc, const TaggedValue * argv)
+{
+    StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":arrayConstructor", __LINE__);
+    TaggedValue thisp = argv[0];
+    Array * array;
+
+    if (thisp.tag == VT_UNDEFINED) { // called as a function?
+        frame.locals[0] = makeObjectValue(array = new (&frame) Array(JS_GET_RUNTIME(&frame)->arrayPrototype));
+    } else if (thisp.tag == VT_OBJECT && thisp.raw.oval->parent == JS_GET_RUNTIME(&frame)->arrayPrototype) {
+        array = (Array *)thisp.raw.oval;
+    } else {
+        throwTypeError(caller, "Not an instance of Array");
+        return JS_UNDEFINED_VALUE;
+    }
+
+    uint32_t size;
+    if (argc == 2 && isNonNegativeInteger(argv[1], &size)) { // size constructor?
+        array->setLength(size);
+    } else if (argc > 1) {
+        array->setLength(argc - 1);
+        for ( unsigned i = 1; i != argc; ++i )
+            array->setElem(i - 1, argv[i]);
+    }
+
+    // If we were called as a constructor, return #undefined, otherwise return the new object
+    return thisp.tag != VT_UNDEFINED ? JS_UNDEFINED_VALUE : frame.locals[0];
+}
+
 bool Runtime::MemoryHead::mark (IMark *, unsigned) const
 { return true; }
 
@@ -576,7 +642,7 @@ Runtime::Runtime (bool strictMode)
     parseDiagEnvironment();
 
     // Note: we need to be extra careful to store allocated values where the FC can trace them.
-    StackFrameN<0, 5, 0> frame(NULL, NULL, __FILE__ ":Runtime::Runtime()", __LINE__);
+    StackFrameN<0, 6, 0> frame(NULL, NULL, __FILE__ ":Runtime::Runtime()", __LINE__);
 
     // Perm strings
     permStrEmpty = internString(&frame, "");
@@ -669,6 +735,19 @@ Runtime::Runtime (bool strictMode)
 
     booleanPrototype->defineOwnProperty(
         &frame, permStrConstructor, PROP_WRITEABLE | PROP_CONFIGURABLE, makeObjectValue(boolean));
+
+    // Array
+    //
+    arrayPrototype = new(&frame) ArrayCreator(objectPrototype);
+    frame.locals[5] = makeObjectValue(arrayPrototype);
+
+    array = new(&frame) Function(functionPrototype);
+    env->vars[5] = makeObjectValue(array);
+    array->init(&frame, env, arrayConstructor, internString(&frame,"Array"), 1);
+    array->definePrototype(&frame, arrayPrototype);
+
+    arrayPrototype->defineOwnProperty(
+        &frame, permStrConstructor, PROP_WRITEABLE | PROP_CONFIGURABLE, makeObjectValue(array));
 }
 
 void Runtime::parseDiagEnvironment ()

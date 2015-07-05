@@ -326,8 +326,18 @@ struct Array : public ArrayBase
 
     void init (StackFrame * caller);
 
+    static Array * findArrayInstance (StackFrame * caller, TaggedValue thisp);
     static TaggedValue lengthGetter (StackFrame * caller, Env * env, unsigned argc, const TaggedValue * argv);
     static TaggedValue lengthSetter (StackFrame * caller, Env * env, unsigned argc, const TaggedValue * argv);
+};
+
+struct ArrayCreator : public Object
+{
+    ArrayCreator (Object * parent) :
+        Object(parent)
+    {}
+
+    virtual Object * createDescendant (StackFrame * caller);
 };
 
 struct Arguments : public ArrayBase
@@ -526,6 +536,8 @@ struct Runtime
     Function * number;
     Object * booleanPrototype;
     Function * boolean;
+    Object * arrayPrototype;
+    Function * array;
 
     Env * env;
 
@@ -598,6 +610,7 @@ TaggedValue functionConstructor (StackFrame * caller, Env *, unsigned, const Tag
 TaggedValue stringConstructor (StackFrame * caller, Env *, unsigned, const TaggedValue *);
 TaggedValue numberConstructor (StackFrame * caller, Env *, unsigned, const TaggedValue *);
 TaggedValue booleanConstructor (StackFrame * caller, Env *, unsigned, const TaggedValue *);
+TaggedValue arrayConstructor (StackFrame * caller, Env *, unsigned, const TaggedValue *);
 
 inline bool markValue (IMark * marker, unsigned markBit, const TaggedValue & value)
 {

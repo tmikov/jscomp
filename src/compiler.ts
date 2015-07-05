@@ -2333,6 +2333,7 @@ export function compile (
         declareBuiltin("String", "js::stringConstructor", "string");
         declareBuiltin("Number", "js::numberConstructor", "number");
         declareBuiltin("Boolean", "js::booleanConstructor", "boolean");
+        declareBuiltin("Array", "js::arrayConstructor", "array");
 
         compileSource(coreCtx.funcScope, coreCtx.funcScope, coreFileName, m_reporter, m_options);
 
