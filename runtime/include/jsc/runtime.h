@@ -192,6 +192,8 @@ enum ObjectFlags
     OF_NOEXTEND = 1,  // New properties cannot be added
     OF_NOCONFIG = 2,  // properties cannot be configured or deleted
     OF_NOWRITE  = 4,  // property values cannot be modified
+
+    OF_INDEX_PROPERTIES = 8, // Index-like properties (e.g. "0", "1", etc) have been defined using defineOwnProperty
 };
 
 struct Object : public Memory
@@ -218,8 +220,20 @@ struct Object : public Memory
     );
 
     Property * getOwnProperty (const StringPrim * name);
+    Property * getProperty (const StringPrim * name, Object ** propObj);
+    TaggedValue getPropertyValue (StackFrame * caller, Property * p);
 
-    Property * getProperty (const StringPrim * name);
+    /**
+     * Update a property value, bit only if the property has a setter, or if the property is in 'this'
+     * object. Otherwise, we have to insert a new property in this object.
+     *
+     * <p>If the property is read-only, throw an error or ignore the write (depending in "strict
+     * mode" setting.
+     *
+     * @return 'true' if the value was updated. 'false' if the caller needs to insert a new property
+     *   in 'this'
+     */
+    bool updatePropertyValue (StackFrame * caller, Object * propObj, Property * p, TaggedValue v);
 
     TaggedValue get (StackFrame * caller, const StringPrim * name);
     void put (StackFrame * caller, const StringPrim * name, TaggedValue v);
@@ -244,6 +258,8 @@ struct Object : public Memory
     virtual TaggedValue defaultValue (StackFrame * caller, ValueTag preferredType);
     virtual bool isCallable () const;
     virtual TaggedValue call (StackFrame * caller, unsigned argc, const TaggedValue * argv);
+
+    static int32_t isIndexString (const char * str);
 };
 
 template<class BASE, class TOCREATE>
@@ -300,8 +316,6 @@ struct ArrayBase : public Object
 
     virtual TaggedValue getComputed (StackFrame * caller, TaggedValue propName);
     virtual void putComputed (StackFrame * caller, TaggedValue propName, TaggedValue v);
-
-    static int32_t isIndexString (const char * str);
 };
 
 struct Array : public ArrayBase
@@ -579,12 +593,6 @@ inline Runtime * getRuntime (StackFrame * frame) { return g_runtime; }
 
 #define JS_IS_STRICT_MODE(frame) (JS_GET_RUNTIME(frame)->strictMode != false)
 
-inline Property * Object::getOwnProperty (const StringPrim * name)
-{
-    auto it = this->props.find(name->getStr());
-    return it != this->props.end() ? &it->second : NULL;
-}
-
 TaggedValue objectConstructor (StackFrame * caller, Env *, unsigned, const TaggedValue *);
 TaggedValue functionConstructor (StackFrame * caller, Env *, unsigned, const TaggedValue *);
 TaggedValue stringConstructor (StackFrame * caller, Env *, unsigned, const TaggedValue *);
@@ -725,4 +733,23 @@ inline bool operator_IF_INSTANCEOF (StackFrame * caller, TaggedValue x, Function
     return isValueTagObject(x.tag) && y->hasInstance(caller, x.raw.oval);
 }
 
+inline Property * Object::getOwnProperty (const StringPrim * name)
+{
+    auto it = this->props.find(name->getStr());
+    return it != this->props.end() ? &it->second : NULL;
+}
+
+inline TaggedValue Object::getPropertyValue (StackFrame * caller, Property * p)
+{
+    if ((p->flags & PROP_GET_SET) == 0) {
+        return p->value;
+    } else {
+        // Invoke the getter
+        if (Function * getter = ((PropertyAccessor *)p->value.raw.oval)->get) {
+            TaggedValue thisp = makeObjectValue(this);
+            return (*getter->code)(caller, getter->env, 1, &thisp);
+        }
+    }
+    return JS_UNDEFINED_VALUE;
+}
 };

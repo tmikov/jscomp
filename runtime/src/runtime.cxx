@@ -75,93 +75,106 @@ Object * Object::defineOwnProperty (StackFrame * caller, const StringPrim * name
 
     auto it = props.find(name->getStr());
     if (it != props.end()) {
-        if ((this->flags & OF_NOCONFIG) || !(it->second.flags & PROP_CONFIGURABLE))
+        if ((this->flags & OF_NOCONFIG) ||
+            (it->second.flags & (PROP_CONFIGURABLE|PROP_WRITEABLE)) != (PROP_CONFIGURABLE|PROP_WRITEABLE))
+        {
             throwTypeError(caller, "Cannot redefine property '%s'", name->getStr());
+        }
 
         Property * prop = &it->second;
         prop->flags = flags;
         prop->value = value;
     } else {
+        if (this->flags & OF_NOCONFIG)
+            throwTypeError(caller, "Cannot define property '%s'", name->getStr());
+
         Property * prop = &props.emplace(
             std::piecewise_construct, std::make_tuple(name->getStr()), std::make_tuple(name, flags, value)
         ).first->second;
         this->propList.insertBefore(prop);
+
+        // If index-like properties have been defined in this object, array accesses need to check them first
+        if (isIndexString(name->getStr()) >= 0)
+            this->flags |= OF_INDEX_PROPERTIES;
     }
 
     return this;
 }
 
-Property * Object::getProperty (const StringPrim * name)
+Property * Object::getProperty (const StringPrim * name, Object ** propObj)
 {
     Object * cur = this;
     do {
-        if (Property * p = cur->getOwnProperty(name))
+        if (Property * p = cur->getOwnProperty(name)) {
+            *propObj = cur;
             return p;
+        }
     } while ((cur = cur->parent) != NULL);
     return NULL;
 }
 
-TaggedValue Object::get (StackFrame * caller, const StringPrim * name)
+bool Object::updatePropertyValue (StackFrame * caller, Object * propObj, Property * p, TaggedValue v)
 {
-    if (Property * p = getProperty(name)) {
-        if ((p->flags & PROP_GET_SET) == 0) {
-            return p->value;
+    assert(!(this->flags & OF_NOWRITE));
+
+    if (JS_LIKELY(p->flags & PROP_WRITEABLE)) {
+        if (JS_LIKELY(!(p->flags & PROP_GET_SET))) {
+            if (propObj == this) {
+                p->value = v;
+                return true;
+            } else {
+                return false;
+            }
         } else {
-            // Invoke the getter
-            if (Function * getter = ((PropertyAccessor *)p->value.raw.oval)->get) {
-                TaggedValue thisp = makeObjectValue(this);
-                return (*getter->code)(caller, getter->env, 1, &thisp);
+            if (Function * setter = ((PropertyAccessor *)p->value.raw.oval)->set) {
+                // Note: we don't need to create a frame for this because both parameters must be accessible
+                // via different means
+                if (true) {
+                    TaggedValue args[2] = {makeObjectValue(this), v};
+                    (*setter->code)(caller, setter->env, 2, args);
+                } else {
+                    StackFrameN<0, 2, 2> frame(caller, NULL, __FILE__ ":put", __LINE__ + 3);
+                    frame.locals[0] = makeObjectValue(this);
+                    frame.locals[1] = v;
+                    (*setter->code)(&frame, setter->env, 2, frame.locals);
+                }
+                return true;
             }
         }
     }
+
+    if (JS_IS_STRICT_MODE(caller))
+        throwTypeError(caller, "Property '%s' is not writable", p->name->getStr());
+    return true;
+}
+
+TaggedValue Object::get (StackFrame * caller, const StringPrim * name)
+{
+    Object * propObj;
+    if (Property * p = getProperty(name, &propObj))
+        return getPropertyValue(caller, p);
     return JS_UNDEFINED_VALUE;
 }
 
 void Object::put (StackFrame * caller, const StringPrim * name, TaggedValue v)
 {
-    Object * cur = this;
-    do {
-        if (Property * p = cur->getOwnProperty(name)) {
-            if ((cur->flags & OF_NOWRITE) || !(p->flags & PROP_WRITEABLE)) {
-                goto cannotWrite;
-            }
-            if (!(p->flags & PROP_GET_SET)) {
-                p->value = v;
+    if (JS_LIKELY(!(this->flags & OF_NOWRITE))) {
+        Object * propObj;
+        if (Property * p = getProperty(name, &propObj))
+            if (updatePropertyValue(caller, propObj, p, v))
                 return;
-            } else {
-                if (Function * setter = ((PropertyAccessor *)p->value.raw.oval)->set) {
-                    // Note: we don't need to create a frame for this because both parameters must be accessible
-                    // via different means
-                    if (true) {
-                        TaggedValue args[2] = {makeObjectValue(this), v};
-                        (*setter->code)(caller, setter->env, 2, args);
-                    } else {
-                        StackFrameN<0, 2, 2> frame(caller, NULL, __FILE__ ":put", __LINE__ + 3);
-                        frame.locals[0] = makeObjectValue(this);
-                        frame.locals[1] = v;
-                        (*setter->code)(&frame, setter->env, 2, frame.locals);
-                    }
-                    return;
-                } else {
-                    goto cannotWrite;
-                }
-            }
+
+        if (JS_LIKELY(!(this->flags & OF_NOEXTEND)))
+        {
+            Property * prop = &this->props.emplace(
+                std::piecewise_construct, std::make_tuple(name->getStr()),
+                std::make_tuple(name, PROP_WRITEABLE|PROP_ENUMERABLE|PROP_CONFIGURABLE, v)
+            ).first->second;
+            this->propList.insertBefore(prop);
+            return;
         }
-    } while ((cur = cur->parent) != NULL);
-
-    if (this->flags & OF_NOEXTEND)
-        goto cannotWrite;
-
-    {
-        Property * prop = &this->props.emplace(
-            std::piecewise_construct, std::make_tuple(name->getStr()),
-            std::make_tuple(name, PROP_WRITEABLE|PROP_ENUMERABLE|PROP_CONFIGURABLE, v)
-        ).first->second;
-        this->propList.insertBefore(prop);
-        return;
     }
 
-cannotWrite:;
     if (JS_IS_STRICT_MODE(caller))
         throwTypeError(caller, "Property '%s' is not writable", name->getStr());
 }
@@ -247,6 +260,18 @@ TaggedValue Object::call (StackFrame * caller, unsigned argc, const TaggedValue 
     throwTypeError(caller, "not a function");
 }
 
+int32_t Object::isIndexString (const char * str)
+{
+    if (str[0] >= '0' && str[0] <= '9') { // Filter out the obvious cases
+        char * end;
+        errno = 0;
+        unsigned long ul = strtoul(str, &end, 10);
+        if (errno == 0 && *end == 0 && ul <= INT32_MAX)
+            return (int32_t)ul;
+    }
+    return -1;
+}
+
 bool PropertyAccessor::mark (IMark * marker, unsigned markBit) const
 {
     return markMemory(marker, markBit, get) && markMemory(marker, markBit, set);
@@ -274,27 +299,23 @@ void ArrayBase::setElem (unsigned index, TaggedValue v)
     elems[index] = v;
 }
 
-int32_t ArrayBase::isIndexString (const char * str)
-{
-    if (str[0] >= '0' && str[0] <= '9') { // Filter out the obvious cases
-        char * end;
-        errno = 0;
-        unsigned long ul = strtoul(str, &end, 10);
-        if (errno == 0 && *end == 0 && ul <= INT32_MAX)
-            return (int32_t)ul;
-    }
-    return -1;
-}
-
 TaggedValue ArrayBase::getComputed (StackFrame * caller, TaggedValue propName)
 {
     int32_t index;
     // Fast path
-    if ((index = isNonNegativeInteger(propName)) >= 0)
+    if (!(this->flags & OF_INDEX_PROPERTIES) && (index = isNonNegativeInteger(propName)) >= 0)
         return getElem(index);
 
     StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":ArrayBase::getComputed()", __LINE__);
     frame.locals[0] = toString(&frame, propName);
+
+    if (this->flags & OF_INDEX_PROPERTIES) {
+        // index-like properties exist in the object, so we must check them first
+        Object * propObj;
+        if (Property * p = getProperty(frame.locals[0].raw.sval, &propObj))
+            return getPropertyValue(caller, p);
+    }
+
     if ((index = isIndexString(frame.locals[0].raw.sval->getStr())) >= 0)
         return getElem(index);
 
@@ -305,13 +326,23 @@ void ArrayBase::putComputed (StackFrame * caller, TaggedValue propName, TaggedVa
 {
     int32_t index;
     // Fast path
-    if ((index = isNonNegativeInteger(propName)) >= 0) {
+    if (!(this->flags & OF_INDEX_PROPERTIES) && (index = isNonNegativeInteger(propName)) >= 0) {
         setElem(index, v);
         return;
     }
 
     StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":ArrayBase::putComputed()", __LINE__);
     frame.locals[0] = toString(&frame, propName);
+
+    if (this->flags & OF_INDEX_PROPERTIES) {
+        // index-like properties exist in the object, so we must check them first
+        Object * propObj;
+        if (Property * p = getProperty(frame.locals[0].raw.sval, &propObj)) {
+            if (updatePropertyValue(caller, propObj, p, v))
+                return;
+        }
+    }
+
     if ((index = isIndexString(frame.locals[0].raw.sval->getStr())) >= 0) {
         setElem(index, v);
         return;
