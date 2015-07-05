@@ -94,7 +94,8 @@ Object * Object::defineOwnProperty (StackFrame * caller, const StringPrim * name
         this->propList.insertBefore(prop);
 
         // If index-like properties have been defined in this object, array accesses need to check them first
-        if (isIndexString(name->getStr()) >= 0)
+        uint32_t dummy;
+        if (isIndexString(name->getStr(), &dummy))
             this->flags |= OF_INDEX_PROPERTIES;
     }
 
@@ -260,16 +261,18 @@ TaggedValue Object::call (StackFrame * caller, unsigned argc, const TaggedValue 
     throwTypeError(caller, "not a function");
 }
 
-int32_t Object::isIndexString (const char * str)
+bool Object::isIndexString (const char * str, uint32_t * res)
 {
     if (str[0] >= '0' && str[0] <= '9') { // Filter out the obvious cases
         char * end;
         errno = 0;
         unsigned long ul = strtoul(str, &end, 10);
-        if (errno == 0 && *end == 0 && ul <= INT32_MAX)
-            return (int32_t)ul;
+        if (errno == 0 && *end == 0 && ul <= UINT32_MAX) {
+            *res = (uint32_t)ul;
+            return true;
+        }
     }
-    return -1;
+    return false;
 }
 
 bool PropertyAccessor::mark (IMark * marker, unsigned markBit) const
@@ -301,9 +304,9 @@ void ArrayBase::setElem (unsigned index, TaggedValue v)
 
 TaggedValue ArrayBase::getComputed (StackFrame * caller, TaggedValue propName)
 {
-    int32_t index;
+    uint32_t index;
     // Fast path
-    if (!(this->flags & OF_INDEX_PROPERTIES) && (index = isNonNegativeInteger(propName)) >= 0)
+    if (!(this->flags & OF_INDEX_PROPERTIES) && isNonNegativeInteger(propName, &index))
         return getElem(index);
 
     StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":ArrayBase::getComputed()", __LINE__);
@@ -316,7 +319,7 @@ TaggedValue ArrayBase::getComputed (StackFrame * caller, TaggedValue propName)
             return getPropertyValue(caller, p);
     }
 
-    if ((index = isIndexString(frame.locals[0].raw.sval->getStr())) >= 0)
+    if (isIndexString(frame.locals[0].raw.sval->getStr(), &index))
         return getElem(index);
 
     return this->get(&frame, frame.locals[0].raw.sval);
@@ -324,9 +327,9 @@ TaggedValue ArrayBase::getComputed (StackFrame * caller, TaggedValue propName)
 
 void ArrayBase::putComputed (StackFrame * caller, TaggedValue propName, TaggedValue v)
 {
-    int32_t index;
+    uint32_t index;
     // Fast path
-    if (!(this->flags & OF_INDEX_PROPERTIES) && (index = isNonNegativeInteger(propName)) >= 0) {
+    if (!(this->flags & OF_INDEX_PROPERTIES) && isNonNegativeInteger(propName, &index)) {
         setElem(index, v);
         return;
     }
@@ -343,7 +346,7 @@ void ArrayBase::putComputed (StackFrame * caller, TaggedValue propName, TaggedVa
         }
     }
 
-    if ((index = isIndexString(frame.locals[0].raw.sval->getStr())) >= 0) {
+    if (isIndexString(frame.locals[0].raw.sval->getStr(), &index)) {
         setElem(index, v);
         return;
     }

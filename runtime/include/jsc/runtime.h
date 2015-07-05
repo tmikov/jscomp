@@ -259,7 +259,7 @@ struct Object : public Memory
     virtual bool isCallable () const;
     virtual TaggedValue call (StackFrame * caller, unsigned argc, const TaggedValue * argv);
 
-    static int32_t isIndexString (const char * str);
+    static bool isIndexString (const char * str, uint32_t * index);
 };
 
 template<class BASE, class TOCREATE>
@@ -677,15 +677,18 @@ bool isCallable (TaggedValue val);
 TaggedValue call(StackFrame * caller, TaggedValue value, unsigned argc, const TaggedValue * argv);
 
 /**
- * Returns the integer if the value is a non-negative integer, otherwise -1
+ * Checks whether the value is a non-negative integer
  */
-inline int32_t isNonNegativeInteger (TaggedValue val)
+inline bool isNonNegativeInteger (TaggedValue val, uint32_t * index)
 {
     if (val.tag == VT_NUMBER) {
-        int32_t n = (int32_t)val.raw.nval;
-        return n >= 0 && n == val.raw.nval ? n : -1;
+        uint32_t n = (uint32_t)val.raw.nval;
+        if (n == val.raw.nval) {
+            *index = n;
+            return true;
+        }
     }
-    return -1;
+    return false;
 }
 
 void put (StackFrame * caller, TaggedValue obj, const StringPrim * propName, TaggedValue val);
