@@ -1,14 +1,36 @@
 function print() {
     __asmh__({},"#include <stdio.h>");
-    for ( var i = 0, e = arguments.length; i < e; ++i ) {
-        if (i > 0)
-            __asm__({},[],[],[],"putchar(' ');");
-        __asm__({},[],[["x", arguments[i]]],[],
-                '%[x] = js::toString(%[%frame], %[x]);\n'+
-                'printf("%s", %[x].raw.sval->getStr());'
+
+    function pr (x)
+    {
+        __asm__({},[],[["x", x]],[],
+            '%[x] = js::toString(%[%frame], %[x]);\n'+
+            'printf("%s", %[x].raw.sval->getStr());'
         );
     }
-    __asm__({},[],[],[],"putchar('\\n');");
+
+    function printVal (val)
+    {
+        if (val instanceof Array) {
+            pr("[ ");
+            for ( var i = 0, e = val.length; i < e; ++i ) {
+                if (i > 0)
+                    pr(", ");
+                var elem = val[i];
+                if (elem !== void 0)
+                    printVal(elem);
+            }
+            pr(" ]");
+        } else
+            pr(val);
+    }
+
+    for ( var i = 0, e = arguments.length; i < e; ++i ) {
+        if (i > 0)
+            pr(" ");
+        printVal(arguments[i]);
+    }
+    pr("\n");
 }
 
 var console = { log: print };
