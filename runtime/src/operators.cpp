@@ -27,7 +27,6 @@ TaggedValue operator_ADD (StackFrame * caller, TaggedValue a, TaggedValue b)
 }
 
 TaggedValue operator_IN (TaggedValue a, TaggedValue b);
-TaggedValue operator_INSTANCEOF (TaggedValue a, TaggedValue b);
 
 const StringPrim * operator_TYPEOF (StackFrame * caller, TaggedValue a)
 {
@@ -46,8 +45,6 @@ const StringPrim * operator_TYPEOF (StackFrame * caller, TaggedValue a)
 }
 
 TaggedValue operator_DELETE (TaggedValue a);
-
-bool operator_IF_TRUE (TaggedValue a);
 
 bool operator_IF_STRICT_EQ (TaggedValue a, TaggedValue b)
 {
