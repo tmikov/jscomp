@@ -1255,10 +1255,9 @@ export class FunctionBuilder
 
     private strEscapingVar (v: Var): string
     {
-        assert(v.escapes);
+        assert(v.escapes, `variable ${v.name} is not marked as escaping`);
         return util.format("%s->vars[%d]", this.strEnvAccess(v.envLevel), v.envIndex);
     }
-
 
     private strMemValue (lv: MemValue): string
     {

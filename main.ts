@@ -5,6 +5,7 @@
 /// <reference path="typings/tsd.d.ts" />
 
 import assert = require("assert");
+import path = require("path");
 
 import compiler = require("./src/compiler");
 
@@ -22,9 +23,9 @@ function printSyntax (): void
 "   -c                     compile only (do not link)\n"+
 "   -S                     compile to C source\n"+
 "   -o filename            output file\n"+
+"   -M dir                 add module directory (e.g. ./node_modules)\n"+
 "   -v                     verbose\n"+
-"   --runtime-inc-dir dir  set directory of runtime includes\n"+
-"   --runtime-lib-dir dir  set directory of runtime libraries\n"+
+"   --runtime-dir dir      set directory of runtime files\n"+
 "   -I dir                 additional include directories for the C/C++ compiler\n"+
 "   -L dir                 additional library directories for the C/C++ compiler\n"+
 "   --build-dir dir        directory for keeping state for faster builds (default '.jsbuild/')\n"+
@@ -44,6 +45,7 @@ function startsWith(a: string, prefix: string): boolean
 function main (argv: string[]): void
 {
     var options = new compiler.Options();
+    var runtimeDir: string = null;
     var fname: string = null;
 
     if (argv.length === 1) {
@@ -88,16 +90,16 @@ function main (argv: string[]): void
                 default:
                     if (startsWith(arg, "-o"))
                         options.outputName = needArgument("-o");
-                    else if (startsWith(arg, "--runtime-inc-dir"))
-                        options.runtimeIncDir = needArgument("--runtime-inc-dir");
-                    else if (startsWith(arg, "--runtime-lib-dir"))
-                        options.runtimeLibDir = needArgument("--runtime-lib-dir");
+                    else if (startsWith(arg, "--runtime-dir"))
+                        runtimeDir = needArgument("--runtime-dir");
                     else if (startsWith(arg, "-I"))
                         options.includeDirs.push(needArgument("-I"));
                     else if (startsWith(arg, "-L"))
                         options.libDirs.push(needArgument("-L"));
                     else if (startsWith(arg, "--build-dir"))
                         options.buildDir = needArgument("--build-dir");
+                    else if (startsWith(arg, "-M"))
+                        options.moduleDirs.push(needArgument("-M"));
                     else {
                         console.error("error: unknown option '%s'", arg);
                         process.exit(1);
@@ -114,10 +116,13 @@ function main (argv: string[]): void
     }
 
     // Default values for options
+    if (!runtimeDir)
+        runtimeDir = "runtime";
     if (!options.runtimeIncDir)
-        options.runtimeIncDir = "runtime/include";
+        options.runtimeIncDir = path.join(runtimeDir, "include");
     if (!options.runtimeLibDir)
-        options.runtimeLibDir = options.debug ? "runtime/debug" : "runtime/release";
+        options.runtimeLibDir = path.join(runtimeDir, options.debug ? "debug" : "release");
+    options.moduleDirs = [path.join(runtimeDir, "js/modules")].concat(options.moduleDirs);
 
     if (!fname) {
         console.error("error: no filename specified");

@@ -6,6 +6,7 @@
 /// <reference path="./estree-x.d.ts" />
 
 import fs = require("fs");
+import path = require("path");
 import assert = require("assert");
 import util = require("util");
 import child_process = require("child_process");
@@ -34,6 +35,7 @@ export class Options
     sourceOnly = false;
     outputName: string = null;
     verbose = false;
+    moduleDirs: string[] = [];
     runtimeIncDir: string = null;
     runtimeLibDir: string = null;
     includeDirs: string[] = [];
@@ -135,6 +137,15 @@ class Variable
     {
         this.readOnly = true;
         this.constantValue = constantValue;
+    }
+
+    setAccessed (need: boolean, ctx: FunctionContext): void
+    {
+        if (need) {
+            this.accessed = true;
+            if (ctx !== this.ctx)
+                this.escapes = true;
+        }
     }
 }
 
@@ -254,11 +265,7 @@ class FunctionContext
         this.strictMode = parent && parent.strictMode;
         this.scope = new Scope(this, true, parentScope);
 
-        var param = this.builder.newParam("this");
-        this.thisParam = this.scope.newVariable("this", param.variable);
-        this.thisParam.initialized = true;
-        this.thisParam.declared = true;
-
+        this.thisParam = this.addParam("this");
     }
 
     close (): void
@@ -339,14 +346,128 @@ class FunctionContext
         }
     }
 
-    public addClosure (id: ESTree.Identifier): hir.FunctionBuilder
+    public addClosure (name: string): hir.FunctionBuilder
     {
-        return this.builder.newClosure(id && id.name);
+        return this.builder.newClosure(name);
     }
     public addBuiltinClosure (name: string, mangledName: string, runtimeVar: string): hir.FunctionBuilder
     {
         return this.builder.newBuiltinClosure(name, mangledName, runtimeVar);
     }
+
+    public addParam (name: string): Variable
+    {
+        var param = this.builder.newParam(name);
+        var v = this.scope.newVariable(name, param.variable);
+
+        v.initialized = true;
+        v.declared = true;
+
+        return v;
+    }
+}
+
+class Module
+{
+    path: string;
+    printable: string;
+    notFound: boolean = false;
+    modVar: Variable = null;
+
+    constructor (path: string)
+    {
+        this.path = path;
+        this.printable = path;
+    }
+
+}
+
+function startsWith (big: string, prefix: string): boolean
+{
+    return big.length >= prefix.length && big.slice(0, prefix.length) === prefix;
+}
+
+function checkReadAccess (p: string): boolean
+{
+    try { (<any>fs).accessSync(p, (<any>fs).R_OK); } catch (e) {
+        return false;
+    }
+    return true;
+}
+
+class Modules
+{
+    private resolved = new StringMap<Module>();
+    private queue: Module[] = [];
+    public paths: string[] = [];
+
+    constructor (paths: string[])
+    {
+        // Make sure all paths are absolute
+        for (var i = 0; i < paths.length; ++i )  {
+            if (paths[i])
+                this.paths.push(path.isAbsolute(paths[i]) ? paths[i] : path.resolve(paths[i]));
+        }
+    }
+
+    resolve (dirname: string, modname: string): Module
+    {
+        var trypath: string;
+        var m: Module;
+
+        if (!path.extname(modname))
+            modname += ".js";
+
+        if (startsWith(modname, "./") || startsWith(modname, "../") || path.isAbsolute(modname)) {
+            trypath = path.resolve(dirname, modname);
+            if (m = this.resolved.get(trypath))
+                return m;
+
+            m = new Module(trypath);
+            this.resolved.set(trypath, m);
+            this.queue.push(m);
+            m.notFound = !checkReadAccess(trypath);
+            return m;
+        }
+
+        for (var i = 0; i < this.paths.length; ++i ) {
+            trypath = path.resolve(this.paths[i], modname);
+            if (m = this.resolved.get(trypath))
+                return m;
+
+            if (fs.existsSync(trypath)) {
+                m = new Module(trypath);
+                this.resolved.set(trypath, m);
+                this.queue.push(m);
+                m.notFound = !checkReadAccess(trypath);
+                return m;
+            }
+        }
+
+        trypath = modname;
+        m = new Module(trypath);
+        m.notFound = true;
+        this.resolved.set(trypath, m);
+        this.queue.push(m);
+        return m;
+    }
+
+    next (): Module
+    {
+        return this.queue.length > 0 ? this.queue.shift() : null;
+    }
+}
+
+interface Runtime
+{
+    ctx: FunctionContext;
+    moduleRequire: Variable;
+    defineModule: Variable;
+}
+
+class SpecialVars
+{
+    require: Variable = null;
 }
 
 class AsmBinding {
@@ -356,13 +477,19 @@ class AsmBinding {
     constructor(public index: number, public name: string, public e: ESTree.Expression) {}
 }
 
-
 function compileSource (
     m_scope: Scope, m_undefinedVarScope: Scope,
-    m_fileName: string, m_reporter: IErrorReporter, m_options: Options
+    m_fileName: string, m_reporter: IErrorReporter,
+    m_specVars: SpecialVars, m_modules: Modules,
+    m_options: Options
 ): void
 {
+    var m_absFileName = path.resolve(m_fileName);
+    var m_dirname = path.dirname(m_absFileName);
     var m_input: string;
+
+    if (m_options.verbose)
+        console.log("Compiling", m_fileName);
 
     return compileIt();
 
@@ -466,17 +593,14 @@ function compileSource (
         ast.params.forEach( (pat: ESTree.Pattern): void => {
             var ident = NT.Identifier.cast(pat);
 
-            var param = funcCtx.builder.newParam(ident.name);
             var v: Variable;
-
             if (v = funcScope.getVar(ident.name)) {
                 (funcCtx.strictMode ? error : warning)(location(ident), `parameter '${ident.name}' already declared`);
                 // Overwrite the assigned hvar. When we have duplicate parameter names, the last one wins
+                var param = funcCtx.builder.newParam(ident.name);
                 v.hvar = param.variable;
             } else {
-                v = funcScope.newVariable(ident.name, param.variable);
-                v.initialized = true;
-                v.declared = true;
+                funcCtx.addParam(ident.name);
             }
         });
 
@@ -644,14 +768,14 @@ function compileSource (
             varScope.setVar(variable);
         }
         variable.declared = true;
-        variable.funcRef = ctx.addClosure(stmt.id);
+        variable.funcRef = ctx.addClosure(stmt.id && stmt.id.name);
         variable.hvar = variable.funcRef.closureVar;
 
         if (!variable.initialized && !variable.assigned)
             variable.initialized = true;
         else
             variable.assigned = true;
-        variable.accessed = true;
+        variable.setAccessed(true, ctx);
 
         stmt.variable = variable;
     }
@@ -1236,7 +1360,7 @@ function compileSource (
     {
         var variable = scope.ctx.thisParam;
         if (need) {
-            variable.accessed = true;
+            variable.setAccessed(true, scope.ctx);
             return variable.hvar;
         } else {
             return null;
@@ -1333,7 +1457,7 @@ function compileSource (
         return dest;
     }
 
-    function findVariable (scope: Scope, identifier: ESTree.Identifier, need: boolean): Variable
+    function findVariable (scope: Scope, identifier: ESTree.Identifier): Variable
     {
         var variable: Variable = scope.lookup(identifier.name);
         if (!variable) {
@@ -1350,20 +1474,14 @@ function compileSource (
             warning(location(identifier), `undefined identifier '${identifier.name}'`);
         }
 
-        if (need) {
-            // If the current function context is not where the variable was declared, then it escapes
-            if (variable.ctx !== scope.ctx)
-                variable.escapes = true;
-        }
-
         return variable;
     }
 
     function compileIdentifier (scope: Scope, identifier: ESTree.Identifier, need: boolean): hir.RValue
     {
-        var variable = findVariable(scope, identifier, need);
+        var variable = findVariable(scope, identifier);
         if (need) {
-            variable.accessed = true;
+            variable.setAccessed(true, scope.ctx);
             return variable.constantValue !== null ? variable.constantValue : variable.hvar;
         } else {
             return null;
@@ -1375,14 +1493,14 @@ function compileSource (
         if (!need)
             warning(location(e), "unused function");
 
-        var funcRef = scope.ctx.addClosure(e.id);
+        var funcRef = scope.ctx.addClosure(e.id && e.id.name);
         var nameScope = new Scope(scope.ctx, false, scope); // A scope for the function name
         if (e.id) {
             var funcVar = nameScope.newVariable(e.id.name, funcRef.closureVar);
             funcVar.funcRef = funcRef;
             funcVar.declared = true;
             funcVar.initialized = true;
-            funcVar.accessed = need;
+            funcVar.setAccessed(need, scope.ctx);
         }
         compileFunction(nameScope, e, funcRef);
         return need ? funcRef.closureVar : null;
@@ -1813,7 +1931,8 @@ function compileSource (
         var variable: Variable;
 
         if (identifier = NT.Identifier.isTypeOf(left)) {
-            variable = findVariable(scope, identifier, true);
+            variable = findVariable(scope, identifier);
+            variable.setAccessed(true, ctx);
 
             if (!variable.readOnly)
                 variable.assigned = true;
@@ -1907,22 +2026,24 @@ function compileSource (
      * Used by compiler extensions when an an argument is required to be a constant string. Besides a
      * single string literal we also handle addition of literals.
      * @param e
-     * @returns {any}
+     * @param reportError
+     * @returns {string}
      */
-    function parseConstantString (e: ESTree.Expression): string
+    function parseConstantString (e: ESTree.Expression, reportError: boolean = true): string
     {
         var str = isStringLiteral(e);
         if (str !== null)
             return str;
         var bine = NT.BinaryExpression.isTypeOf(e);
         if (!bine || bine.operator !== "+") {
-            error(location(e), "not a constant string literal");
+            if (reportError)
+                error(location(e), "not a constant string literal");
             return null;
         }
-        var a = parseConstantString(bine.left);
+        var a = parseConstantString(bine.left, reportError);
         if (a === null)
             return null;
-        var b = parseConstantString(bine.right);
+        var b = parseConstantString(bine.right, reportError);
         if (b === null)
             return null;
         return a + b;
@@ -2190,7 +2311,7 @@ function compileSource (
 
             parseOptions(e.arguments[0]);
             var str = parseConstantString(e.arguments[1]);
-            if (!str)
+            if (str === null)
                 break exit;
 
             scope.ctx.builder.module.addAsmHeader(str);
@@ -2198,10 +2319,38 @@ function compileSource (
         return need ? hir.undefinedValue : null;
     }
 
-    function extractCallIdentifier (e: ESTree.CallExpression): string
+    function compileRequireExpression (scope: Scope, e: ESTree.CallExpression, need: boolean): hir.RValue
     {
-        var identifierExp: ESTree.Identifier;
-        return (identifierExp = NT.Identifier.isTypeOf(e.callee)) ? identifierExp.name : null;
+        var m: Module = null;
+
+        if (e.arguments.length > 0) {
+            var str = parseConstantString(e.arguments[0], false);
+            if (str !== null) {
+                var m = m_modules.resolve(m_dirname, str);
+                if (m.notFound) {
+                    warning(location(e), `cannot resolve module '${str}'`);
+                } else {
+                    // Replace the argument with the resolved path
+                    var arg: ESTree.Literal = {
+                        type: NT.Literal.name,
+                        value: m.path,
+                        start: e.arguments[0].start,
+                        end: e.arguments[0].end
+                    };
+                    if (e.arguments[0].loc)
+                        arg.loc = e.arguments[0].loc;
+                    if (e.arguments[0].range)
+                        arg.range = e.arguments[0].range;
+
+                    e.arguments[0] = arg;
+                }
+            }
+        }
+
+        if (!m)
+            warning(location(e), "dynamic 'require' invocation cannot be analyzed at compile time");
+
+        return _compileCallExpression(scope, e, need);
     }
 
     function compileConditionalExpression (
@@ -2248,14 +2397,40 @@ function compileSource (
         return dest;
     }
 
+    function extractMagicCallIdentifier (scope: Scope, e: ESTree.CallExpression): string
+    {
+        var identifierExp: ESTree.Identifier;
+        if (identifierExp = NT.Identifier.isTypeOf(e.callee)) {
+            var name = identifierExp.name;
+            if (name === "__asm__")
+                return "asm";
+            else if (name === "__asmh__")
+                return "asmh";
+
+            var v = scope.lookup(name);
+            if (v) {
+                if (v === m_specVars.require)
+                    return "require";
+            }
+        }
+
+        return null;
+    }
+
     function compileCallExpression (scope: Scope, e: ESTree.CallExpression, need: boolean): hir.RValue
     {
         // Check for compiler extensions
-        switch (extractCallIdentifier(e)) {
-            case "__asm__": return compileAsmExpression(scope, e, need);
-            case "__asmh__": return compileAsmHExpression(scope, e, need);
+        switch (extractMagicCallIdentifier(scope, e)) {
+            case "asm": return compileAsmExpression(scope, e, need);
+            case "asmh": return compileAsmHExpression(scope, e, need);
+            case "require": return compileRequireExpression(scope, e, need);
         }
 
+        return _compileCallExpression(scope, e, need);
+    }
+
+    function _compileCallExpression (scope: Scope, e: ESTree.CallExpression, need: boolean): hir.RValue
+    {
         var ctx = scope.ctx;
         var args: hir.RValue[] = [];
         var fref: hir.FunctionBuilder = null;
@@ -2373,6 +2548,7 @@ export function compile (
     var m_globalContext: FunctionContext;
     var m_input: string;
     var m_moduleBuilder = new hir.ModuleBuilder(m_options.debug);
+    var m_modules = new Modules(m_options.moduleDirs);
 
     compileProgram();
     fireCB();
@@ -2423,36 +2599,65 @@ export function compile (
         if (m_reporter.errorCount() > 0)
             return;
 
-        var moduleCtx = compileFile(runtime, m_fileName);
-        if (m_reporter.errorCount() > 0)
+        // Resolve and compile all system modules
+        var sysModNames: string[] = ["process", "console"];
+        var sysModules: Module[] = new Array<Module>(sysModNames.length);
+
+        for ( var i = 0; i < sysModNames.length; ++i )
+            sysModules[i] = m_modules.resolve("",sysModNames[i]);
+        if (!compileResolvedModules(runtime))
             return;
-        moduleCtx.close();
+        for ( var i = 0; i < sysModNames.length; ++i ) {
+            var modvar = runtime.ctx.scope.newVariable(sysModNames[i]);
+            modvar.declared = true;
+            modvar.assigned = true;
+            callModuleRequire(runtime, sysModules[i], modvar.hvar);
+        }
 
-        // Call the module
-        runtime.builder.genCall(hir.nullReg, moduleCtx.builder.closureVar, [hir.undefinedValue] );
-        moduleCtx.builder.setVarAttributes(moduleCtx.builder.closureVar, false, true, true, moduleCtx.builder);
+        // Resolve main
+        var main: Module = m_modules.resolve("", path.resolve(process.cwd(), m_fileName));
+        main.printable = m_fileName;
 
-        runtime.close();
+        if (!compileResolvedModules(runtime))
+            return;
+        callModuleRequire(runtime, main);
+
+        runtime.ctx.close();
         topLevelBuilder.close();
         m_moduleBuilder.prepareForCodegen();
 
         if (m_options.dumpHIR)
-            runtime.builder.dump();
+            runtime.ctx.builder.dump();
 
         if (!m_options.dumpAST && !m_options.dumpHIR)
             produceOutput();
     }
 
-    function compileRuntime (parentContext: FunctionContext): FunctionContext
+    function compileResolvedModules (runtime: Runtime): boolean
+    {
+        var m: Module;
+        while (m = m_modules.next()) {
+            if (m.notFound) {
+                error(null, `cannot find module '${m.printable}'`);
+                return false;
+            }
+            m.modVar = compileModule(runtime.ctx, m.path);
+            if (m_reporter.errorCount() > 0)
+                return false;
+            callDefineModule(runtime, m);
+        }
+        return true;
+    }
+
+    function compileRuntime (parentContext: FunctionContext): Runtime
     {
         var runtimeFileName = "runtime/js/runtime.js";
         var coreFileName = "runtime/js/core.js";
+        var modFileName = "runtime/js/module.js";
 
         var runtimeCtx = new FunctionContext(
             parentContext, parentContext.scope, runtimeFileName, parentContext.builder.newClosure(runtimeFileName)
         );
-        if (false) // for debugging, to disable "runtime" compilation
-            return runtimeCtx;
 
         function declareBuiltin (name: string, mangled: string, runtimeVar: string): void
         {
@@ -2472,31 +2677,97 @@ export function compile (
 
         runtimeCtx.scope.newConstant("undefined", hir.undefinedValue);
 
-        compileSource(runtimeCtx.scope, runtimeCtx.scope, runtimeFileName, m_reporter, m_options);
+        compileSource(runtimeCtx.scope, runtimeCtx.scope, runtimeFileName, m_reporter, new SpecialVars(), m_modules, m_options);
         compileInANestedScope(runtimeCtx, coreFileName);
+        var modScope = compileInANestedScope(runtimeCtx, modFileName);
 
-        return runtimeCtx;
+        var r: Runtime = {
+            ctx: runtimeCtx,
+            moduleRequire: modScope.lookup("moduleRequire"),
+            defineModule: modScope.lookup("defineModule")
+        };
+        assert(r.moduleRequire);
+        assert(r.defineModule);
+
+        return r;
     }
 
     /**
      * Compile a core file in a nested scope. We want to achieve visibility separation, but
      * we don't want the physical separation of another environment, etc.
      */
-    function compileInANestedScope (coreCtx: FunctionContext, fileName: string): void
+    function compileInANestedScope (coreCtx: FunctionContext, fileName: string): Scope
     {
         var scope = new Scope(coreCtx, true, coreCtx.scope);
-        compileSource(scope, coreCtx.scope, fileName, m_reporter, m_options);
+        definePaths(scope, fileName);
+        compileSource(scope, coreCtx.scope, fileName, m_reporter, new SpecialVars(), m_modules, m_options);
+        return scope;
     }
 
-    function compileFile (parentContext: FunctionContext, fileName: string): FunctionContext
+    function compileModule (parentContext: FunctionContext, fileName: string): Variable
     {
-        var name = "<"+fileName+">";
-        var moduleCtx = new FunctionContext(
-            parentContext, parentContext.scope, name, parentContext.builder.newClosure(name)
+        var ctx = new FunctionContext(
+            parentContext, parentContext.scope, fileName, parentContext.addClosure(fileName)
         );
+        var modVar = parentContext.scope.newAnonymousVariable(fileName, ctx.builder.closureVar);
+        modVar.funcRef = ctx.builder;
 
-        compileSource(moduleCtx.scope, moduleCtx.scope, fileName, m_reporter, m_options);
-        return moduleCtx;
+        var modp = ctx.addParam("module");
+        var require = ctx.addParam("require");
+
+        var specVars = new SpecialVars();
+        specVars.require = require;
+
+        var tmp = ctx.allocTemp();
+        modp.setAccessed(true, ctx);
+        ctx.builder.genPropGet(tmp, modp.hvar, hir.wrapImmediate("exports"));
+        defineVar(ctx.scope, "exports", tmp);
+
+        definePaths(ctx.scope, fileName);
+        compileSource(ctx.scope, ctx.scope, fileName, m_reporter, specVars, m_modules, m_options);
+        ctx.close();
+
+        return modVar;
+    }
+
+    function callDefineModule (runtime: Runtime, m: Module): void
+    {
+        var ctx = runtime.ctx;
+        ctx.builder.genCall(null, runtime.defineModule.hvar, [
+            hir.undefinedValue,
+            hir.wrapImmediate(m.path),
+            m.modVar.funcRef.closureVar
+        ]);
+        m.modVar.setAccessed(true, ctx);
+        runtime.defineModule.setAccessed(true, ctx);
+    }
+
+    function callModuleRequire (runtime: Runtime, m: Module, result: hir.LValue = null): void
+    {
+        var ctx = runtime.ctx;
+        ctx.builder.genCall(result, runtime.moduleRequire.hvar, [
+            hir.undefinedValue,
+            hir.wrapImmediate(m.path)
+        ]);
+        runtime.moduleRequire.setAccessed(true, ctx);
+    }
+
+    function definePaths (scope: Scope, fileName: string)
+    {
+        if (!path.isAbsolute(fileName))
+            fileName = path.resolve(fileName);
+        defineVar(scope, "__filename", hir.wrapImmediate(fileName));
+        defineVar(scope, "__dirname", hir.wrapImmediate(path.dirname(fileName)));
+    }
+
+    function defineVar (scope: Scope, name: string, value: hir.RValue): Variable
+    {
+        var v = scope.newVariable(name);
+        v.declared = true;
+        v.assigned = true;
+        scope.ctx.releaseTemp(value);
+        scope.ctx.builder.genAssign(v.hvar, value);
+        return v;
     }
 
     function stripPathAndExtension (fn: string): string
