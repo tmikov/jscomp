@@ -1042,7 +1042,15 @@ export class FunctionBuilder
             a.local = this.newLocal();
         });
 
-        // Allocate parameter locals
+        // Allocate locals
+        this.vars.forEach( (v: Var) => {
+            if (!v.escapes && v.accessed) {
+                if (!v.formalParam)
+                    v.local = this.newLocal();
+            }
+        });
+
+        // Allocate parameter locals at the end of the local array
         this.paramSlotsCount = 0;
         this.paramSlots = [];
 
@@ -1052,8 +1060,6 @@ export class FunctionBuilder
                     v.local = this.newLocal();
                     this.paramSlots.push( v.local );
                     ++this.paramSlotsCount;
-                } else {
-                    v.local = this.newLocal();
                 }
             }
         });
