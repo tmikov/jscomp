@@ -116,10 +116,13 @@ static void collect (StackFrame * caller)
 
     // Mark the stack
     {
+        //fprintf(stderr, "Marking the stack\n");
         StackFrame * frame = caller;
-        do
+        do {
+            //const char * lf = frame->getFileFunc();
+            //fprintf(stderr, "  %s[%u] frame %p\n", lf ? lf : "<unknown source>", frame->getLine(), frame);
             frame->mark(&marker, marker.d_markBit);
-        while ((frame = frame->caller) != NULL);
+        } while ((frame = frame->caller) != NULL);
     }
 
     while (!marker.d_markQueue.empty()) {
