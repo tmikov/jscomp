@@ -920,7 +920,7 @@ void put (StackFrame * caller, TaggedValue obj, const StringPrim * propName, Tag
         case VT_BOOLEAN:
         case VT_STRINGPRIM:
             if (JS_IS_STRICT_MODE(caller))
-                throwTypeError(caller, "cannot assign property '%s' of primitive", propName->getStr()); break;
+                throwTypeError(caller, "cannot assign property '%s' of primitive", propName->getStr());
             break;
         default:
             assert(false);
