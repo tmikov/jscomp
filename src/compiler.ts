@@ -1049,13 +1049,7 @@ function compileSource (
             case "ThisExpression":
                 return toLogical(scope, e, compileThisExpression(scope, NT.ThisExpression.cast(e), need), need, onTrue, onFalse);
             case "ArrayExpression":
-                error(location(e), "'[array expression]' is not implemented yet");
-                var arrayExpression: ESTree.ArrayExpression = NT.ArrayExpression.cast(e);
-                arrayExpression.elements.forEach((elem) => {
-                    if (elem && elem.type !== "SpreadElement")
-                        compileSubExpression(scope, elem);
-                });
-                break;
+                return compileArrayExpression(scope, NT.ArrayExpression.cast(e), need, onTrue, onFalse);
             case "ObjectExpression":
                 return compileObjectExpression(scope, NT.ObjectExpression.cast(e), need, onTrue, onFalse);
             case "FunctionExpression":
@@ -1151,6 +1145,56 @@ function compileSource (
         } else {
             return null;
         }
+    }
+
+    function compileArrayExpression (
+        scope: Scope, e: ESTree.ArrayExpression, need: boolean, onTrue: hir.Label, onFalse: hir.Label
+    ): hir.RValue
+    {
+        var ctx = scope.ctx;
+
+        if (!need || onTrue) {
+            warning(location(e), onTrue ? "condition is always true" : "unused array expression");
+
+            e.elements.forEach((elem) => {
+                if (elem)
+                    if (elem.type === "SpreadElement")
+                        error(location(elem), "ES6 spread elements not supported");
+                    else
+                        compileSubExpression(scope, elem, false, null, null);
+            });
+
+            if (onTrue)
+                ctx.builder.genGoto(onTrue);
+
+            return null;
+        }
+
+        var objProto = ctx.allocTemp();
+        ctx.builder.genLoadRuntimeVar(objProto, "arrayPrototype");
+        ctx.releaseTemp(objProto);
+        var dest = ctx.allocTemp();
+        ctx.builder.genCreate(dest, objProto);
+
+        if (e.elements.length > 0) {
+            // Resize the array in advance, but only for more than one element
+            if (e.elements.length > 1)
+                ctx.builder.genPropSet(dest, hir.wrapImmediate("length"), hir.wrapImmediate(e.elements.length));
+
+            e.elements.forEach((elem, index) => {
+                if (elem) {
+                    if (elem.type === "SpreadElement")
+                        error(location(elem), "ES6 spread elements not supported");
+                    else {
+                        var val = compileSubExpression(scope, elem, true, null, null);
+                        ctx.releaseTemp(val);
+                        ctx.builder.genPropSet(dest, hir.wrapImmediate(index), val);
+                    }
+                }
+            });
+        }
+
+        return dest;
     }
 
     function compileObjectExpression (
