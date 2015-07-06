@@ -77,12 +77,8 @@ to +arguments+ do not propagate back to the actual arguments. There is also no +
 properties. We can implement all of that (non-strict mode stuff), but it is not high on
 our current list of priorities.
 
-Some operators, specifically many unary ones, are not implemented yet in the code generator.
-Again, they are coming soon. It is just a matter of time and mechanically adding the
-support in.
-
-* The object system is implemented, but none of the built-in constructors or methods
-are available. The plan is to implement as mush as possible in JavaScript.
+* The object system is implemented, but some of the built-in constructors and many methods
+are not available. The plan is to implement as mush as possible in JavaScript.
 
 * Runtime: the runtime requires "C++11" and is very slow and wasteful. This is planned
 to change to "C" and "not slow" as soon as we have a more or less full support for the
