@@ -2278,11 +2278,11 @@ export function compile (
         m_globalContext = new FunctionContext(null, null, topLevelBuilder.name, topLevelBuilder);
         m_globalContext.strictMode = m_options.strictMode;
 
-        var core = compileCoreModule(m_globalContext, "runtime/js/core.js");
+        var core = compileCore(m_globalContext);
         if (m_reporter.errorCount() > 0)
             return;
 
-        var moduleCtx = compileModule(core, m_fileName);
+        var moduleCtx = compileFile(core, m_fileName);
         if (m_reporter.errorCount() > 0)
             return;
         moduleCtx.close();
@@ -2302,17 +2302,19 @@ export function compile (
             produceOutput();
     }
 
-    function compileCoreModule (parentContext: FunctionContext, fileName: string): FunctionContext
+    function compileCore (parentContext: FunctionContext): FunctionContext
     {
-        var name = "<"+fileName+">";
-        var moduleCtx = new FunctionContext(
+        var coreFileName = "runtime/js/core.js";
+
+        var name = "<"+coreFileName+">";
+        var coreCtx = new FunctionContext(
             parentContext, parentContext.funcScope, name, parentContext.builder.newClosure(name)
         );
 
         function declareBuiltin (name: string, mangled: string, runtimeVar: string): void
         {
-            var fobj = moduleCtx.addBuiltinClosure(name, mangled, runtimeVar);
-            var vobj = moduleCtx.funcScope.newVariable(fobj.name, fobj.closureVar);
+            var fobj = coreCtx.addBuiltinClosure(name, mangled, runtimeVar);
+            var vobj = coreCtx.funcScope.newVariable(fobj.name, fobj.closureVar);
             vobj.funcRef = fobj;
             vobj.declared = true;
             vobj.initialized = true;
@@ -2324,11 +2326,22 @@ export function compile (
         declareBuiltin("Number", "js::numberConstructor", "number");
         declareBuiltin("Boolean", "js::booleanConstructor", "boolean");
 
-        compileSource(moduleCtx.funcScope, moduleCtx.funcScope, fileName, m_reporter, m_options);
-        return moduleCtx;
+        compileSource(coreCtx.funcScope, coreCtx.funcScope, coreFileName, m_reporter, m_options);
+
+        return coreCtx;
     }
 
-    function compileModule (parentContext: FunctionContext, fileName: string): FunctionContext
+    /**
+     * Compile a core file in a nested scope. We want to achieve visibility separation, but
+     * we don't want the physical separation of another environment, etc.
+     */
+    function compileInANestedScope (coreCtx: FunctionContext, fileName: string): void
+    {
+        var scope = new Scope(coreCtx, coreCtx.funcScope);
+        compileSource(scope, coreCtx.funcScope, fileName, m_reporter, m_options);
+    }
+
+    function compileFile (parentContext: FunctionContext, fileName: string): FunctionContext
     {
         var name = "<"+fileName+">";
         var moduleCtx = new FunctionContext(
