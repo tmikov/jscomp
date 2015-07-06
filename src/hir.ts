@@ -691,6 +691,7 @@ function bfs (entry: BasicBlock, exit: BasicBlock, callback: (bb: BasicBlock)=>v
     // Mark the exit node as visited to guarantee we will visit it last
     visited[exit.id] = true;
 
+    visited[entry.id] = true;
     visit(entry);
     while (queue.length)
         visit(queue.shift());
@@ -698,10 +699,42 @@ function bfs (entry: BasicBlock, exit: BasicBlock, callback: (bb: BasicBlock)=>v
     visit(exit);
 }
 
+function dfs (entry: BasicBlock, exit: BasicBlock, callback: (bb: BasicBlock)=>void): void
+{
+    var visited: boolean[] = [];
+    var stack: BasicBlock[] = [];
+
+    function push (bb: BasicBlock): void {
+        if (!visited[bb.id]) {
+            visited[bb.id] = true;
+            stack.push(bb);
+        }
+    }
+    function visit (bb: BasicBlock): void {
+        callback(bb);
+        //NOTE: in our current naive algorithm, this visit order produces "slightly" better results
+        //for (var i = 0, e = bb.succ.length; i < e; ++i)
+        for (var i = bb.succ.length - 1; i >= 0; --i)
+            push(bb.succ[i].bb );
+    }
+
+    // Mark the exit node as visited to guarantee we will visit it last
+    visited[exit.id] = true;
+
+    visited[entry.id] = true;
+    visit(entry);
+    var bb: BasicBlock;
+    while ((bb = stack.pop()) != void 0)
+        visit(bb);
+
+    // Finally generate the exit node
+    visit(exit);
+}
+
 function buildBlockList (entry: BasicBlock, exit: BasicBlock): BasicBlock[]
 {
     var blockList: BasicBlock[] = [];
-    bfs(entry, exit, (bb: BasicBlock) => blockList.push(bb));
+    dfs(entry, exit, (bb: BasicBlock) => blockList.push(bb));
     return blockList;
 }
 
