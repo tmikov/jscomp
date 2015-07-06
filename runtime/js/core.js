@@ -60,3 +60,13 @@ Error.prototype.toString = function error_toString ()
 {
     return "Error: "+ this.message;
 };
+
+Array.prototype.push = function array_push(dummy)
+{
+    // TODO: special case arguments.length < 2 (also arguments.length shouldn't create the object)
+    var n = this.length | 0;
+    var e = arguments.length;
+    this.length = n + e;
+    for ( var i = 0; i < e; ++i )
+        this[n++] = arguments[i];
+};
