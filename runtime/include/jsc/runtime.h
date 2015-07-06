@@ -730,7 +730,6 @@ bool equal (const StringPrim * a, const StringPrim * b);
 
 // Operators
 TaggedValue operator_ADD (StackFrame * caller, TaggedValue a, TaggedValue b);
-TaggedValue operator_IN (TaggedValue a, TaggedValue b);
 
 const StringPrim * operator_TYPEOF (StackFrame * caller, TaggedValue a);
 TaggedValue operator_DELETE (TaggedValue a);
