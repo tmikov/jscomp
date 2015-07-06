@@ -1126,22 +1126,6 @@ function compileSource (
         }
     }
 
-    function toNumberValue (scope: Scope, v: hir.RValue): hir.RValue
-    {
-        return v;
-        /*
-         var t : hir.RValue;
-         if (hir.isImmediate(v))
-         if ((t = hir.foldUnary(hir.OpCode.TO_NUMBER, v)) !== null)
-         return t;
-
-         scope.ctx.releaseTemp(v);
-         var r = scope.ctx.allocTemp();
-         scope.ctx.builder.genUnop(hir.OpCode.TO_NUMBER, r, v);
-         return r;
-         */
-    }
-
     function compileLiteral (scope: Scope, literal: ESTree.Literal, need: boolean): hir.RValue
     {
         if (need) {
@@ -1292,7 +1276,7 @@ function compileSource (
                 return toLogical(scope, e, compileSimpleUnary(scope, hir.OpCode.NEG_N, true, e.argument), true, onTrue, onFalse);
             case "+":
                 return toLogical(scope, e,
-                    toNumberValue(scope, compileSubExpression(scope, e.argument, true, null, null)),
+                    compileSubExpression(scope, e.argument, true, null, null),
                     true, onTrue, onFalse
                 );
             case "~":
@@ -1337,8 +1321,6 @@ function compileSource (
         function compileSimpleUnary (scope: Scope, op: hir.OpCode, arith: boolean, e: ESTree.Expression): hir.RValue
         {
             var v = compileSubExpression(scope, e, true, null, null);
-            if (arith)
-                v = toNumberValue(scope, v);
             scope.ctx.releaseTemp(v);
 
             var folded = hir.foldUnary(op, v);
@@ -1423,7 +1405,7 @@ function compileSource (
 
         function compileArithBinary (ctx: FunctionContext, op: hir.OpCode, v1: hir.RValue, v2: hir.RValue): hir.RValue
         {
-            return compileGenericBinary(ctx, op, toNumberValue(scope, v1), toNumberValue(scope, v2));
+            return compileGenericBinary(ctx, op, v1, v2);
         }
 
         function compileLogBinary (
@@ -1668,7 +1650,6 @@ function compileSource (
                 scope.ctx.builder.genPropSet(membObject, membPropName, res);
                 scope.ctx.releaseTemp(membObject);
                 scope.ctx.releaseTemp(membPropName);
-                scope.ctx.releaseTemp(rvalue);
                 return res;
             }
         } else {
@@ -1681,10 +1662,7 @@ function compileSource (
             var opcode: hir.OpCode;
 
             switch (operator) {
-                case "+=":
-                    scope.ctx.builder.genBinop(hir.OpCode.ADD, dest, dest, src);
-                    return;
-
+                case "+=":    opcode = hir.OpCode.ADD; break;
                 case "-=":    opcode = hir.OpCode.SUB_N; break;
                 case "*=":    opcode = hir.OpCode.MUL_N; break;
                 case "/=":    opcode = hir.OpCode.DIV_N; break;
@@ -1700,10 +1678,7 @@ function compileSource (
                     return null;
             }
 
-            src = toNumberValue(scope, src);
-            var d = toNumberValue(scope, dest);
-            scope.ctx.releaseTemp(d);
-            scope.ctx.builder.genBinop(opcode, dest, d, src);
+            scope.ctx.builder.genBinop(opcode, dest, dest, src);
         }
     }
 
@@ -1723,12 +1698,12 @@ function compileSource (
             var lval = variable.hvar;
 
             if (!e.prefix && need) { // Postfix? It only matters if we need the result
-                var res = toNumberValue(scope, lval);
+                var res = ctx.allocTemp();
+                ctx.builder.genUnop(hir.OpCode.TO_NUMBER, res, lval);
                 ctx.builder.genBinop(opcode, lval, lval, immOne);
                 return res;
             } else {
-                var res = toNumberValue(scope, lval);
-                ctx.builder.genBinop(opcode, lval, res, immOne);
+                ctx.builder.genBinop(opcode, lval, lval, immOne);
                 return lval;
             }
         } else if(memb = NT.MemberExpression.isTypeOf(e.argument)) {
@@ -1743,15 +1718,15 @@ function compileSource (
 
             var val: hir.Local = ctx.allocTemp();
             ctx.builder.genPropGet(val, membObject, membPropName);
-            var n = toNumberValue(scope, val);
 
             if (!e.prefix && need) { // Postfix? It only matters if we need the result
                 var tmp = ctx.allocTemp();
-                ctx.builder.genBinop(opcode, tmp, n, immOne);
+                ctx.builder.genUnop(hir.OpCode.TO_NUMBER, val, val);
+                ctx.builder.genBinop(opcode, tmp, val, immOne);
                 ctx.builder.genPropSet(membObject, membPropName, tmp);
                 ctx.releaseTemp(tmp);
             } else {
-                ctx.builder.genBinop(opcode, val, n, immOne);
+                ctx.builder.genBinop(opcode, val, val, immOne);
                 ctx.builder.genPropSet(membObject, membPropName, val);
             }
 
@@ -2318,6 +2293,8 @@ export function compile (
         var coreCtx = new FunctionContext(
             parentContext, parentContext.funcScope, name, parentContext.builder.newClosure(name)
         );
+        if (false) // for debugging, to disable "core" compilation
+            return coreCtx;
 
         function declareBuiltin (name: string, mangled: string, runtimeVar: string): void
         {
