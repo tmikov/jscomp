@@ -16,9 +16,8 @@ function print() {
             for ( var i = 0, e = val.length; i < e; ++i ) {
                 if (i > 0)
                     pr(", ");
-                var elem = val[i];
-                if (elem !== void 0)
-                    printVal(elem);
+                if (i in val)
+                    printVal(val[i]);
             }
             pr(" ]");
         } else
