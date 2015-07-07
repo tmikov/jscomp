@@ -1665,6 +1665,27 @@ export class FunctionBuilder
         }
     }
 
+    private strIfIn (src1: RValue, src2: RValue): string
+    {
+        var callerStr = "&frame, ";
+
+        if (isString(src1)) {
+            var strName: string = <string>unwrapImmedate(src1);
+
+            // IMPORTANT: string property names looking like integer numbers must be treated as
+            // computed properties, but if not, we can go the faster way
+            if (!isNonNegativeInteger(strName)) {
+                return util.format("%s.raw.oval->hasProperty(%s)",
+                    this.strRValue(src2), this.strStringPrim(strName)
+                );
+            }
+        }
+
+        return util.format("(%s.raw.oval->hasComputed(%s%s) != 0)",
+            this.strRValue(src2), callerStr, this.strRValue(src1)
+        );
+    }
+
     private strIfOpCond (op: OpCode, src1: RValue, src2: RValue): string
     {
         var callerStr: string = "&frame, ";
@@ -1701,9 +1722,7 @@ export class FunctionBuilder
                 break;
 
             case OpCode.IF_IN:
-                cond = util.format("(%s.raw.oval->getProperty(%s.raw.sval) != 0)",
-                    this.strRValue(src2), this.strRValue(src1)
-                );
+                cond = this.strIfIn(src1, src2);
                 break;
             case OpCode.IF_INSTANCEOF:
                 cond = util.format("operator_IF_INSTANCEOF(%s%s, %s.raw.fval)",

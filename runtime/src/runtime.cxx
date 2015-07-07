@@ -114,6 +114,12 @@ Property * Object::getProperty (const StringPrim * name, Object ** propObj)
     return NULL;
 }
 
+bool Object::hasProperty (const StringPrim * name)
+{
+    Object * propObj;
+    return getProperty(name, &propObj) != NULL;
+};
+
 bool Object::updatePropertyValue (StackFrame * caller, Object * propObj, Property * p, TaggedValue v)
 {
     assert(!(this->flags & OF_NOWRITE));
@@ -180,6 +186,13 @@ void Object::put (StackFrame * caller, const StringPrim * name, TaggedValue v)
         throwTypeError(caller, "Property '%s' is not writable", name->getStr());
 }
 
+bool Object::hasComputed (StackFrame * caller, TaggedValue propName)
+{
+    StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":Object::hasComputed()", __LINE__);
+    frame.locals[0] = toString(&frame, propName);
+    return this->hasProperty(frame.locals[0].raw.sval);
+}
+
 TaggedValue Object::getComputed (StackFrame * caller, TaggedValue propName)
 {
     StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":Object::getComputed()", __LINE__);
@@ -194,9 +207,9 @@ void Object::putComputed (StackFrame * caller, TaggedValue propName, TaggedValue
     this->put(&frame, frame.locals[0].raw.sval, v);
 }
 
-bool Object::deleteProperty (StackFrame * caller, const char * name)
+bool Object::deleteProperty (StackFrame * caller, const StringPrim * name)
 {
-    auto it = props.find(name);
+    auto it = props.find(name->getStr());
     if (it != props.end()) {
         if ((this->flags & OF_NOCONFIG) || !(it->second.flags & PROP_CONFIGURABLE)) {
             if (JS_IS_STRICT_MODE(caller))
@@ -207,6 +220,13 @@ bool Object::deleteProperty (StackFrame * caller, const char * name)
         props.erase(it);
     }
     return true;
+}
+
+bool Object::deleteComputed (StackFrame * caller, TaggedValue propName)
+{
+    StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":Object::deleteComputed()", __LINE__);
+    frame.locals[0] = toString(&frame, propName);
+    return this->deleteProperty(&frame, frame.locals[0].raw.sval);
 }
 
 TaggedValue Object::defaultValue (StackFrame * caller, ValueTag preferredType)
@@ -292,7 +312,7 @@ bool ArrayBase::mark (IMark * marker, unsigned markBit) const
 
 void ArrayBase::setLength (unsigned newLen)
 {
-    elems.resize(newLen, TaggedValue{VT_UNDEFINED});
+    elems.resize(newLen, TaggedValue{VT_ARRAY_HOLE});
 }
 
 void ArrayBase::setElem (unsigned index, TaggedValue v)
@@ -300,6 +320,28 @@ void ArrayBase::setElem (unsigned index, TaggedValue v)
     if (index >= elems.size())
         setLength(index + 1);
     elems[index] = v;
+}
+
+bool ArrayBase::hasComputed (StackFrame * caller, TaggedValue propName)
+{
+    uint32_t index;
+    // Fast path
+    if (!(this->flags & OF_INDEX_PROPERTIES) && isNonNegativeInteger(propName, &index))
+        return hasElem(index);
+
+    StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":ArrayBase::hasComputed()", __LINE__);
+    frame.locals[0] = toString(&frame, propName);
+
+    if (this->flags & OF_INDEX_PROPERTIES) {
+        // index-like properties exist in the object, so we must check them first
+        if (hasProperty(frame.locals[0].raw.sval))
+            return true;
+    }
+
+    if (isIndexString(frame.locals[0].raw.sval->getStr(), &index))
+        return hasElem(index);
+
+    return this->hasProperty(frame.locals[0].raw.sval);
 }
 
 TaggedValue ArrayBase::getComputed (StackFrame * caller, TaggedValue propName)
@@ -356,6 +398,41 @@ void ArrayBase::putComputed (StackFrame * caller, TaggedValue propName, TaggedVa
     }
 
     this->put(&frame, frame.locals[0].raw.sval, v);
+}
+
+bool ArrayBase::deleteComputed (StackFrame * caller, TaggedValue propName)
+{
+    StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":ArrayBase::deleteComputed()", __LINE__);
+
+    if (JS_UNLIKELY(this->flags & OF_INDEX_PROPERTIES)) {
+        // index-like properties exist in the object, so we must check them first
+        frame.locals[0] = toString(&frame, propName);
+        if (hasOwnProperty(frame.locals[0].raw.sval))
+            return deleteProperty(&frame, frame.locals[0].raw.sval);
+    }
+
+    uint32_t index;
+    if (JS_UNLIKELY(!isNonNegativeInteger(propName, &index))) {
+        if (JS_LIKELY(frame.locals[0].tag == VT_UNDEFINED)) // if we didn't already convert it to string
+            frame.locals[0] = toString(&frame, propName);
+
+        if (!isIndexString(frame.locals[0].raw.sval->getStr(), &index))
+            return this->deleteProperty(&frame, frame.locals[0].raw.sval);
+    }
+
+    if (JS_LIKELY(index) < this->elems.size()) {
+        TaggedValue * pe = &this->elems[index];
+        if (JS_LIKELY(pe->tag != VT_ARRAY_HOLE)) {
+            if (JS_LIKELY(!(this->flags & OF_NOCONFIG))) {
+                *pe = TaggedValue{VT_ARRAY_HOLE};
+            } else {
+                if (JS_IS_STRICT_MODE(&frame))
+                    throwTypeError(&frame, "Cannot delete property");
+                return false;
+            }
+        }
+    }
+    return true;
 }
 
 void Array::init (StackFrame * caller)

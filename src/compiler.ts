@@ -1492,14 +1492,6 @@ function compileSource (
                     hir.wrapImmediate("second operand of 'instanceof' is not a function")
                 );
 
-            if (op === hir.OpCode.IN) {
-                // Convert operand 1 to string
-                ctx.releaseTemp(v1);
-                var strTmp = ctx.allocTemp();
-                ctx.builder.genUnop(hir.OpCode.TO_STRING, strTmp, v1);
-                v1 = strTmp;
-            }
-
             ctx.releaseTemp(v2);
             ctx.releaseTemp(v1);
 

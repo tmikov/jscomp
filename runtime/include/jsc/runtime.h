@@ -40,8 +40,8 @@ union RawValue
 
 enum ValueTag
 {
-    VT_UNDEFINED, VT_NULL, VT_BOOLEAN, VT_NUMBER, VT_STRINGPRIM, VT_MEMORY, VT_OBJECT, VT_FUNCTION,
-    _VT_SHIFT = 3,
+    VT_UNDEFINED, VT_NULL, VT_BOOLEAN, VT_NUMBER, VT_ARRAY_HOLE, VT_STRINGPRIM, VT_MEMORY, VT_OBJECT, VT_FUNCTION,
+    _VT_SHIFT = 4,
 };
 
 inline bool isValueTagPointer (unsigned t)
@@ -221,6 +221,11 @@ struct Object : public Memory
 
     Property * getOwnProperty (const StringPrim * name);
     Property * getProperty (const StringPrim * name, Object ** propObj);
+    bool hasOwnProperty (const StringPrim * name)
+    {
+        return getOwnProperty(name) != NULL;
+    }
+    bool hasProperty (const StringPrim * name);
     TaggedValue getPropertyValue (StackFrame * caller, Property * p);
 
     /**
@@ -237,10 +242,12 @@ struct Object : public Memory
 
     TaggedValue get (StackFrame * caller, const StringPrim * name);
     void put (StackFrame * caller, const StringPrim * name, TaggedValue v);
+    virtual bool hasComputed (StackFrame * caller, TaggedValue propName);
     virtual TaggedValue getComputed (StackFrame * caller, TaggedValue propName);
     virtual void putComputed (StackFrame * caller, TaggedValue propName, TaggedValue v);
 
-    bool deleteProperty (StackFrame * caller, const char * name);
+    bool deleteProperty (StackFrame * caller, const StringPrim * name);
+    virtual bool deleteComputed (StackFrame * caller, TaggedValue propName);
 
     void freeze ()
     {
@@ -308,14 +315,26 @@ struct ArrayBase : public Object
 
     void setLength (unsigned newLen);
 
+    bool hasElem (unsigned index) const
+    {
+        return index < elems.size() && elems[index].tag != VT_ARRAY_HOLE;
+    }
+
     TaggedValue getElem (unsigned index) const
     {
-        return index < elems.size() ? elems[index] : JS_UNDEFINED_VALUE;
+        if (index < elems.size()) {
+            const TaggedValue * pe = &elems[index];
+            if (pe->tag != VT_ARRAY_HOLE)
+                return *pe;
+        }
+        return JS_UNDEFINED_VALUE;
     }
     void setElem (unsigned index, TaggedValue v);
 
+    virtual bool hasComputed (StackFrame * caller, TaggedValue propName);
     virtual TaggedValue getComputed (StackFrame * caller, TaggedValue propName);
     virtual void putComputed (StackFrame * caller, TaggedValue propName, TaggedValue v);
+    virtual bool deleteComputed (StackFrame * caller, TaggedValue propName);
 };
 
 struct Array : public ArrayBase
@@ -732,7 +751,6 @@ bool equal (const StringPrim * a, const StringPrim * b);
 TaggedValue operator_ADD (StackFrame * caller, TaggedValue a, TaggedValue b);
 
 const StringPrim * operator_TYPEOF (StackFrame * caller, TaggedValue a);
-TaggedValue operator_DELETE (TaggedValue a);
 
 bool operator_IF_STRICT_EQ (TaggedValue a, TaggedValue b);
 bool operator_IF_LOOSE_EQ (StackFrame * caller, TaggedValue a, TaggedValue b);

@@ -42,8 +42,6 @@ const StringPrim * operator_TYPEOF (StackFrame * caller, TaggedValue a)
     }
 }
 
-TaggedValue operator_DELETE (TaggedValue a);
-
 bool operator_IF_STRICT_EQ (TaggedValue a, TaggedValue b)
 {
     if (a.tag != b.tag)
