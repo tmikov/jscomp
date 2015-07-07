@@ -13,6 +13,8 @@
 //#define JS_DEBUG
 
 #define JS_NORETURN __attribute__((noreturn))
+#define JS_LIKELY(cond)          __builtin_expect(!!(cond), 1)
+#define JS_UNLIKELY(cond)        __builtin_expect(!!(cond), 0)
 
 namespace js
 {
