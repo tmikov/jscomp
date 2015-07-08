@@ -600,7 +600,7 @@ struct Runtime
     unsigned allocatedSize;
     unsigned gcThreshold;
 
-    Runtime (bool strictMode = true);
+    Runtime (bool strictMode);
 
     bool mark (IMark * marker, unsigned markBit);
 
