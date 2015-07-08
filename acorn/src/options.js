@@ -5,6 +5,8 @@ import {SourceLocation} from "./location"
 // the parser process. These options are recognized:
 
 export const defaultOptions = {
+  // strict mode
+  strict: false,
   // `ecmaVersion` indicates the ECMAScript version to parse. Must
   // be either 3, or 5, or 6. This influences support for strict
   // mode, the set of reserved words, support for getters and
