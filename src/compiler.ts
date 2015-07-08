@@ -1067,7 +1067,7 @@ function compileSource (
             case "AssignmentExpression":
                 return toLogical(
                     scope, e,
-                    compileAssigmentExpression(scope, NT.AssignmentExpression.cast(e), need),
+                    compileAssignmentExpression(scope, NT.AssignmentExpression.cast(e), need),
                     need, onTrue, onFalse
                 );
             case "UpdateExpression":
@@ -1672,27 +1672,63 @@ function compileSource (
         }
     }
 
-    function compileAssigmentExpression (scope: Scope, e: ESTree.AssignmentExpression, need: boolean): hir.RValue
+    function compileAssignmentExpression (scope: Scope, e: ESTree.AssignmentExpression, need: boolean): hir.RValue
     {
+        var opcode: hir.OpCode;
+
+        switch (e.operator) {
+            case "=":     opcode = hir.OpCode.ASSIGN; break;
+            case "+=":    opcode = hir.OpCode.ADD; break;
+            case "-=":    opcode = hir.OpCode.SUB_N; break;
+            case "*=":    opcode = hir.OpCode.MUL_N; break;
+            case "/=":    opcode = hir.OpCode.DIV_N; break;
+            case "%=":    opcode = hir.OpCode.MOD_N; break;
+            case "<<=":   opcode = hir.OpCode.SHL_N; break;
+            case ">>=":   opcode = hir.OpCode.ASR_N; break;
+            case ">>>=":  opcode = hir.OpCode.SHR_N; break;
+            case "|=":    opcode = hir.OpCode.OR_N; break;
+            case "^=":    opcode = hir.OpCode.XOR_N; break;
+            case "&=":    opcode = hir.OpCode.AND_N; break;
+            default:
+                assert(false, `unrecognized assignment operator '${e.operator}'`);
+                return null;
+        }
+
+        var rvalue = compileSubExpression(scope, e.right);
+        return _compileAssignment(scope, opcode, true, e.left, rvalue, need);
+    }
+
+    function _compileAssignment (
+        scope: Scope, opcode: hir.OpCode, prefix: boolean, left: ESTree.Expression, rvalue: hir.RValue, need: boolean
+    ): hir.RValue
+    {
+        var ctx = scope.ctx;
         var identifier: ESTree.Identifier;
         var memb: ESTree.MemberExpression;
 
-        var rvalue = compileSubExpression(scope, e.right);
         var variable: Variable;
 
-        if (identifier = NT.Identifier.isTypeOf(e.left)) {
+        if (identifier = NT.Identifier.isTypeOf(left)) {
             variable = findVariable(scope, identifier, true);
             variable.assigned = true;
 
-            if (e.operator == "=") {
-                scope.ctx.builder.genAssign(variable.hvar, rvalue);
+            if (opcode === hir.OpCode.ASSIGN) {
+                ctx.builder.genAssign(variable.hvar, rvalue);
                 return rvalue;
             } else {
-                scope.ctx.releaseTemp(rvalue);
-                performOperation(scope, e.operator, variable.hvar, rvalue);
-                return variable.hvar;
+                if (!prefix && need) { // Postfix? It only matters if we need the result
+                    var res = ctx.allocTemp();
+                    ctx.builder.genUnop(hir.OpCode.TO_NUMBER, res, variable.hvar);
+                    ctx.releaseTemp(rvalue);
+                    ctx.builder.genBinop(opcode, variable.hvar, variable.hvar, rvalue);
+                    return res;
+                } else {
+                    ctx.releaseTemp(rvalue);
+                    ctx.builder.genBinop(opcode, variable.hvar, variable.hvar, rvalue);
+                    return variable.hvar;
+                }
             }
-        } else if(memb = NT.MemberExpression.isTypeOf(e.left)) {
+        } else if(memb = NT.MemberExpression.isTypeOf(left)) {
             var membObject: hir.RValue;
             var membPropName: hir.RValue;
 
@@ -1702,107 +1738,42 @@ function compileSource (
                 membPropName = hir.wrapImmediate(NT.Identifier.cast(memb.property).name);
             membObject = compileSubExpression(scope, memb.object, true, null, null);
 
-            if (e.operator == "=") {
-                scope.ctx.builder.genPropSet(membObject, membPropName, rvalue);
-                scope.ctx.releaseTemp(membObject);
-                scope.ctx.releaseTemp(membPropName);
+            if (opcode === hir.OpCode.ASSIGN) {
+                ctx.builder.genPropSet(membObject, membPropName, rvalue);
+                ctx.releaseTemp(membObject);
+                ctx.releaseTemp(membPropName);
                 return rvalue;
             } else {
-                var res = scope.ctx.allocTemp();
-                scope.ctx.builder.genPropGet(res, membObject, membPropName);
-                scope.ctx.releaseTemp(rvalue);
-                performOperation(scope, e.operator, res, rvalue);
+                var val: hir.Local = ctx.allocTemp();
+                ctx.builder.genPropGet(val, membObject, membPropName);
 
-                scope.ctx.builder.genPropSet(membObject, membPropName, res);
-                scope.ctx.releaseTemp(membObject);
-                scope.ctx.releaseTemp(membPropName);
-                return res;
+                if (!prefix && need) { // Postfix? It only matters if we need the result
+                    ctx.builder.genUnop(hir.OpCode.TO_NUMBER, val, val);
+                    ctx.releaseTemp(rvalue);
+                    var tmp = ctx.allocTemp();
+                    ctx.builder.genBinop(opcode, tmp, val, rvalue);
+                    ctx.builder.genPropSet(membObject, membPropName, tmp);
+                    ctx.releaseTemp(tmp);
+                } else {
+                    ctx.releaseTemp(rvalue);
+                    ctx.builder.genBinop(opcode, val, val, rvalue);
+                    ctx.builder.genPropSet(membObject, membPropName, val);
+                }
+
+                ctx.releaseTemp(membObject);
+                ctx.releaseTemp(membPropName);
+                return val;
             }
         } else {
-            assert(false, `unrecognized assignment target '${e.left.type}'`);
-            return null;
-        }
-
-        function performOperation (scope: Scope, operator: string, dest: hir.LValue, src: hir.RValue): void
-        {
-            var opcode: hir.OpCode;
-
-            switch (operator) {
-                case "+=":    opcode = hir.OpCode.ADD; break;
-                case "-=":    opcode = hir.OpCode.SUB_N; break;
-                case "*=":    opcode = hir.OpCode.MUL_N; break;
-                case "/=":    opcode = hir.OpCode.DIV_N; break;
-                case "%=":    opcode = hir.OpCode.MOD_N; break;
-                case "<<=":   opcode = hir.OpCode.SHL_N; break;
-                case ">>=":   opcode = hir.OpCode.ASR_N; break;
-                case ">>>=":  opcode = hir.OpCode.SHR_N; break;
-                case "|=":    opcode = hir.OpCode.OR_N; break;
-                case "^=":    opcode = hir.OpCode.XOR_N; break;
-                case "&=":    opcode = hir.OpCode.AND_N; break;
-                default:
-                    assert(false, `unrecognized assignment operator '${operator}'`);
-                    return null;
-            }
-
-            scope.ctx.builder.genBinop(opcode, dest, dest, src);
+            error(location(left), "not an assignable expression");
+            return hir.undefinedValue;
         }
     }
 
     function compileUpdateExpression (scope: Scope, e: ESTree.UpdateExpression, need: boolean): hir.RValue
     {
-        var identifier: ESTree.Identifier;
-        var memb: ESTree.MemberExpression;
-
-        var variable: Variable;
         var opcode: hir.OpCode = e.operator == "++" ? hir.OpCode.ADD_N : hir.OpCode.SUB_N;
-        var immOne = hir.wrapImmediate(1);
-        var ctx = scope.ctx;
-
-        if (identifier = NT.Identifier.isTypeOf(e.argument)) {
-            variable = findVariable(scope, identifier, true);
-            variable.assigned = true;
-            var lval = variable.hvar;
-
-            if (!e.prefix && need) { // Postfix? It only matters if we need the result
-                var res = ctx.allocTemp();
-                ctx.builder.genUnop(hir.OpCode.TO_NUMBER, res, lval);
-                ctx.builder.genBinop(opcode, lval, lval, immOne);
-                return res;
-            } else {
-                ctx.builder.genBinop(opcode, lval, lval, immOne);
-                return lval;
-            }
-        } else if(memb = NT.MemberExpression.isTypeOf(e.argument)) {
-            var membObject: hir.RValue;
-            var membPropName: hir.RValue = null;
-
-            if (memb.computed)
-                membPropName = compileSubExpression(scope, memb.property, true, null, null);
-            else
-                membPropName = hir.wrapImmediate(NT.Identifier.cast(memb.property).name);
-            membObject = compileSubExpression(scope, memb.object, true, null, null);
-
-            var val: hir.Local = ctx.allocTemp();
-            ctx.builder.genPropGet(val, membObject, membPropName);
-
-            if (!e.prefix && need) { // Postfix? It only matters if we need the result
-                var tmp = ctx.allocTemp();
-                ctx.builder.genUnop(hir.OpCode.TO_NUMBER, val, val);
-                ctx.builder.genBinop(opcode, tmp, val, immOne);
-                ctx.builder.genPropSet(membObject, membPropName, tmp);
-                ctx.releaseTemp(tmp);
-            } else {
-                ctx.builder.genBinop(opcode, val, val, immOne);
-                ctx.builder.genPropSet(membObject, membPropName, val);
-            }
-
-            ctx.releaseTemp(membObject);
-            ctx.releaseTemp(membPropName);
-            return val;
-        } else {
-            assert(false, `unrecognized assignment target '${e.argument.type}'`);
-            return null;
-        }
+        return _compileAssignment(scope, opcode, e.prefix, e.argument, hir.wrapImmediate(1), need);
     }
 
     function isStringLiteral (e: ESTree.Expression): string
