@@ -231,6 +231,7 @@ export const enum OpCode
     AND_N,
     ASSERT_OBJECT,
     ASSERT_FUNC,
+    DELETE,
 
     // Unary
     NEG_N,
@@ -238,9 +239,9 @@ export const enum OpCode
     BIN_NOT_N,
     TYPEOF,
     VOID,
-    DELETE,
     TO_NUMBER,
     TO_STRING,
+    TO_OBJECT,
 
     // Assignment
     ASSIGN,
@@ -272,9 +273,9 @@ export const enum OpCode
     IF_INSTANCEOF,
 
     _BINOP_FIRST = STRICT_EQ,
-    _BINOP_LAST = ASSERT_FUNC,
+    _BINOP_LAST = DELETE,
     _UNOP_FIRST = NEG_N,
-    _UNOP_LAST = TO_STRING,
+    _UNOP_LAST = TO_OBJECT,
     _IF_FIRST = IF_TRUE,
     _IF_LAST = IF_INSTANCEOF,
     _BINCOND_FIRST = IF_STRICT_EQ,
@@ -316,6 +317,7 @@ var g_opcodeName: string[] = [
     "AND_N",
     "ASSERT_OBJECT",
     "ASSERT_FUNC",
+    "DELETE",
 
     // Unary
     "NEG_N",
@@ -323,9 +325,9 @@ var g_opcodeName: string[] = [
     "BIN_NOT_N",
     "TYPEOF",
     "VOID",
-    "DELETE",
     "TO_NUMBER",
     "TO_STRING",
+    "TO_OBJECT",
 
     // Assignment
     "ASSIGN",
@@ -626,6 +628,7 @@ export function foldBinary (op: OpCode, v1: RValue, v2: RValue): RValue
         case OpCode.INSTANCEOF: return null;
         case OpCode.ASSERT_OBJECT: return null;
         case OpCode.ASSERT_FUNC: return null;
+        case OpCode.DELETE:    r = false; break;
         default:               return null;
     }
 
@@ -662,9 +665,9 @@ export function foldUnary (op: OpCode, v: RValue): RValue
         case OpCode.BIN_NOT_N: r = ~a; break;
         case OpCode.TYPEOF:    r = typeof a; break;
         case OpCode.VOID:      r = void 0; break;
-        case OpCode.DELETE:    return null;
         case OpCode.TO_NUMBER: r = Number(a); break;
         case OpCode.TO_STRING: r = String(a); break;
+        case OpCode.TO_OBJECT: return null;
         default: return null;
     }
     return wrapImmediate(r);
@@ -1467,6 +1470,31 @@ export class FunctionBuilder
             coper, this.strToInt32(unop.src1));
     }
 
+    private outDelete (binop: BinOp): void
+    {
+        var callerStr = "&frame, ";
+        var expr: string = null;
+
+        if (isString(binop.src2)) {
+            var strName: string = <string>unwrapImmedate(binop.src2);
+
+            // IMPORTANT: string property names looking like integer numbers must be treated as
+            // computed properties
+            if (!isNonNegativeInteger(strName)) {
+                expr = util.format("%s.raw.oval->deleteProperty(%s%s)",
+                    this.strRValue(binop.src1), callerStr, this.strStringPrim(strName)
+                );
+            }
+        }
+
+        if (expr === null)
+            expr = util.format("%s.raw.oval->deleteComputed(%s%s)",
+                this.strRValue(binop.src1), callerStr, this.strRValue(binop.src2)
+            );
+
+        this.gen("  %s%s;\n", this.strDest(binop.dest), expr);
+    }
+
     private generateBinop (binop: BinOp): void
     {
         var callerStr = "&frame, ";
@@ -1510,6 +1538,10 @@ export class FunctionBuilder
                     this.gen("  %s%s;\n", this.strDest(binop.dest), this.strRValue(binop.src1));
                 break;
 
+            case OpCode.DELETE:
+                this.outDelete(binop);
+                break;
+
             default:
                 if (isBinopConditional(binop.op)) {
                     this.gen("  %sjs::makeBooleanValue(%s);\n",
@@ -1542,6 +1574,11 @@ export class FunctionBuilder
                 break;
             case OpCode.TO_STRING:
                 this.gen("  %s%s;\n", this.strDest(unop.dest), this.strToString(unop.src1));
+                break;
+            case OpCode.TO_OBJECT:
+                this.gen("  %sjs::makeObjectValue(js::toObject(%s%s));\n",
+                    this.strDest(unop.dest), callerStr, this.strRValue(unop.src1)
+                );
                 break;
             default:
                 assert(false, "Unsupported instruction "+ unop);

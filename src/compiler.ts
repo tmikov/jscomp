@@ -1317,21 +1317,20 @@ function compileSource (
 
         switch (e.operator) {
             case "-":
-                return toLogical(scope, e, compileSimpleUnary(scope, hir.OpCode.NEG_N, true, e.argument), true, onTrue, onFalse);
+                return toLogical(scope, e, compileSimpleUnary(scope, hir.OpCode.NEG_N, true, e.argument), need, onTrue, onFalse);
             case "+":
                 return toLogical(scope, e,
                     compileSubExpression(scope, e.argument, true, null, null),
                     true, onTrue, onFalse
                 );
             case "~":
-                return toLogical(scope, e, compileSimpleUnary(scope, hir.OpCode.BIN_NOT_N, true, e.argument), true, onTrue, onFalse);
+                return toLogical(scope, e, compileSimpleUnary(scope, hir.OpCode.BIN_NOT_N, true, e.argument), need, onTrue, onFalse);
             case "delete":
-                error(location(e), "'delete' is not implemented");
-                return toLogical(scope, e, compileSimpleUnary(scope, hir.OpCode.DELETE, false, e.argument), true, onTrue, onFalse);
+                return toLogical(scope, e, compileDelete(scope, e, need), need, onTrue, onFalse);
 
             case "!":
                 if (onTrue)
-                    return compileSubExpression(scope, e.argument, true, onFalse, onTrue);
+                    return compileSubExpression(scope, e.argument, need, onFalse, onTrue);
                 else
                     return compileSimpleUnary(scope, hir.OpCode.LOG_NOT, false, e.argument);
 
@@ -1376,8 +1375,38 @@ function compileSource (
                 return dest;
             }
         }
-    }
 
+        function compileDelete (scope: Scope, e: ESTree.UnaryExpression, need: boolean): hir.RValue
+        {
+            var ctx = scope.ctx;
+            var memb: ESTree.MemberExpression = NT.MemberExpression.isTypeOf(e.argument);
+
+            if (!memb) {
+                warning(location(e), "'delete' of non-member");
+                compileSubExpression(scope, e.argument, false, null, null);
+                return need ? hir.wrapImmediate(true) : null;
+            }
+
+            var objExpr: hir.RValue = compileSubExpression(scope, memb.object, true, null, null);
+            var propName: hir.RValue;
+
+            ctx.releaseTemp(objExpr);
+            var obj = ctx.allocTemp();
+            ctx.builder.genUnop(hir.OpCode.TO_OBJECT, obj, objExpr);
+
+            if (memb.computed)
+                propName = compileSubExpression(scope, memb.property, true, null, null);
+            else
+                propName = hir.wrapImmediate(NT.Identifier.cast(memb.property).name);
+
+            ctx.releaseTemp(propName);
+            ctx.releaseTemp(obj);
+
+            var res: hir.LValue = need ? ctx.allocTemp() : hir.nullReg;
+            ctx.builder.genBinop(hir.OpCode.DELETE, res, obj, propName);
+            return res;
+        }
+    }
 
     // This performs only very primitive constant folding.
     // TODO: real constant folding and expression reshaping
