@@ -1140,8 +1140,9 @@ TaggedValue toString (StackFrame * caller, TaggedValue v)
         case VT_BOOLEAN:    return makeStringValue(v.raw.bval ? JS_GET_RUNTIME(caller)->permStrTrue : JS_GET_RUNTIME(caller)->permStrFalse);
         case VT_NUMBER:     return toString(caller, v.raw.nval);
         case VT_STRINGPRIM: return v;
-        case VT_OBJECT: {
-            StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":toString", __LINE__);
+        case VT_OBJECT:
+        case VT_FUNCTION: {
+                StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":toString", __LINE__);
             frame.locals[0] = toPrimitive(&frame, v, VT_STRINGPRIM);
             return toString(&frame, frame.locals[0]);
         }
@@ -1161,6 +1162,7 @@ TaggedValue toPrimitive (StackFrame * caller, TaggedValue v, ValueTag preferredT
         case VT_STRINGPRIM:
             return v;
         case VT_OBJECT:
+        case VT_FUNCTION:
             return v.raw.oval->defaultValue(caller, preferredType);
         default:
             assert(false);
@@ -1195,7 +1197,8 @@ double toNumber (StackFrame * caller, TaggedValue v)
         case VT_BOOLEAN: return v.raw.bval;
         case VT_NUMBER: return v.raw.nval;
         case VT_STRINGPRIM: return toNumber(v.raw.sval);
-        case VT_OBJECT: {
+        case VT_OBJECT:
+        case VT_FUNCTION: {
             StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":toNumber", __LINE__);
             frame.locals[0] = toPrimitive(&frame, v, VT_NUMBER);
             return toNumber(&frame, frame.locals[0]);
