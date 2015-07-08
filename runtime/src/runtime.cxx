@@ -442,7 +442,7 @@ void Array::init (StackFrame * caller)
     frame.locals[0] = newFunction(&frame, NULL, r->permStrLength, 0, lengthGetter);
     frame.locals[1] = newFunction(&frame, NULL, r->permStrLength, 1, lengthSetter);
 
-    defineOwnProperty(&frame, r->permStrLength, PROP_ENUMERABLE|PROP_WRITEABLE|PROP_GET_SET, JS_UNDEFINED_VALUE,
+    defineOwnProperty(&frame, r->permStrLength, PROP_WRITEABLE|PROP_GET_SET, JS_UNDEFINED_VALUE,
         frame.locals[0].raw.fval,
         frame.locals[1].raw.fval
     );
