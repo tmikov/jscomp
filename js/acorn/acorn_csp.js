@@ -1312,6 +1312,8 @@ var SourceLocation = _dereq_("./location").SourceLocation;
 // the parser process. These options are recognized:
 
 var defaultOptions = {
+  // strict mode
+  strict: false,
   // `ecmaVersion` indicates the ECMAScript version to parse. Must
   // be either 3, or 5, or 6. This influences support for strict
   // mode, the set of reserved words, support for getters and
@@ -1572,6 +1574,9 @@ function Parser(options, input, startPos) {
 
   // Figure out if it's a module code.
   this.strict = this.inModule = this.options.sourceType === "module";
+
+  // Optionally force strict mode
+  if (this.options.strict) this.strict = true;
 
   // Used to signify the start of a potential arrow function
   this.potentialArrowAt = -1;
