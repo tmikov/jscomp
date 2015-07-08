@@ -43,6 +43,7 @@ declare module acorn {
     }
 
     interface Options {
+        strict?: boolean;
         ecmaVersion?: number;
         sourceType?: string;
         onInsertedSemicolon?: (lastTokEnd: number, lastTokEndLoc?: ESTree.Position) => any;
