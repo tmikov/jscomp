@@ -75,9 +75,7 @@ Object * Object::defineOwnProperty (StackFrame * caller, const StringPrim * name
 
     auto it = props.find(name->getStr());
     if (it != props.end()) {
-        if ((this->flags & OF_NOCONFIG) ||
-            (it->second.flags & (PROP_CONFIGURABLE|PROP_WRITEABLE)) != (PROP_CONFIGURABLE|PROP_WRITEABLE))
-        {
+        if ((this->flags & OF_NOCONFIG) || !(it->second.flags & PROP_CONFIGURABLE)) {
             throwTypeError(caller, "Cannot redefine property '%s'", name->getStr());
         }
 
@@ -124,29 +122,29 @@ bool Object::updatePropertyValue (StackFrame * caller, Object * propObj, Propert
 {
     assert(!(this->flags & OF_NOWRITE));
 
-    if (JS_LIKELY(p->flags & PROP_WRITEABLE)) {
-        if (JS_LIKELY(!(p->flags & PROP_GET_SET))) {
+    if (JS_LIKELY(!(p->flags & PROP_GET_SET))) {
+        if (JS_LIKELY(p->flags & PROP_WRITEABLE)) {
             if (propObj == this) {
                 p->value = v;
                 return true;
             } else {
                 return false;
             }
-        } else {
-            if (Function * setter = ((PropertyAccessor *)p->value.raw.oval)->set) {
-                // Note: we don't need to create a frame for this because both parameters must be accessible
-                // via different means
-                if (true) {
-                    TaggedValue args[2] = {makeObjectValue(this), v};
-                    (*setter->code)(caller, setter->env, 2, args);
-                } else {
-                    StackFrameN<0, 2, 2> frame(caller, NULL, __FILE__ ":put", __LINE__ + 3);
-                    frame.locals[0] = makeObjectValue(this);
-                    frame.locals[1] = v;
-                    (*setter->code)(&frame, setter->env, 2, frame.locals);
-                }
-                return true;
+        }
+    } else {
+        if (Function * setter = ((PropertyAccessor *)p->value.raw.oval)->set) {
+            // Note: we don't need to create a frame for this because both parameters must be accessible
+            // via different means
+            if (true) {
+                TaggedValue args[2] = {makeObjectValue(this), v};
+                (*setter->code)(caller, setter->env, 2, args);
+            } else {
+                StackFrameN<0, 2, 2> frame(caller, NULL, __FILE__ ":put", __LINE__ + 3);
+                frame.locals[0] = makeObjectValue(this);
+                frame.locals[1] = v;
+                (*setter->code)(&frame, setter->env, 2, frame.locals);
             }
+            return true;
         }
     }
 
