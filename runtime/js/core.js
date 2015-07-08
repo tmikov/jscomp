@@ -80,11 +80,25 @@ Object._method = function (obj, prop, func)
 
 Object._method(Object, "defineProperty", Object.defineProperty);
 
-Object._method(Object, "create", function Object_create (proto)
+Object._method(Object, "defineProperties", function Object_defineProperties (obj, props)
 {
-    return __asm__({},["result"],[["proto",proto]],[],
+    if (obj === null || typeof obj !== "object" && typeof obj !== "function")
+        throw new TypeError("defineProperties() with a non-object");
+
+    for ( var pn in Object(props) )
+        Object.defineProperty(obj, pn, props[pn]);
+
+    return obj;
+});
+
+Object._method(Object, "create", function Object_create (proto, properties)
+{
+    var obj = __asm__({},["result"],[["proto",proto]],[],
         "%[result] = js::makeObjectValue(js::objectCreate(%[%frame], %[proto]));"
     );
+    if (properties !== void 0)
+        Object.defineProperties(obj, properties);
+    return obj;
 });
 
 Object._method(Function.prototype, "call", function function_call (thisArg)
