@@ -379,6 +379,7 @@ function compileSource (
     function parse (fileName: string): ESTree.Program
     {
         var options: acorn.Options = {
+            strict: m_options.strictMode,
             ecmaVersion: 5,
             //sourceType: "module",
             allowReserved: false,
@@ -2417,7 +2418,7 @@ export function compile (
     function produceOutput () {
         if (m_options.sourceOnly) {
             if (m_options.outputName === "-") { // output to pipe?
-                m_moduleBuilder.generateC(process.stdout);
+                m_moduleBuilder.generateC(process.stdout, m_options.strictMode);
             } else {
                 var ext = ".cxx";
                 var outName: string = null;
@@ -2433,7 +2434,7 @@ export function compile (
                 try {
                     var fd = fs.openSync(outName, "w");
                     var out = fs.createWriteStream(null, {fd: fd});
-                    m_moduleBuilder.generateC(out);
+                    m_moduleBuilder.generateC(out, m_options.strictMode);
                     out.end();
                     out.once("error", (e: any) => {
                         error(null, e.message);
@@ -2504,7 +2505,7 @@ export function compile (
                 error(null, e.message);
             });
             child.stdin.write(util.format("#line 1 \"%s\"\n", m_fileName));
-            m_moduleBuilder.generateC(child.stdin);
+            m_moduleBuilder.generateC(child.stdin, m_options.strictMode);
             child.stdin.end();
             child.once("error", (e: any) => {
                 error(null, e.message);

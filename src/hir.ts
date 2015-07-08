@@ -2146,7 +2146,7 @@ export class ModuleBuilder
         out.write(line);
     }
 
-    generateC (out: NodeJS.WritableStream): void
+    generateC (out: NodeJS.WritableStream, strictMode: boolean): void
     {
         var moduleFunc = this.topLevel.closures[0];
 
@@ -2169,7 +2169,7 @@ export class ModuleBuilder
 `
 int main()
 {
-    js::g_runtime = new js::Runtime();
+    js::g_runtime = new js::Runtime(${strictMode});
     js::StackFrameN<0, 1, 0> frame(NULL, NULL, __FILE__ ":main", __LINE__);
 `
         );
