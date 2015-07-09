@@ -921,7 +921,7 @@ function compileSource (
 
     function compileThrowStatement (scope: Scope, stmt: ESTree.ThrowStatement): void
     {
-        warning(location(stmt), "'throw' is not fully implemented yet");
+        //warning(location(stmt), "'throw' is not fully implemented yet");
         var value = compileExpression(scope, stmt.argument, true, null, null);
 
         var hbnd: hir.RValue[] = [hir.frameReg, value];
