@@ -133,15 +133,24 @@ class Variable
 class Scope
 {
     ctx: FunctionContext;
+    /**
+     * A scope where the 'var'-s bubble up to. Normally, in JavaScript only function scopes do
+     * that (in C every scope is like that), but we would like the ability to designate other
+     * scopes with such behavior for source transformations.
+     */
+    isVarScope: boolean = false;
     parent: Scope;
     level: number;
+    varScope: Scope; // reference to the closest 'var scope'
     private vars: StringMap<Variable>;
 
-    constructor (ctx: FunctionContext, parent: Scope)
+    constructor (ctx: FunctionContext, isVarScope: boolean, parent: Scope)
     {
         this.ctx = ctx;
+        this.isVarScope = isVarScope;
         this.parent = parent;
         this.level = parent ? parent.level + 1 : 0;
+        this.varScope = isVarScope || !parent ? this : parent.varScope;
         this.vars = new StringMap<Variable>();
     }
 
@@ -195,7 +204,7 @@ class FunctionContext
     name: string;
     strictMode: boolean;
 
-    funcScope: Scope;
+    scope: Scope;
     thisParam: Variable;
     argumentsVar: Variable = null;
 
@@ -215,10 +224,10 @@ class FunctionContext
         this.builder = builder;
 
         this.strictMode = parent && parent.strictMode;
-        this.funcScope = new Scope(this, parentScope);
+        this.scope = new Scope(this, true, parentScope);
 
         var param = this.builder.newParam("this");
-        this.thisParam = this.funcScope.newVariable("this", param.variable);
+        this.thisParam = this.scope.newVariable("this", param.variable);
         this.thisParam.initialized = true;
         this.thisParam.declared = true;
 
@@ -419,13 +428,13 @@ function compileSource (
 
     /**
      * Declare a variable at the function-level scope with letrec semantics.
-     * @param ctx
+     * @param scope
      * @param ident
      * @returns {Variable}
      */
-    function varDeclaration (ctx: FunctionContext, ident: ESTree.Identifier): Variable
+    function varDeclaration (scope: Scope, ident: ESTree.Identifier): Variable
     {
-        var scope = ctx.funcScope;
+        var scope = scope.varScope;
         var name = ident.name;
         var v: Variable;
         if (!(v = scope.getVar(name)))
@@ -437,7 +446,7 @@ function compileSource (
     function compileFunction (parentScope: Scope, ast: ESTree.Function, funcRef: hir.FunctionBuilder): FunctionContext
     {
         var funcCtx = new FunctionContext(parentScope && parentScope.ctx, parentScope, funcRef.name, funcRef);
-        var funcScope = funcCtx.funcScope;
+        var funcScope = funcCtx.scope;
 
         // Declare the parameters
         // Create a HIR param+var binding for each of them
@@ -505,11 +514,11 @@ function compileSource (
             scanStatementForDeclarations(scope, body[i]);
 
         if (functionBody) {
-            if (scope.lookup("arguments", scope.ctx.funcScope)) {
+            if (scope.lookup("arguments", scope.ctx.scope)) {
                 warning(location(parentNode), "'arguments' bound to a local");
             } else {
                 var ctx = scope.ctx;
-                ctx.argumentsVar = ctx.funcScope.newVariable("arguments");
+                ctx.argumentsVar = ctx.scope.newVariable("arguments");
                 ctx.argumentsVar.declared = true;
                 ctx.argumentsVar.initialized = true;
             }
@@ -600,7 +609,7 @@ function compileSource (
             case "VariableDeclaration":
                 var variableDeclaration: ESTree.VariableDeclaration = NT.VariableDeclaration.cast(stmt);
                 variableDeclaration.declarations.forEach((vd: ESTree.VariableDeclarator) => {
-                    var variable = varDeclaration(scope.ctx, NT.Identifier.cast(vd.id));
+                    var variable = varDeclaration(scope, NT.Identifier.cast(vd.id));
                     if (!variable.hvar)
                         variable.hvar = scope.ctx.builder.newVar(variable.name);
                 });
@@ -611,16 +620,16 @@ function compileSource (
     function scanFunctionDeclaration (scope: Scope, stmt: ESTree.FunctionDeclaration): void
     {
         var ctx = scope.ctx;
-        var funcScope = ctx.funcScope;
+        var varScope = scope.varScope;
         var name = stmt.id.name;
 
-        var variable = funcScope.getVar(name);
+        var variable = varScope.getVar(name);
         if (variable) {
             if (variable.funcRef)
                 warning( location(stmt),  `hiding previous declaration of function '${variable.name}'` );
         } else {
             variable = new Variable(ctx, name);
-            funcScope.setVar(variable);
+            varScope.setVar(variable);
         }
         variable.declared = true;
         variable.funcRef = ctx.addClosure(stmt.id);
@@ -683,7 +692,7 @@ function compileSource (
                     var catchIdent: ESTree.Identifier = NT.Identifier.cast(tryStatement.handler.param);
                     assert( !tryStatement.handler.guard, "catch guards not supported in ES5");
 
-                    var catchScope = new Scope(scope.ctx, scope);
+                    var catchScope = new Scope(scope.ctx, false, scope);
                     var catchVar = catchScope.newVariable(catchIdent.name);
                     catchVar.declared = true;
                     catchVar.initialized = true;
@@ -1054,7 +1063,7 @@ function compileSource (
         if (scope.ctx.strictMode && parent)
             error(location(stmt), "functions can only be declared at top level in strict mode");
 
-        var variable = scope.ctx.funcScope.lookup(stmt.id.name);
+        var variable = scope.varScope.lookup(stmt.id.name);
         compileFunction(scope, stmt, variable.funcRef);
     }
 
@@ -1288,8 +1297,8 @@ function compileSource (
         if (!variable) {
             if (scope.ctx.strictMode) {
                 error(location(identifier), `undefined identifier '${identifier.name}'`);
-                // Declare a dummy variable at function level to decrease noise
-                variable = scope.ctx.funcScope.newVariable(identifier.name);
+                // Declare a dummy variable at 'var-scope' level to decrease noise
+                variable = scope.varScope.newVariable(identifier.name);
             } else {
                 warning(location(identifier), `undefined identifier '${identifier.name}'`);
                 variable = m_undefinedVarScope.newVariable(identifier.name);
@@ -1325,7 +1334,7 @@ function compileSource (
             warning(location(e), "unused function");
 
         var funcRef = scope.ctx.addClosure(e.id);
-        var nameScope = new Scope(scope.ctx, scope); // A scope for the function name
+        var nameScope = new Scope(scope.ctx, false, scope); // A scope for the function name
         if (e.id) {
             var funcVar = nameScope.newVariable(e.id.name, funcRef.closureVar);
             funcVar.funcRef = funcRef;
@@ -2372,7 +2381,7 @@ export function compile (
         var coreFileName = "runtime/js/core.js";
 
         var runtimeCtx = new FunctionContext(
-            parentContext, parentContext.funcScope, runtimeFileName, parentContext.builder.newClosure(runtimeFileName)
+            parentContext, parentContext.scope, runtimeFileName, parentContext.builder.newClosure(runtimeFileName)
         );
         if (false) // for debugging, to disable "runtime" compilation
             return runtimeCtx;
@@ -2380,7 +2389,7 @@ export function compile (
         function declareBuiltin (name: string, mangled: string, runtimeVar: string): void
         {
             var fobj = runtimeCtx.addBuiltinClosure(name, mangled, runtimeVar);
-            var vobj = runtimeCtx.funcScope.newVariable(fobj.name, fobj.closureVar);
+            var vobj = runtimeCtx.scope.newVariable(fobj.name, fobj.closureVar);
             vobj.funcRef = fobj;
             vobj.declared = true;
             vobj.initialized = true;
@@ -2393,7 +2402,7 @@ export function compile (
         declareBuiltin("Boolean", "js::booleanConstructor", "boolean");
         declareBuiltin("Array", "js::arrayConstructor", "array");
 
-        compileSource(runtimeCtx.funcScope, runtimeCtx.funcScope, runtimeFileName, m_reporter, m_options);
+        compileSource(runtimeCtx.scope, runtimeCtx.scope, runtimeFileName, m_reporter, m_options);
         compileInANestedScope(runtimeCtx, coreFileName);
 
         return runtimeCtx;
@@ -2405,18 +2414,18 @@ export function compile (
      */
     function compileInANestedScope (coreCtx: FunctionContext, fileName: string): void
     {
-        var scope = new Scope(coreCtx, coreCtx.funcScope);
-        compileSource(scope, coreCtx.funcScope, fileName, m_reporter, m_options);
+        var scope = new Scope(coreCtx, true, coreCtx.scope);
+        compileSource(scope, coreCtx.scope, fileName, m_reporter, m_options);
     }
 
     function compileFile (parentContext: FunctionContext, fileName: string): FunctionContext
     {
         var name = "<"+fileName+">";
         var moduleCtx = new FunctionContext(
-            parentContext, parentContext.funcScope, name, parentContext.builder.newClosure(name)
+            parentContext, parentContext.scope, name, parentContext.builder.newClosure(name)
         );
 
-        compileSource(moduleCtx.funcScope, moduleCtx.funcScope, fileName, m_reporter, m_options);
+        compileSource(moduleCtx.scope, moduleCtx.scope, fileName, m_reporter, m_options);
         return moduleCtx;
     }
 
