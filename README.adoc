@@ -64,7 +64,6 @@ in non-strict mode).
 necessary for progress are present. Specifically, this is a not-exhaustive list of
 not supported things (yet - they will be soon!):
 
-** +for-in+ : requires missing runtime support
 ** +with+ : it is last on our list. We think we have come up with a reasonable way to implement
 it without a huge performance penalty, but since we don't use +with+ at all, our motivation is low.
 ** +Object.setPrototypeOf()+ and +\_\_proto__+ : the plan is not to support prototype modification.
