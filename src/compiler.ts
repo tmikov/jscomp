@@ -702,19 +702,7 @@ function compileSource (
                 compileForStatement(scope, NT.ForStatement.cast(stmt));
                 break;
             case "ForInStatement":
-                error(location(stmt), "'for-in' is not implemented yet");
-                var forInStatement: ESTree.ForInStatement = NT.ForInStatement.cast(stmt);
-                var forInStatementLeftDecl: ESTree.VariableDeclaration;
-                if (forInStatementLeftDecl = NT.VariableDeclaration.isTypeOf(forInStatement.left))
-                    compileStatement(scope, forInStatementLeftDecl, stmt);
-                else
-                    compileExpression(scope, forInStatement.left);
-                var breakLab: hir.Label = scope.ctx.builder.newLabel();
-                var continueLab: hir.Label = scope.ctx.builder.newLabel();
-                scope.ctx.pushLabel(new Label(null, location(forInStatement), breakLab, continueLab));
-                compileStatement(scope, forInStatement.body, stmt);
-                scope.ctx.builder.genLabel(breakLab);
-                scope.ctx.popLabel();
+                compileForInStatement(scope, NT.ForInStatement.cast(stmt));
                 break;
             case "ForOfStatement":
                 error(location(stmt), "'for-of' is not implemented yet");
@@ -986,7 +974,7 @@ function compileSource (
         var forStatementInitDecl: ESTree.VariableDeclaration;
         if (stmt.init)
             if (forStatementInitDecl = NT.VariableDeclaration.isTypeOf(stmt.init))
-                compileStatement(scope, forStatementInitDecl, stmt);
+                compileVariableDeclaration(scope, forStatementInitDecl);
             else
                 compileExpression(scope, stmt.init);
 
@@ -1003,6 +991,66 @@ function compileSource (
             compileExpression(scope, stmt.update);
         ctx.builder.genGoto(loopStart);
         ctx.builder.genLabel(exitLoop);
+    }
+
+    function compileForInStatement (scope: Scope, stmt: ESTree.ForInStatement): void
+    {
+        var ctx = scope.ctx;
+        var exitLoop = ctx.builder.newLabel();
+        var loopStart = ctx.builder.newLabel();
+        var loop = ctx.builder.newLabel();
+        var body = ctx.builder.newLabel();
+
+        fillContinueInNamedLoopLabels(stmt.labels, body);
+
+        var target: ESTree.Expression;
+        var forInStatementLeftDecl: ESTree.VariableDeclaration = NT.VariableDeclaration.isTypeOf(stmt.left);
+        if (forInStatementLeftDecl) {
+            compileVariableDeclaration(scope, forInStatementLeftDecl);
+            target = forInStatementLeftDecl.declarations[0].id;
+        } else {
+            target = stmt.left;
+        }
+
+        var experValue = compileExpression(scope, stmt.right, true, null, null);
+        var notUndef = ctx.builder.newLabel();
+        var notNull = ctx.builder.newLabel();
+        ctx.builder.genIf(hir.OpCode.IF_STRICT_EQ, experValue, hir.undefinedValue, exitLoop, notUndef);
+        ctx.builder.genLabel(notUndef);
+        ctx.builder.genIf(hir.OpCode.IF_STRICT_EQ, experValue, hir.nullValue, exitLoop, notNull);
+        ctx.builder.genLabel(notNull);
+
+        ctx.releaseTemp(experValue);
+        var obj = ctx.allocTemp();
+        ctx.builder.genUnop(hir.OpCode.TO_OBJECT, obj, experValue);
+
+        ctx.releaseTemp(obj);
+        var iter = ctx.allocTemp();
+        ctx.builder.genAsm(iter, [iter, hir.frameReg, obj], [
+            "js::ForInIterator::make(",1,",&",0,",",2,".raw.oval);"
+        ]);
+
+        ctx.builder.genLabel(loopStart);
+        var value = ctx.allocTemp();
+        var more = ctx.allocTemp();
+
+        ctx.builder.genAsm(more, [more, hir.frameReg, iter, value], [
+            0," = js::makeBooleanValue(((js::ForInIterator*)",2,".raw.mval)->next(",1,", &",3,"));"
+        ]);
+        ctx.releaseTemp(more);
+        ctx.builder.genIfTrue(more, body, exitLoop);
+
+        ctx.builder.genLabel(body);
+        toLogical(scope, stmt, _compileAssignment(scope, hir.OpCode.ASSIGN, true, target, value, false), false, null, null);
+        scope.ctx.pushLabel(new Label(null, location(stmt), exitLoop, loop));
+        compileStatement(scope, stmt.body, stmt);
+        scope.ctx.popLabel();
+
+        ctx.builder.genLabel(loop);
+        ctx.builder.genGoto(loopStart);
+        ctx.builder.genLabel(exitLoop);
+
+        ctx.releaseTemp(iter);
     }
 
     function compileFunctionDeclaration (scope: Scope, stmt: ESTree.FunctionDeclaration, parent: ESTree.Statement): void

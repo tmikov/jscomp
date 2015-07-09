@@ -7,6 +7,7 @@
 #include <assert.h>
 #include <stdarg.h>
 #include <errno.h>
+#include <set>
 
 // Need our own definition to avoid warnings when using it on C++ objects
 #define OFFSETOF(type, field)  ((char*)&(((type*)0)->field) - ((char*)0) )
@@ -492,6 +493,94 @@ void Arguments::init (StackFrame * caller, int argc, const TaggedValue * argv)
     elems.assign(argv, argv+argc);
     defineOwnProperty(caller, JS_GET_RUNTIME(caller)->permStrLength, PROP_WRITEABLE|PROP_CONFIGURABLE,
                       makeNumberValue(argc), NULL, NULL);
+}
+
+void ForInIterator::make (StackFrame * caller, TaggedValue * result, Object * obj)
+{
+    ForInIterator * iter;
+    *result = makeMemoryValue(VT_MEMORY, iter = new (caller) ForInIterator());
+    iter->init(caller, obj);
+}
+
+void ForInIterator::init (StackFrame * caller, Object * obj)
+{
+    m_obj = obj;
+    std::set<const StringPrim *, less_StringPrim> used;
+
+    do {
+        for ( const ListEntry * entry = obj->propList.next; entry != &obj->propList; entry = entry->next ) {
+            const Property * prop = static_cast<const Property *>(entry);
+            // NOTE: non-enumerable properties in descendants hide enumerable properties in ancestors, so
+            // we add then in 'used' even if we don't add them to propNames
+            if (used.find(prop->name) == used.end()) {
+                used.insert(prop->name);
+                if ((prop->flags & PROP_ENUMERABLE) != 0)
+                    m_propNames.push_back(prop->name);
+            }
+        }
+    } while ((obj = obj->parent) != NULL);
+
+    m_array = dynamic_cast<ArrayBase*>(m_obj);
+    m_curIndex = 0;
+    m_curName = m_propNames.begin();
+}
+
+bool ForInIterator::next (StackFrame * caller, TaggedValue * result)
+{
+    if (m_array) {
+        if (JS_LIKELY(!(m_obj->flags & OF_INDEX_PROPERTIES))) {
+            for ( unsigned index; (index = m_curIndex++) < m_array->elems.size(); ) {
+                if (m_array->elems[index].tag != VT_ARRAY_HOLE) {
+                    *result = toString(caller, index);
+                    return true;
+                }
+            }
+        } else {
+            StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":ForInIterator::next", __LINE__);
+
+            for ( unsigned index; (index = m_curIndex++) < m_array->elems.size(); ) {
+                frame.locals[0] = toString(&frame, index);
+
+                Object * propObj;
+                if (Property * p = m_obj->getProperty(frame.locals[0].raw.sval, &propObj)) {
+                    if (p->flags & PROP_ENUMERABLE) {
+                        *result = frame.locals[0];
+                        return true;
+                    }
+                    // Note that if the property is not enumerable, but it exists, we must skip it
+                }
+                else if (m_array->elems[index].tag != VT_ARRAY_HOLE) {
+                    *result = frame.locals[0];
+                    return true;
+                }
+            }
+        }
+        // The array was consumed
+        m_array = NULL;
+    }
+
+    while (JS_LIKELY(m_curName != m_propNames.end())) {
+        Object * propObj;
+        Property * prop = m_obj->getProperty(*m_curName++, &propObj);
+        if (JS_LIKELY(prop != NULL && (prop->flags & PROP_ENUMERABLE))) {
+            *result = makeStringValue(prop->name);
+            return true;
+        }
+    }
+
+    return false;
+}
+
+
+bool ForInIterator::mark (IMark * marker, unsigned markBit) const
+{
+    if (!markMemory(marker, markBit, m_obj))
+        return false;
+    // We could only mark the names that haven't been enumerated yet, but why??
+    for ( const auto & it : m_propNames )
+        if (!markMemory(marker, markBit, it))
+            return false;
+    return true;
 }
 
 void Function::init (StackFrame * caller, Env * env, CodePtr code, const StringPrim * name, unsigned length)

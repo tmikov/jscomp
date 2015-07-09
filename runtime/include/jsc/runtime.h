@@ -368,6 +368,35 @@ struct Arguments : public ArrayBase
     void init (StackFrame * caller, int argc, const TaggedValue * argv);
 };
 
+struct ForInIterator : public Memory
+{
+    typedef std::vector<const StringPrim *>::const_iterator NameIterator;
+
+    /** The object we are enumerating */
+    Object * m_obj;
+    /** If the objeci is an array, type-safe pointer to it */
+    ArrayBase * m_array;
+    /** The property names to be enumerated */
+    std::vector<const StringPrim *> m_propNames;
+    /* If an array, the next index to be enumerated */
+    unsigned m_curIndex;
+    /* The next property to be enumerated */
+    NameIterator m_curName;
+
+    static void make (StackFrame * caller, TaggedValue * result, Object * obj);
+
+    virtual bool mark (IMark * marker, unsigned markBit) const;
+    bool next (StackFrame * caller, TaggedValue * result);
+
+private:
+    ForInIterator ():
+        m_obj(NULL),
+        m_array(NULL)
+    {}
+
+    void init (StackFrame * caller, Object * obj);
+};
+
 typedef TaggedValue (* CodePtr) (StackFrame * caller, Env * env, unsigned argc, const TaggedValue * args);
 
 struct Function : public Object
@@ -418,6 +447,12 @@ struct StringPrim : public Memory
     const char * getStr () const
     {
         return this->_str;
+    }
+};
+
+struct less_StringPrim {
+    bool operator() (const StringPrim * a, const StringPrim * b) const {
+        return strcmp(a->getStr(), b->getStr()) < 0;
     }
 };
 
