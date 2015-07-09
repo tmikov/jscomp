@@ -2342,45 +2342,45 @@ export function compile (
         m_globalContext = new FunctionContext(null, null, topLevelBuilder.name, topLevelBuilder);
         m_globalContext.strictMode = m_options.strictMode;
 
-        var core = compileCore(m_globalContext);
+        var runtime = compileRuntime(m_globalContext);
         if (m_reporter.errorCount() > 0)
             return;
 
-        var moduleCtx = compileFile(core, m_fileName);
+        var moduleCtx = compileFile(runtime, m_fileName);
         if (m_reporter.errorCount() > 0)
             return;
         moduleCtx.close();
 
         // Call the module
-        core.builder.genCall(hir.nullReg, moduleCtx.builder.closureVar, [hir.undefinedValue] );
+        runtime.builder.genCall(hir.nullReg, moduleCtx.builder.closureVar, [hir.undefinedValue] );
         moduleCtx.builder.setVarAttributes(moduleCtx.builder.closureVar, false, true, true, moduleCtx.builder);
 
-        core.close();
+        runtime.close();
         topLevelBuilder.close();
         m_moduleBuilder.prepareForCodegen();
 
         if (m_options.dumpHIR)
-            core.builder.dump();
+            runtime.builder.dump();
 
         if (!m_options.dumpAST && !m_options.dumpHIR)
             produceOutput();
     }
 
-    function compileCore (parentContext: FunctionContext): FunctionContext
+    function compileRuntime (parentContext: FunctionContext): FunctionContext
     {
+        var runtimeFileName = "runtime/js/runtime.js";
         var coreFileName = "runtime/js/core.js";
 
-        var name = "<"+coreFileName+">";
-        var coreCtx = new FunctionContext(
-            parentContext, parentContext.funcScope, name, parentContext.builder.newClosure(name)
+        var runtimeCtx = new FunctionContext(
+            parentContext, parentContext.funcScope, runtimeFileName, parentContext.builder.newClosure(runtimeFileName)
         );
-        if (false) // for debugging, to disable "core" compilation
-            return coreCtx;
+        if (false) // for debugging, to disable "runtime" compilation
+            return runtimeCtx;
 
         function declareBuiltin (name: string, mangled: string, runtimeVar: string): void
         {
-            var fobj = coreCtx.addBuiltinClosure(name, mangled, runtimeVar);
-            var vobj = coreCtx.funcScope.newVariable(fobj.name, fobj.closureVar);
+            var fobj = runtimeCtx.addBuiltinClosure(name, mangled, runtimeVar);
+            var vobj = runtimeCtx.funcScope.newVariable(fobj.name, fobj.closureVar);
             vobj.funcRef = fobj;
             vobj.declared = true;
             vobj.initialized = true;
@@ -2393,9 +2393,10 @@ export function compile (
         declareBuiltin("Boolean", "js::booleanConstructor", "boolean");
         declareBuiltin("Array", "js::arrayConstructor", "array");
 
-        compileSource(coreCtx.funcScope, coreCtx.funcScope, coreFileName, m_reporter, m_options);
+        compileSource(runtimeCtx.funcScope, runtimeCtx.funcScope, runtimeFileName, m_reporter, m_options);
+        compileInANestedScope(runtimeCtx, coreFileName);
 
-        return coreCtx;
+        return runtimeCtx;
     }
 
     /**

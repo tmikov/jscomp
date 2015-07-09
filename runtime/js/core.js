@@ -32,7 +32,7 @@ function print() {
     pr("\n");
 }
 
-var console = { log: print };
+console.log = print;
 
 Object.defineProperty = function Object_defineProperty (obj, prop, descriptor)
 {
