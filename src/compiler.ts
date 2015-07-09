@@ -1026,17 +1026,13 @@ function compileSource (
 
         ctx.releaseTemp(obj);
         var iter = ctx.allocTemp();
-        ctx.builder.genAsm(iter, [iter, hir.frameReg, obj], [
-            "js::ForInIterator::make(",1,",&",0,",",2,".raw.oval);"
-        ]);
+        ctx.builder.genMakeForInIterator(iter, obj);
 
         ctx.builder.genLabel(loopStart);
         var value = ctx.allocTemp();
         var more = ctx.allocTemp();
 
-        ctx.builder.genAsm(more, [more, hir.frameReg, iter, value], [
-            0," = js::makeBooleanValue(((js::ForInIterator*)",2,".raw.mval)->next(",1,", &",3,"));"
-        ]);
+        ctx.builder.genForInIteratorNext(more, value, iter);
         ctx.releaseTemp(more);
         ctx.builder.genIfTrue(more, body, exitLoop);
 

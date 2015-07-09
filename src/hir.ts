@@ -1045,6 +1045,19 @@ export class FunctionBuilder
         this.getBB().push(new CallOp(OpCode.CALLIND, dest, null, closure, slots));
     }
 
+    genMakeForInIterator (dest: LValue, obj: RValue): void
+    {
+        this.genAsm(dest, [dest, frameReg, obj], [
+            "js::ForInIterator::make(",1,",&",0,",",2,".raw.oval);"
+        ]);
+    }
+    genForInIteratorNext (more: LValue, value: LValue, iter: RValue): void
+    {
+        this.genAsm(more, [more, frameReg, iter, value], [
+            0," = js::makeBooleanValue(((js::ForInIterator*)",2,".raw.mval)->next(",1,", &",3,"));"
+        ]);
+    }
+
     blockList: BasicBlock[] = [];
 
     close (): void
