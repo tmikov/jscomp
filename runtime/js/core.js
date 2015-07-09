@@ -1,28 +1,28 @@
-function print() {
+function pr (x)
+{
     __asmh__({},"#include <stdio.h>");
+    __asm__({},[],[["x", x]],[],
+        '%[x] = js::toString(%[%frame], %[x]);\n'+
+        'printf("%s", %[x].raw.sval->getStr());'
+    );
+}
 
-    function pr (x)
-    {
-        __asm__({},[],[["x", x]],[],
-            '%[x] = js::toString(%[%frame], %[x]);\n'+
-            'printf("%s", %[x].raw.sval->getStr());'
-        );
-    }
+function printVal (val)
+{
+    if (val instanceof Array) {
+        pr("[ ");
+        for ( var i = 0, e = val.length; i < e; ++i ) {
+            if (i > 0)
+                pr(", ");
+            if (i in val)
+                printVal(val[i]);
+        }
+        pr(" ]");
+    } else
+        pr(val);
+}
 
-    function printVal (val)
-    {
-        if (val instanceof Array) {
-            pr("[ ");
-            for ( var i = 0, e = val.length; i < e; ++i ) {
-                if (i > 0)
-                    pr(", ");
-                if (i in val)
-                    printVal(val[i]);
-            }
-            pr(" ]");
-        } else
-            pr(val);
-    }
+function print() {
 
     for ( var i = 0, e = arguments.length; i < e; ++i ) {
         if (i > 0)
@@ -34,7 +34,7 @@ function print() {
 
 console.log = print;
 
-Object.defineProperty = function Object_defineProperty (obj, prop, descriptor)
+function defineProperty (obj, prop, descriptor)
 {
     if (obj === null || typeof obj !== "object" && typeof obj !== "function")
         throw new TypeError("defineProperty() with a non-object");
@@ -71,37 +71,39 @@ Object.defineProperty = function Object_defineProperty (obj, prop, descriptor)
     );
 
     return obj;
-};
+}
 
-Object._method = function (obj, prop, func)
-{
-    Object.defineProperty(obj, prop, {writable: true, configurable: true, value: func});
-};
-
-Object._method(Object, "defineProperty", Object.defineProperty);
-
-Object._method(Object, "defineProperties", function Object_defineProperties (obj, props)
+function defineProperties (obj, props)
 {
     if (obj === null || typeof obj !== "object" && typeof obj !== "function")
         throw new TypeError("defineProperties() with a non-object");
 
     for ( var pn in Object(props) )
-        Object.defineProperty(obj, pn, props[pn]);
+        defineProperty(obj, pn, props[pn]);
 
     return obj;
-});
+}
 
-Object._method(Object, "create", function Object_create (proto, properties)
+function method (obj, prop, func)
+{
+    defineProperty(obj, prop, {writable: true, configurable: true, value: func});
+}
+
+method(Object, "defineProperty", defineProperty);
+
+method(Object, "defineProperties", defineProperties);
+
+method(Object, "create", function Object_create (proto, properties)
 {
     var obj = __asm__({},["result"],[["proto",proto]],[],
         "%[result] = js::makeObjectValue(js::objectCreate(%[%frame], %[proto]));"
     );
     if (properties !== void 0)
-        Object.defineProperties(obj, properties);
+        defineProperties(obj, properties);
     return obj;
 });
 
-Object._method(Function.prototype, "call", function function_call (thisArg)
+method(Function.prototype, "call", function function_call (thisArg)
 {
     return __asm__({},["result"],[["thisArg", thisArg]],[],
         '%[result] = %[%argc] > 1' +
@@ -111,25 +113,16 @@ Object._method(Function.prototype, "call", function function_call (thisArg)
 });
 
 
-function Error (message)
-{
-    this.message = message;
-}
 
 /** Temporary method to simply typing. We delete it in the end */
-Object._method(Error.prototype, "toString", function error_toString ()
+method(Error.prototype, "toString", function error_toString ()
 {
     return "Error: "+ this.message;
 });
 
-function TypeError (message)
-{
-    Error.call(this, message);
-}
-
 TypeError.prototype = Object.create(Error.prototype);
 
-Object._method(Array.prototype, "push", function array_push(dummy)
+method(Array.prototype, "push", function array_push(dummy)
 {
     // TODO: special case arguments.length < 2 (also arguments.length shouldn't create the object)
     var n = this.length | 0;
@@ -138,6 +131,3 @@ Object._method(Array.prototype, "push", function array_push(dummy)
     for ( var i = 0; i < e; ++i )
         this[n++] = arguments[i];
 });
-
-// Remove the temporary helper
-delete Object._method;

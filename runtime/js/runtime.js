@@ -3,3 +3,13 @@
 // root for complete license information.
 
 var console = {};
+
+function Error (message)
+{
+    this.message = message;
+}
+
+function TypeError (message)
+{
+    Error.call(this, message);
+}
