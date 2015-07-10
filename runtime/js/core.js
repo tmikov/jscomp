@@ -93,7 +93,7 @@ method(Object, "defineProperty", defineProperty);
 
 method(Object, "defineProperties", defineProperties);
 
-method(Object, "create", function Object_create (proto, properties)
+method(Object, "create", function object_create (proto, properties)
 {
     var obj = __asm__({},["result"],[["proto",proto]],[],
         "%[result] = js::makeObjectValue(js::objectCreate(%[%frame], %[proto]));"
@@ -101,6 +101,21 @@ method(Object, "create", function Object_create (proto, properties)
     if (properties !== void 0)
         defineProperties(obj, properties);
     return obj;
+});
+
+method(Object.prototype, "toString", function object_toString()
+{
+    if (this === void 0)
+        return "[object Undefined]";
+    if (this === null)
+        return "[object Null]";
+    //FIXME: handle other classes
+    return "[object Object]";
+});
+
+method(Object.prototype, "toLocaleString", function object_toLocaleString()
+{
+    return this.toString();
 });
 
 method(Function.prototype, "call", function function_call (thisArg)
