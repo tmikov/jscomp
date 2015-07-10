@@ -18,6 +18,25 @@ function printVal (val)
                 printVal(val[i]);
         }
         pr(" ]");
+    } else if (typeof val === "object" && val !== null) {
+        pr("{ ");
+        var first = true;
+        for ( var prop in val ) {
+            if (!first)
+                pr(", ");
+            first = false;
+            pr(prop);
+            pr(": ");
+            printVal(val[prop]);
+        }
+        pr(" }");
+    } else if (typeof val === "function") {
+        pr("[Function");
+        if (val.name) {
+            pr(" ");
+            pr(val.name);
+        }
+        pr("]");
     } else
         pr(val);
 }
