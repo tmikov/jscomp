@@ -17,4 +17,14 @@ declare module ESTree
     {
         labels?: any[];
     }
+
+    interface FunctionDeclaration
+    {
+        variable: any;
+    }
+
+    interface VariableDeclarator
+    {
+        variable: any;
+    }
 }

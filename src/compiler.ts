@@ -114,6 +114,8 @@ class Variable
 {
     ctx: FunctionContext;
     name: string;
+    readOnly: boolean = false;
+    constantValue: hir.RValue = null;
     declared: boolean = false;
     initialized: boolean = false; //< function declarations and built-in values like 'this'
     assigned: boolean = false;
@@ -127,6 +129,12 @@ class Variable
     {
         this.ctx = ctx;
         this.name = name;
+    }
+
+    setConstant (constantValue: hir.RValue): void
+    {
+        this.readOnly = true;
+        this.constantValue = constantValue;
     }
 }
 
@@ -161,6 +169,22 @@ class Scope
         this.setVar(variable);
         return variable;
     }
+    newAnonymousVariable (name: string, hvar?: hir.Var): Variable
+    {
+        var variable = new Variable(this.ctx, name);
+        variable.hvar = hvar ? hvar : this.ctx.builder.newVar(name);
+        this.setAnonymousVar(variable);
+        return variable;
+    }
+    newConstant (name: string, value: hir.RValue): Variable
+    {
+        var variable = new Variable(this.ctx, name);
+        variable.setConstant(value);
+        this.setVar(variable);
+        variable.declared = true;
+        variable.initialized = true;
+        return variable;
+    }
 
     getVar (name: string): Variable
     {
@@ -170,6 +194,10 @@ class Scope
     setVar (v: Variable): void
     {
         this.vars.set(v.name, v);
+        this.ctx.vars.push(v);
+    }
+    setAnonymousVar (v: Variable): void
+    {
         this.ctx.vars.push(v);
     }
 
@@ -236,9 +264,10 @@ class FunctionContext
     close (): void
     {
         this.vars.forEach( (v: Variable) => {
-            this.builder.setVarAttributes(v.hvar,
-                v.escapes, v.accessed || v.assigned, v.initialized && !v.assigned, v.funcRef
-            );
+            if (v.hvar)
+                this.builder.setVarAttributes(v.hvar,
+                    v.escapes, v.accessed || v.assigned, v.initialized && !v.assigned, v.funcRef
+                );
         });
 
         this.builder.close();
@@ -426,23 +455,6 @@ function compileSource (
         return false;
     }
 
-    /**
-     * Declare a variable at the function-level scope with letrec semantics.
-     * @param scope
-     * @param ident
-     * @returns {Variable}
-     */
-    function varDeclaration (scope: Scope, ident: ESTree.Identifier): Variable
-    {
-        var scope = scope.varScope;
-        var name = ident.name;
-        var v: Variable;
-        if (!(v = scope.getVar(name)))
-            v = scope.newVariable(name);
-        v.declared = true;
-        return v;
-    }
-
     function compileFunction (parentScope: Scope, ast: ESTree.Function, funcRef: hir.FunctionBuilder): FunctionContext
     {
         var funcCtx = new FunctionContext(parentScope && parentScope.ctx, parentScope, funcRef.name, funcRef);
@@ -607,12 +619,7 @@ function compileSource (
                 scanFunctionDeclaration(scope, NT.FunctionDeclaration.cast(stmt));
                 break;
             case "VariableDeclaration":
-                var variableDeclaration: ESTree.VariableDeclaration = NT.VariableDeclaration.cast(stmt);
-                variableDeclaration.declarations.forEach((vd: ESTree.VariableDeclarator) => {
-                    var variable = varDeclaration(scope, NT.Identifier.cast(vd.id));
-                    if (!variable.hvar)
-                        variable.hvar = scope.ctx.builder.newVar(variable.name);
-                });
+                scanVariableDeclaration(scope, NT.VariableDeclaration.cast(stmt));
                 break;
         }
     }
@@ -624,7 +631,11 @@ function compileSource (
         var name = stmt.id.name;
 
         var variable = varScope.getVar(name);
-        if (variable) {
+        if (variable && variable.readOnly) {
+            (scope.ctx.strictMode ? error : warning)(location(stmt), `initializing read-only symbol '${variable.name}'`);
+            variable = new Variable(ctx, name);
+            varScope.setAnonymousVar(variable);
+        } else if (variable) {
             if (variable.funcRef)
                 warning( location(stmt),  `hiding previous declaration of function '${variable.name}'` );
         } else {
@@ -640,6 +651,35 @@ function compileSource (
         else
             variable.assigned = true;
         variable.accessed = true;
+
+        stmt.variable = variable;
+    }
+
+    function scanVariableDeclaration (scope: Scope, stmt: ESTree.VariableDeclaration): void
+    {
+        var varScope = scope.varScope;
+
+        stmt.declarations.forEach((vd: ESTree.VariableDeclarator) => {
+            var ident = NT.Identifier.isTypeOf(vd.id);
+            if (ident) {
+                var v: Variable = varScope.getVar(ident.name);
+
+                if (v && vd.init && v.readOnly) {
+                    (scope.ctx.strictMode ? error : warning)(location(vd), `re-declaring read-only symbol '${ident.name}'`);
+                    v = varScope.newAnonymousVariable(ident.name);
+                } else if (!v) {
+                    v = varScope.newVariable(ident.name);
+                }
+                v.declared = true;
+
+                if (!v.hvar)
+                    v.hvar = scope.ctx.builder.newVar(v.name);
+
+                vd.variable = v;
+            } else {
+                error(location(ident), "ES6 pattern not supported");
+            }
+        });
     }
 
     function compileStatement (scope: Scope, stmt: ESTree.Statement, parent: ESTree.Node): void
@@ -1063,16 +1103,17 @@ function compileSource (
         if (scope.ctx.strictMode && parent)
             error(location(stmt), "functions can only be declared at top level in strict mode");
 
-        var variable = scope.varScope.lookup(stmt.id.name);
+        var variable = stmt.variable;
         compileFunction(scope, stmt, variable.funcRef);
     }
 
     function compileVariableDeclaration (scope: Scope, stmt: ESTree.VariableDeclaration): void
     {
         stmt.declarations.forEach((vd: ESTree.VariableDeclarator) => {
-            if (vd.init) {
-                var identifier = NT.Identifier.cast(vd.id);
-                var variable = scope.lookup(identifier.name);
+            var variable: Variable = vd.variable;
+            if (!variable) {
+                // if not present, there was an error that we already reported
+            } else if (vd.init) {
                 variable.assigned = true;
 
                 var value = compileExpression(scope, vd.init, true, null, null);
@@ -1322,7 +1363,7 @@ function compileSource (
         var variable = findVariable(scope, identifier, need);
         if (need) {
             variable.accessed = true;
-            return variable.hvar;
+            return variable.constantValue !== null ? variable.constantValue : variable.hvar;
         } else {
             return null;
         }
@@ -1763,22 +1804,39 @@ function compileSource (
 
         if (identifier = NT.Identifier.isTypeOf(left)) {
             variable = findVariable(scope, identifier, true);
-            variable.assigned = true;
+
+            if (!variable.readOnly)
+                variable.assigned = true;
+            else
+                (scope.ctx.strictMode ? error : warning)(location(left), `modifying read-only symbol ${variable.name}`);
 
             if (opcode === hir.OpCode.ASSIGN) {
-                ctx.builder.genAssign(variable.hvar, rvalue);
+                if (!variable.readOnly)
+                    ctx.builder.genAssign(variable.hvar, rvalue);
                 return rvalue;
             } else {
                 if (!prefix && need) { // Postfix? It only matters if we need the result
                     var res = ctx.allocTemp();
-                    ctx.builder.genUnop(hir.OpCode.TO_NUMBER, res, variable.hvar);
+                    ctx.builder.genUnop(hir.OpCode.TO_NUMBER, res,
+                        variable.constantValue !== null ? variable.constantValue : variable.hvar
+                    );
                     ctx.releaseTemp(rvalue);
-                    ctx.builder.genBinop(opcode, variable.hvar, variable.hvar, rvalue);
+                    if (!variable.readOnly)
+                        ctx.builder.genBinop(opcode, variable.hvar, variable.hvar, rvalue);
                     return res;
                 } else {
                     ctx.releaseTemp(rvalue);
-                    ctx.builder.genBinop(opcode, variable.hvar, variable.hvar, rvalue);
-                    return variable.hvar;
+                    if (!variable.readOnly) {
+                        ctx.builder.genBinop(opcode, variable.hvar, variable.hvar, rvalue);
+                        return variable.hvar;
+                    } else {
+                        var res = ctx.allocTemp();
+                        ctx.builder.genBinop(opcode, res,
+                            variable.constantValue !== null ? variable.constantValue : variable.hvar,
+                            rvalue
+                        );
+                        return res;
+                    }
                 }
             }
         } else if(memb = NT.MemberExpression.isTypeOf(left)) {
@@ -2401,6 +2459,8 @@ export function compile (
         declareBuiltin("Number", "js::numberConstructor", "number");
         declareBuiltin("Boolean", "js::booleanConstructor", "boolean");
         declareBuiltin("Array", "js::arrayConstructor", "array");
+
+        runtimeCtx.scope.newConstant("undefined", hir.undefinedValue);
 
         compileSource(runtimeCtx.scope, runtimeCtx.scope, runtimeFileName, m_reporter, m_options);
         compileInANestedScope(runtimeCtx, coreFileName);
