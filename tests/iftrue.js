@@ -2,10 +2,10 @@
 var x = 0;
 
 if (x)
-    print(true);
+    console.log(true);
 else
-    print(false);
+    console.log(false);
 if (++x)
-    print(true);
+    console.log(true);
 else
-    print(false);
+    console.log(false);

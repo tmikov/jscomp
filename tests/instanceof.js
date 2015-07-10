@@ -13,9 +13,9 @@ Child.prototype = Object.create(Base.prototype);
 
 var ch = new Child(10,20);
 
-print(ch instanceof Other)
-print(ch instanceof Child)
-print(ch instanceof Base);
+console.log(ch instanceof Other)
+console.log(ch instanceof Child)
+console.log(ch instanceof Base);
 
 if (ch instanceof Base)
-    print("YES");
+    console.log("YES");
