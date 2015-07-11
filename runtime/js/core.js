@@ -159,6 +159,7 @@ method(Error.prototype, "toString", function error_toString ()
 });
 
 TypeError.prototype = Object.create(Error.prototype);
+SyntaxError.prototype = Object.create(Error.prototype);
 
 method(Array.prototype, "push", function array_push(dummy)
 {

@@ -13,3 +13,8 @@ function TypeError (message)
 {
     Error.call(this, message);
 }
+
+function SyntaxError (message)
+{
+    Error.call(this, message);
+}
