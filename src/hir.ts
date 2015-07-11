@@ -1297,7 +1297,7 @@ export class FunctionBuilder
     private strStringPrim(s: string): string
     {
         var res = "s_strings["+this.module.addString(s)+"]";
-        if (s.length <= 20)
+        if (s.length <= 64)
             res += "/*\"" + escapeCString(s) + "\"*/";
         return res;
     }
