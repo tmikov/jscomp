@@ -51,23 +51,24 @@ function main (argv: string[]): void
         process.exit(1);
     }
 
+    function needArgument(option: string): string
+    {
+        assert(startsWith(arg, option));
+        var olen = option.length;
+        if (arg.length > olen && arg[olen] === '=') // check for and skip "="
+            ++olen;
+        if (arg.length > olen)
+            return arg.slice(olen,arg.length);
+        if (argIndex+1 === argv.length) {
+            console.error("'%s' missing argument", option);
+            process.exit(1);
+        }
+        return argv[++argIndex];
+    }
+
     for ( var argIndex = 1; argIndex < argv.length; ++argIndex ) {
         var arg = argv[argIndex];
 
-        function needArgument(option: string): string
-        {
-            assert(startsWith(arg, option));
-            var olen = option.length;
-            if (arg.length > olen && arg[olen] === '=') // check for and skip "="
-                ++olen;
-            if (arg.length > olen)
-                return arg.slice(olen,arg.length);
-            if (argIndex+1 === argv.length) {
-                console.error("'%s' missing argument", option);
-                process.exit(1);
-            }
-            return argv[++argIndex];
-        }
 
         if (arg[0] === "-") {
             switch (arg) {

@@ -368,19 +368,20 @@ function compileSource (
 
     function compileIt (): void
     {
+        function adjustRegexLiteral(key: any, value: any)
+        {
+            if (key === 'value' && value instanceof RegExp) {
+                value = value.toString();
+            }
+            return value;
+        }
+
         var prog: ESTree.Program;
         if ((prog = parse(m_fileName))) {
             if (m_options.dumpAST) {
                 // Special handling for regular expression literal since we need to
                 // convert it to a string literal, otherwise it will be decoded
                 // as object "{}" and the regular expression would be lost.
-                function adjustRegexLiteral(key: any, value: any)
-                {
-                    if (key === 'value' && value instanceof RegExp) {
-                        value = value.toString();
-                    }
-                    return value;
-                }
 
                 console.log(JSON.stringify(prog, adjustRegexLiteral, 4));
             }
