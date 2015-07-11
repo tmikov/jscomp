@@ -914,7 +914,7 @@ function compileSource (
                 continue;
             }
 
-            if (elseLabel != null)
+            if (elseLabel !== null)
                 ctx.builder.genLabel(elseLabel);
 
             var testval = compileExpression(scope, sc.test, true, null, null);
@@ -1884,7 +1884,7 @@ function compileSource (
 
     function compileUpdateExpression (scope: Scope, e: ESTree.UpdateExpression, need: boolean): hir.RValue
     {
-        var opcode: hir.OpCode = e.operator == "++" ? hir.OpCode.ADD_N : hir.OpCode.SUB_N;
+        var opcode: hir.OpCode = e.operator === "++" ? hir.OpCode.ADD_N : hir.OpCode.SUB_N;
         return _compileAssignment(scope, opcode, e.prefix, e.argument, hir.wrapImmediate(1), need);
     }
 
@@ -1906,7 +1906,7 @@ function compileSource (
         if (str !== null)
             return str;
         var bine = NT.BinaryExpression.isTypeOf(e);
-        if (!bine || bine.operator != "+") {
+        if (!bine || bine.operator !== "+") {
             error(location(e), "not a constant string literal");
             return null;
         }

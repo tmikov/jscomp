@@ -727,7 +727,7 @@ function dfs (entry: BasicBlock, exit: BasicBlock, callback: (bb: BasicBlock)=>v
     visited[entry.id] = true;
     visit(entry);
     var bb: BasicBlock;
-    while ((bb = stack.pop()) != void 0)
+    while ((bb = stack.pop()) !== void 0)
         visit(bb);
 
     // Finally generate the exit node
