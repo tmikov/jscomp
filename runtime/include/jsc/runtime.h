@@ -498,17 +498,13 @@ struct StackFrame
     {
         this->caller = caller;
         //this->runtime = runtime;
-        this->escaped = NULL;
+        this->escaped = escapedCount ? Env::make(caller, env, escapedCount) : NULL;
 #ifdef JS_DEBUG
         this->fileFunc = fileFunc;
         this->line = line;
 #endif
         this->localCount = localCount;
         memset(locals, 0, sizeof(locals[0]) * (localCount - skipInit));
-
-        // Note: tricky. We use ourselves as a stack frame here
-        if (escapedCount)
-            this->escaped = Env::make(this, env, escapedCount);
     }
 
     bool mark (IMark * marker, unsigned markBit) const;
