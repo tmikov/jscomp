@@ -1399,28 +1399,27 @@ function compileSource (
         return compileSubExpression(scope, e.expressions[i], need, onTrue, onFalse);
     }
 
+    /** Check if an expression is just an undefined identifier; this is used only by "typeof" */
+    function isUndefinedIdentifier (scope: Scope, e: ESTree.Expression): boolean
+    {
+        var ident = NT.Identifier.isTypeOf(e);
+        return ident && !scope.lookup(ident.name);
+    }
+
     function compileUnaryExpression (
         scope: Scope, e: ESTree.UnaryExpression,
         need: boolean, onTrue: hir.Label, onFalse: hir.Label
     ): hir.RValue
     {
-        if (!need && e.operator !== "delete") {
-            scope.ctx.releaseTemp(compileSubExpression(scope, e.argument, false, null, null));
-            return null;
-        }
-
         var ctx = scope.ctx;
 
         switch (e.operator) {
             case "-":
-                return toLogical(scope, e, compileSimpleUnary(scope, hir.OpCode.NEG_N, true, e.argument), need, onTrue, onFalse);
+                return toLogical(scope, e, compileSimpleUnary(scope, hir.OpCode.NEG_N, true, e.argument, need), need, onTrue, onFalse);
             case "+":
-                return toLogical(scope, e,
-                    compileSubExpression(scope, e.argument, true, null, null),
-                    true, onTrue, onFalse
-                );
+                return toLogical(scope, e, compileSubExpression(scope, e.argument, need, null, null), need, onTrue, onFalse);
             case "~":
-                return toLogical(scope, e, compileSimpleUnary(scope, hir.OpCode.BIN_NOT_N, true, e.argument), need, onTrue, onFalse);
+                return toLogical(scope, e, compileSimpleUnary(scope, hir.OpCode.BIN_NOT_N, true, e.argument, need), need, onTrue, onFalse);
             case "delete":
                 return toLogical(scope, e, compileDelete(scope, e, need), need, onTrue, onFalse);
 
@@ -1428,15 +1427,20 @@ function compileSource (
                 if (onTrue)
                     return compileSubExpression(scope, e.argument, need, onFalse, onTrue);
                 else
-                    return compileSimpleUnary(scope, hir.OpCode.LOG_NOT, false, e.argument);
+                    return compileSimpleUnary(scope, hir.OpCode.LOG_NOT, false, e.argument, need);
 
             case "typeof":
-                if (onTrue) {
-                    ctx.releaseTemp(compileSubExpression(scope, e.argument, false, null, null));
-                    warning(location(e), "condition is always true");
-                    ctx.builder.genGoto(onTrue);
+                // Check for the special case of undefined identifier
+                if (isUndefinedIdentifier(scope, e.argument)) {
+                    return toLogical(scope, e, hir.wrapImmediate("undefined"), need, onTrue, onFalse);
                 } else {
-                    return compileSimpleUnary(scope, hir.OpCode.TYPEOF, false, e.argument);
+                    if (onTrue) {
+                        ctx.releaseTemp(compileSubExpression(scope, e.argument, false, null, null));
+                        warning(location(e), "condition is always true");
+                        ctx.builder.genGoto(onTrue);
+                    } else {
+                        return compileSimpleUnary(scope, hir.OpCode.TYPEOF, false, e.argument, need);
+                    }
                 }
                 break;
 
@@ -1446,7 +1450,7 @@ function compileSource (
                     warning(location(e), "condition is always false");
                     ctx.builder.genGoto(onFalse);
                 } else {
-                    return hir.undefinedValue;
+                    return need ? hir.undefinedValue : null;
                 }
                 break;
 
@@ -1457,10 +1461,15 @@ function compileSource (
 
         return null;
 
-        function compileSimpleUnary (scope: Scope, op: hir.OpCode, arith: boolean, e: ESTree.Expression): hir.RValue
+        function compileSimpleUnary (
+            scope: Scope, op: hir.OpCode, arith: boolean, e: ESTree.Expression, need: boolean
+        ): hir.RValue
         {
-            var v = compileSubExpression(scope, e, true, null, null);
+            var v = compileSubExpression(scope, e, need, null, null);
             scope.ctx.releaseTemp(v);
+
+            if (!need)
+                return null;
 
             var folded = hir.foldUnary(op, v);
             if (folded !== null) {
