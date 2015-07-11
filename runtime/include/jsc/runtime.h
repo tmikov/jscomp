@@ -183,7 +183,7 @@ struct Property : public ListEntry
 
 struct less_cstr {
     bool operator() (const char * a, const char * b) const {
-        return strcmp(a, b) < 0;
+        return a != b && strcmp(a, b) < 0;
     }
 };
 
@@ -452,7 +452,7 @@ struct StringPrim : public Memory
 
 struct less_StringPrim {
     bool operator() (const StringPrim * a, const StringPrim * b) const {
-        return strcmp(a->getStr(), b->getStr()) < 0;
+        return a != b && strcmp(a->getStr(), b->getStr()) < 0;
     }
 };
 
