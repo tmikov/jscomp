@@ -1297,7 +1297,7 @@ export class FunctionBuilder
     {
         var res = "s_strings["+this.module.addString(s)+"]";
         if (s.length <= 64)
-            res += "/*\"" + escapeCString(s) + "\"*/";
+            res += "/*\"" + escapeCString(s, true) + "\"*/";
         return res;
     }
 
@@ -1895,9 +1895,9 @@ export class OutputSegment
     }
 }
 
-export function escapeCString (s: string): string
+export function escapeCString (s: string, inComment: boolean): string
 {
-    return escapeCStringBuffer(new Buffer(s, "utf8")).toString("ascii");
+    return escapeCStringBuffer(new Buffer(s, "utf8"),inComment).toString("ascii");
 }
 
 function max (a: number, b: number): number
@@ -1958,7 +1958,15 @@ class DynBuffer
     }
 }
 
-export function escapeCStringBuffer (s: Buffer, from?: number, to?: number): Buffer
+/**
+ *
+ * @param s
+ * @param inComment tells us that we are in a C-style comment, so ["*","/"] must be escaped too
+ * @param from
+ * @param to
+ * @returns {Buffer}
+ */
+export function escapeCStringBuffer (s: Buffer, inComment: boolean, from?: number, to?: number): Buffer
 {
     if (from === void 0)
         from = 0;
@@ -1967,10 +1975,15 @@ export function escapeCStringBuffer (s: Buffer, from?: number, to?: number): Buf
 
     var res: DynBuffer = null;
     var lastIndex = from;
+    var lastByte: number = 0;
 
     for ( var i = from; i < to; ++i ) {
         var byte = s[i];
-        if (byte < 32 || byte > 127) {
+        if (byte < 32 || byte > 127 || byte === 34 /*"*/ || byte === 92 /*backslash*/ ||
+            (byte === 63 /*?*/ && lastByte === 63 /*?*/) || // Trigraphs
+            (byte === 47 /*/*/ && lastByte === 42 /***/ && inComment) ||
+            (byte === 42 /***/ && lastByte === 47 /*/*/ && inComment))
+        {
             if (!res)
                 res = new DynBuffer(to - from + 16);
             if (lastIndex < i)
@@ -1980,9 +1993,15 @@ export function escapeCStringBuffer (s: Buffer, from?: number, to?: number): Buf
                 case 9:  res.addASCIIString("\\t"); break;
                 case 10: res.addASCIIString("\\n"); break;
                 case 13: res.addASCIIString("\\r"); break;
+                case 34: res.addASCIIString('\\"'); break;
+                case 63: res.addASCIIString("\\?"); break;
+                case 92: res.addASCIIString("\\\\"); break;
+                case 42: res.addASCIIString("\\*"); break;
+                case 47: res.addASCIIString("\\/"); break;
                 default: res.addASCIIString(util.format("\\%d%d%d", byte/64&7, byte/8&7, byte&7)); break;
             }
         }
+        lastByte = byte;
     }
     if (res !== null) {
         res.reserve(i - lastIndex, true)
@@ -2135,7 +2154,7 @@ export class ModuleBuilder
         for ( var ofs = 0; ofs < buf.length; )
         {
             var to = min(buf.length, ofs + margin);
-            line = "  \"" + escapeCStringBuffer(buf.buf, ofs, to) + "\"";
+            line = "  \"" + escapeCStringBuffer(buf.buf, false, ofs, to) + "\"";
             if (to == buf.length)
                 line += ";";
             line += "\n";
