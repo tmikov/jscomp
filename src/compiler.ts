@@ -463,11 +463,13 @@ interface Runtime
     ctx: FunctionContext;
     moduleRequire: Variable;
     defineModule: Variable;
+    _defineAccessor: Variable;
 }
 
 class SpecialVars
 {
     require: Variable = null;
+    _defineAccessor: Variable = null;
 }
 
 class AsmBinding {
@@ -475,6 +477,17 @@ class AsmBinding {
     public hv: hir.RValue = null;
     public result: boolean = false;
     constructor(public index: number, public name: string, public e: ESTree.Expression) {}
+}
+
+/** A property descriptor in an "ObjectExpression" */
+class ObjectExprProp
+{
+    public value: ESTree.Expression = null;
+    public getter: ESTree.FunctionExpression = null;
+    public setter: ESTree.FunctionExpression = null;
+
+    constructor(public name: string)
+    {}
 }
 
 function compileSource (
@@ -1422,18 +1435,95 @@ function compileSource (
     ): hir.RValue
     {
         var ctx = scope.ctx;
+        var propMap = new StringMap<ObjectExprProp>();
+        var props: ObjectExprProp[] = [];
+        var errors = false;
 
-        if (!need || onTrue) {
-            warning(location(e), onTrue ? "condition is always true" : "unused object expression");
+        // First accumulate the properties
+        e.properties.forEach((prop: ESTree.Property) => {
+            var ident: ESTree.Identifier;
+            var lit: ESTree.Literal;
+            var name: string;
 
-            e.properties.forEach((prop: ESTree.Property) => {
-                compileSubExpression(scope, prop.value, false, null, null);
+            if (prop.computed) {
+                error(location(prop), "computer object expression not supported in ES5");
+                errors = true;
+                return;
+            }
+
+            if (ident = NT.Identifier.isTypeOf(prop.key)) {
+                name = ident.name;
+            } else if (lit = NT.Literal.isTypeOf(prop.key)) {
+                name = String(lit.value);
+            } else {
+                error(location(prop.key), "unsupported property key");
+                errors = true;
+                return;
+            }
+
+            var propDesc: ObjectExprProp = propMap.get(name);
+            if (propDesc) {
+                if (prop.kind === "init" && propDesc.value) {
+                    if (scope.ctx.strictMode) {
+                        error(location(prop), `duplicate data property '${name}' in strict mode`);
+                        errors = true;
+                    }
+                    // Disable the old one, so we can overwrite with the new one, but still calculate the old
+                    // expression
+                    propMap.remove(name);
+                    propDesc.name = null;
+                    propDesc = null;
+                }
+                else if (prop.kind === "init" && (propDesc.getter || propDesc.setter) ||
+                         (prop.kind === "get" || prop.kind === "set") && propDesc.value)
+                {
+                    error(location(prop), `data and accessor property with the same name '${name}'`);
+                    errors = true;
+                }
+                else if (prop.kind === "get" && propDesc.getter || prop.kind === "set" && propDesc.setter) {
+                    error(location(prop), `multiple getters/setters with the same name '${name}'`);
+                    errors = true;
+                }
+            }
+
+            if (!propDesc) {
+                propDesc = new ObjectExprProp(name);
+                propMap.set(name, propDesc);
+                props.push(propDesc);
+            }
+
+            switch (prop.kind) {
+                case "init": propDesc.value = prop.value; break;
+                case "get": propDesc.getter = NT.FunctionExpression.cast(prop.value); break;
+                case "set": propDesc.setter = NT.FunctionExpression.cast(prop.value); break;
+                default:
+                    error(location(prop), "unsupported property kind");
+                    errors = true;
+                    break;
+            }
+        });
+
+        // If there are errors, compile the init values, only to validate them
+        // If we don't need the result, same...
+        if (errors || !need || onTrue) {
+            if (!need)
+                warning(location(e), "unused object expression");
+            else if(onTrue)
+                warning(location(e), "condition is always true");
+
+            props.forEach((propDesc: ObjectExprProp) => {
+                if (propDesc.value)
+                    compileSubExpression(scope, propDesc.value, false, null, null);
+                if (propDesc.getter)
+                    compileSubExpression(scope, propDesc.getter, false, null, null);
+                if (propDesc.setter)
+                    compileSubExpression(scope, propDesc.setter, false, null, null);
             });
 
             if (onTrue)
                 ctx.builder.genGoto(onTrue);
 
-            return null;
+            return need ? hir.undefinedValue : null;
         }
 
         var objProto = ctx.allocTemp();
@@ -1442,19 +1532,50 @@ function compileSource (
         var dest = ctx.allocTemp();
         ctx.builder.genCreate(dest, objProto);
 
-        e.properties.forEach((prop: ESTree.Property) => {
-            var propName: hir.RValue;
-            if (prop.computed)
-                propName = compileSubExpression(scope, prop.key);
-            else
-                propName = hir.wrapImmediate(NT.Identifier.cast(prop.key).name);
-            var val = compileSubExpression(scope, prop.value, true, null, null);
-            ctx.releaseTemp(val);
-            ctx.releaseTemp(propName);
-            ctx.builder.genPropSet(dest, propName, val);
+        props.forEach((propDesc: ObjectExprProp) => {
+            if (!propDesc.name) { // if this property was overwritten?
+                // compile and ignore the values
+                if (propDesc.value)
+                    compileSubExpression(scope, propDesc.value, false, null, null);
+                if (propDesc.getter)
+                    compileSubExpression(scope, propDesc.getter, false, null, null);
+                if (propDesc.setter)
+                    compileSubExpression(scope, propDesc.setter, false, null, null);
+            } else {
+                var propName = hir.wrapImmediate(propDesc.name);
+
+                if (!propDesc.getter && !propDesc.setter) { // is this a data property?
+                    assert(propDesc.value);
+
+                    var val = compileSubExpression(scope, propDesc.value, true, null, null);
+                    ctx.releaseTemp(val);
+                    ctx.releaseTemp(propName);
+                    ctx.builder.genPropSet(dest, propName, val);
+                } else {
+                    assert(m_specVars._defineAccessor);
+
+                    var getter: hir.RValue =
+                        propDesc.getter ? compileSubExpression(scope, propDesc.getter, true, null, null) : hir.undefinedValue;
+                    var setter: hir.RValue =
+                        propDesc.setter ? compileSubExpression(scope, propDesc.setter, true, null, null) : hir.undefinedValue;
+
+                    ctx.releaseTemp(getter);
+                    ctx.releaseTemp(setter);
+
+                    m_specVars._defineAccessor.setAccessed(true, ctx);
+                    ctx.builder.genCall(null, m_specVars._defineAccessor.hvar, [
+                        hir.undefinedValue, dest, propName, getter, setter
+                    ]);
+                }
+            }
         });
 
-        return dest;
+        if (!need) {
+            ctx.releaseTemp(dest);
+            return null;
+        }
+        else
+            return dest;
     }
 
     function findVariable (scope: Scope, identifier: ESTree.Identifier): Variable
@@ -2641,7 +2762,7 @@ export function compile (
                 error(null, `cannot find module '${m.printable}'`);
                 return false;
             }
-            m.modVar = compileModule(runtime.ctx, m.path);
+            m.modVar = compileModule(runtime, runtime.ctx, m.path);
             if (m_reporter.errorCount() > 0)
                 return false;
             callDefineModule(runtime, m);
@@ -2678,16 +2799,20 @@ export function compile (
         runtimeCtx.scope.newConstant("undefined", hir.undefinedValue);
 
         compileSource(runtimeCtx.scope, runtimeCtx.scope, runtimeFileName, m_reporter, new SpecialVars(), m_modules, m_options);
-        compileInANestedScope(runtimeCtx, coreFileName);
+        var coreScope = compileInANestedScope(runtimeCtx, coreFileName);
         var modScope = compileInANestedScope(runtimeCtx, modFileName);
 
         var r: Runtime = {
             ctx: runtimeCtx,
             moduleRequire: modScope.lookup("moduleRequire"),
-            defineModule: modScope.lookup("defineModule")
+            defineModule: modScope.lookup("defineModule"),
+            _defineAccessor: coreScope.lookup("_defineAccessor")
         };
         assert(r.moduleRequire);
         assert(r.defineModule);
+        assert(r._defineAccessor);
+        if (!r.moduleRequire || !r.defineModule || !r._defineAccessor)
+            error(null, "internal symbols missing from runtime");
 
         return r;
     }
@@ -2704,7 +2829,7 @@ export function compile (
         return scope;
     }
 
-    function compileModule (parentContext: FunctionContext, fileName: string): Variable
+    function compileModule (runtime: Runtime, parentContext: FunctionContext, fileName: string): Variable
     {
         var ctx = new FunctionContext(
             parentContext, parentContext.scope, fileName, parentContext.addClosure(fileName)
@@ -2717,6 +2842,7 @@ export function compile (
 
         var specVars = new SpecialVars();
         specVars.require = require;
+        specVars._defineAccessor = runtime._defineAccessor;
 
         var tmp = ctx.allocTemp();
         modp.setAccessed(true, ctx);

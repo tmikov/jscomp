@@ -2,6 +2,24 @@
 // Licensed under the Apache License v2.0. See LICENSE in the project
 // root for complete license information.
 
+/** This is used only internally by the generated code in object expressions with accessors */
+function _defineAccessor (obj, prop, getter, setter)
+{
+    __asm__({},[],[
+            ["obj", obj], ["prop", String(prop)],
+            ["get", getter], ["set", setter]
+        ],[],
+        "%[obj].raw.oval->defineOwnProperty(%[%frame], %[prop].raw.sval,"+
+        "js::PROP_CONFIGURABLE |"+
+        "js::PROP_ENUMERABLE |"+
+        "js::PROP_GET_SET"+
+        ", JS_UNDEFINED_VALUE"+
+        ", %[get].tag == js::VT_FUNCTION ? %[get].raw.fval : NULL"+
+        ", %[set].tag == js::VT_FUNCTION ? %[set].raw.fval : NULL"+
+        ");"
+    );
+}
+
 function defineProperty (obj, prop, descriptor)
 {
     if (obj === null || typeof obj !== "object" && typeof obj !== "function")
