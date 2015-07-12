@@ -12,8 +12,9 @@ function bmh_preprocess (p: Buffer): number[]
     var e = p.length;
     for ( var i = 0; i < 256; ++i )
         t[i] = e;
+    --e; // We must not iterate over the last character
     for ( i = 0; i < e; ++i )
-        t[p[i]] = e - 1 - i;
+        t[p[i]] = e - i;
     return t;
 }
 
