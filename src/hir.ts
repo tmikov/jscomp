@@ -259,6 +259,7 @@ export const enum OpCode
     GOTO,
 
     // Conditional jumps
+    SWITCH,
     IF_TRUE,
     IF_IS_OBJECT,
     IF_STRICT_EQ,
@@ -345,6 +346,7 @@ var g_opcodeName: string[] = [
     "GOTO",
 
     // Conditional jumps
+    "SWITCH",
     "IF_TRUE",
     "IF_IS_OBJECT",
     "IF_STRICT_EQ",
@@ -512,6 +514,18 @@ class GotoOp extends JumpInstruction {
         return `${oc2s(this.op)} ${this.label1}`;
     }
 }
+class SwitchOp extends JumpInstruction {
+    constructor (public selector: RValue, defaultLab: Label, public values: number[], public targets: Label[])
+    {
+        super(OpCode.SWITCH, null, defaultLab);
+    }
+    toString (): string {
+        var res: string = `${oc2s(this.op)} ${rv2s(this.selector)}`;
+        if (this.label2)
+            res += `,default:${this.label2}`;
+        return res + ",[" + this.values.toString() + "],[" + this.targets.toString() +"]";
+    }
+}
 class IfOp extends JumpInstruction {
     constructor (op: OpCode, public src1: RValue, public src2: RValue, onTrue: Label, onFalse: Label)
     {
@@ -580,6 +594,11 @@ export class BasicBlock
             this.succ.push(inst.label1);
         if (inst.label2)
             this.succ.push(inst.label2);
+        if (inst.op === OpCode.SWITCH) {
+            var switchOp = <SwitchOp>inst;
+            for ( var i = 0, e = switchOp.targets.length; i < e; ++i )
+                this.succ.push(switchOp.targets[i]);
+        }
     }
 
     placeLabel (lab: Label): void
@@ -925,6 +944,20 @@ export class FunctionBuilder
     {
         this.getBB().jump(new GotoOp(target));
         this.closeBB();
+    }
+    genSwitch (selector: RValue, defaultLab: Label, values: number[], targets: Label[]): void
+    {
+        assert(values.length === targets.length);
+        if (targets.length === 1) { // optimize into IF or GOTO
+            if (defaultLab)
+                this.genIf(OpCode.IF_STRICT_EQ, selector, values[0], targets[0], defaultLab);
+            else
+                this.genGoto(targets[0]);
+        }
+        else {
+            this.getBB().jump(new SwitchOp(selector, defaultLab, values, targets));
+            this.closeBB();
+        }
     }
     genIfTrue(value: RValue, onTrue: Label, onFalse: Label): void
     {
@@ -1808,7 +1841,7 @@ export class FunctionBuilder
 
         if (jump.op === OpCode.GOTO) {
             if (bb1 !== nextBB)
-            this.gen("  goto %s;\n", this.strBlock(bb1));
+                this.gen("  goto %s;\n", this.strBlock(bb1));
         }
         else if (jump.op >= OpCode._IF_FIRST && jump.op <= OpCode._IF_LAST) {
             var ifop = <IfOp>jump;
@@ -1824,6 +1857,16 @@ export class FunctionBuilder
         else if (jump.op === OpCode.RET) {
             var retop = <RetOp>jump;
             this.gen("  return %s;\n", this.strRValue(retop.src));
+        }
+        else if (jump.op === OpCode.SWITCH) {
+            var switchOp = <SwitchOp>jump;
+            this.gen("  switch ((int32_t)%s.raw.nval) {", this.strRValue(switchOp.selector));
+            for ( var i = 0; i < switchOp.values.length; ++i )
+                this.gen(" case %d: goto %s;", switchOp.values[i], this.strBlock(switchOp.targets[i].bb));
+            if (switchOp.label2)
+                if (bb2 !== nextBB)
+                    this.gen(" default: goto %s;", this.strBlock(bb2));
+            this.gen(" };\n");
         }
         else
             assert(false, "unknown instructiopn "+ jump);
