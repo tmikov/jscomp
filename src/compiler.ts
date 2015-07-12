@@ -1654,11 +1654,11 @@ function compileSource (
 
         switch (e.operator) {
             case "-":
-                return toLogical(scope, e, compileSimpleUnary(scope, hir.OpCode.NEG_N, true, e.argument, need), need, onTrue, onFalse);
+                return toLogical(scope, e, compileSimpleUnary(scope, hir.OpCode.NEG_N, e.argument, need), need, onTrue, onFalse);
             case "+":
-                return toLogical(scope, e, compileSubExpression(scope, e.argument, need, null, null), need, onTrue, onFalse);
+                return toLogical(scope, e, compileSimpleUnary(scope, hir.OpCode.TO_NUMBER, e.argument, need), need, onTrue, onFalse);
             case "~":
-                return toLogical(scope, e, compileSimpleUnary(scope, hir.OpCode.BIN_NOT_N, true, e.argument, need), need, onTrue, onFalse);
+                return toLogical(scope, e, compileSimpleUnary(scope, hir.OpCode.BIN_NOT_N, e.argument, need), need, onTrue, onFalse);
             case "delete":
                 return toLogical(scope, e, compileDelete(scope, e, need), need, onTrue, onFalse);
 
@@ -1666,7 +1666,7 @@ function compileSource (
                 if (onTrue)
                     return compileSubExpression(scope, e.argument, need, onFalse, onTrue);
                 else
-                    return compileSimpleUnary(scope, hir.OpCode.LOG_NOT, false, e.argument, need);
+                    return compileSimpleUnary(scope, hir.OpCode.LOG_NOT, e.argument, need);
 
             case "typeof":
                 // Check for the special case of undefined identifier
@@ -1678,7 +1678,7 @@ function compileSource (
                         warning(location(e), "condition is always true");
                         ctx.builder.genGoto(onTrue);
                     } else {
-                        return compileSimpleUnary(scope, hir.OpCode.TYPEOF, false, e.argument, need);
+                        return compileSimpleUnary(scope, hir.OpCode.TYPEOF, e.argument, need);
                     }
                 }
                 break;
@@ -1700,9 +1700,7 @@ function compileSource (
 
         return null;
 
-        function compileSimpleUnary (
-            scope: Scope, op: hir.OpCode, arith: boolean, e: ESTree.Expression, need: boolean
-        ): hir.RValue
+        function compileSimpleUnary (scope: Scope, op: hir.OpCode, e: ESTree.Expression, need: boolean): hir.RValue
         {
             var v = compileSubExpression(scope, e, need, null, null);
             scope.ctx.releaseTemp(v);
