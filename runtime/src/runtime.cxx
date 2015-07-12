@@ -959,8 +959,11 @@ void Runtime::parseDiagEnvironment ()
 bool Runtime::mark (IMark * marker, unsigned markBit)
 {
     for ( auto it : this->permStrings )
-        markMemory(marker, markBit, it.second);
-    return markMemory(marker, markBit, env);
+        if (!markMemory(marker, markBit, it.second))
+            return false;
+    return
+        markMemory(marker, markBit, env) &&
+        markValue(marker, markBit, this->thrownObject);
 }
 
 bool Runtime::less_PasStr::operator() (const PasStr & a, const PasStr & b) const
@@ -1033,6 +1036,7 @@ TaggedValue newFunction (StackFrame * caller, Env * env, const StringPrim * name
     return frame.locals[0];
 }
 
+// FIXME!
 void throwTypeError (StackFrame * caller, const char * msg, ...)
 {
     char * buf;
@@ -1048,13 +1052,24 @@ void throwTypeError (StackFrame * caller, const char * msg, ...)
     abort();
 }
 
-void throwValue (StackFrame * caller, TaggedValue val)
+static void unhandledException (StackFrame * caller) JS_NORETURN;
+static void unhandledException (StackFrame * caller)
 {
-    StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":throwValue", __LINE__);
-    frame.locals[0] = toString(&frame, val);
-    fprintf(stderr, "***Exception throw: %s\n", frame.locals[0].raw.sval->getStr());
+    StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":unhandledException", __LINE__);
+    frame.locals[0] = toString(&frame, JS_GET_RUNTIME(caller)->thrownObject);
+    fprintf(stderr, "***Unhandled exception: %s\n", frame.locals[0].raw.sval->getStr());
     caller->printStackTrace();
     abort();
+}
+
+void throwValue (StackFrame * caller, TaggedValue val)
+{
+    Runtime * r = JS_GET_RUNTIME(caller);
+    r->thrownObject = val;
+    if (r->tryRecord)
+        ::longjmp(r->tryRecord->jbuf, 1);
+    else
+        unhandledException(caller);
 }
 
 bool isCallable (TaggedValue v)

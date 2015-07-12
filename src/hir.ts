@@ -121,6 +121,7 @@ export var nullReg = new SystemReg(0, "#nullReg");
 export var frameReg = new SystemReg(-1, "#frameReg");
 export var argcReg = new SystemReg(-2, "#argcReg");
 export var argvReg = new SystemReg(-3, "#argvReg");
+export var lastThrownValueReg = new SystemReg(-4, "#lastThrownValue");
 
 export function unwrapImmedate (v: RValue): any
 {
@@ -204,6 +205,7 @@ export const enum OpCode
     CREATE,
     CREATE_ARGUMENTS,
     LOAD_SC,
+    END_TRY,
     ASM,
 
     // Binary
@@ -256,9 +258,11 @@ export const enum OpCode
 
     // Unconditional jumps
     RET,
+    THROW,
     GOTO,
 
     // Conditional jumps
+    BEGIN_TRY,
     SWITCH,
     IF_TRUE,
     IF_IS_OBJECT,
@@ -291,6 +295,7 @@ var g_opcodeName: string[] = [
     "CREATE",
     "CREATE_ARGUMENTS",
     "LOAD_SC",
+    "END_TRY",
     "ASM",
 
     // Binary
@@ -343,9 +348,11 @@ var g_opcodeName: string[] = [
 
     // Unconditional jumps
     "RET",
+    "THROW",
     "GOTO",
 
     // Conditional jumps
+    "BEGIN_TRY",
     "SWITCH",
     "IF_TRUE",
     "IF_IS_OBJECT",
@@ -505,13 +512,34 @@ class JumpInstruction extends Instruction {
 class RetOp extends JumpInstruction {
     constructor (label1: Label, public src: RValue) { super(OpCode.RET, label1, null); }
     toString (): string {
-        return `ret ${this.label1}, ${rv2s(this.src)}`;
+        return `${oc2s(this.op)} ${this.label1}, ${rv2s(this.src)}`;
+    }
+}
+class ThrowOp extends JumpInstruction {
+    constructor (public src: RValue) { super(OpCode.THROW, null, null); }
+    toString (): string {
+        return `${oc2s(this.op)} ${rv2s(this.src)}`;
     }
 }
 class GotoOp extends JumpInstruction {
     constructor (target: Label) { super(OpCode.GOTO, target, null); }
     toString(): string {
         return `${oc2s(this.op)} ${this.label1}`;
+    }
+}
+class BeginTryOp extends JumpInstruction {
+    constructor (public tryId: number, onNormal: Label, onException: Label)
+    {
+        super(OpCode.BEGIN_TRY, onNormal, onException);
+    }
+    toString (): string {
+        return `${oc2s(this.op)}(${this.tryId}) then ${this.label1} exc ${this.label2}`;
+    }
+}
+class EndTryOp extends Instruction {
+    constructor (public tryId: number) { super(OpCode.END_TRY); }
+    toString (): string {
+        return `${oc2s(this.op)}(${this.tryId})`;
     }
 }
 class SwitchOp extends JumpInstruction {
@@ -808,6 +836,7 @@ export class FunctionBuilder
     private paramSlots: Local[] = null;
     private argSlotsCount: number = 0; //< number of slots we need to reserve for calling
     private argSlots: ArgSlot[] = [];
+    private tryRecordCount: number = 0;
 
     private lowestEnvAccessed: number = -1;
 
@@ -939,6 +968,23 @@ export class FunctionBuilder
     {
         assert(!dest || bindings[0] === dest);
         this.getBB().push(new AsmOp(dest || nullReg, bindings, pat));
+    }
+
+    genBeginTry (onNormal: Label, onException: Label): number
+    {
+        var tryId = this.tryRecordCount++;
+        this.getBB().jump(new BeginTryOp(tryId, onNormal, onException));
+        this.closeBB();
+        return tryId;
+    }
+    genEndTry (tryId: number): void
+    {
+        this.getBB().push(new EndTryOp(tryId));
+    }
+    genThrow (value: RValue): void
+    {
+        this.getBB().jump(new ThrowOp(value));
+        this.closeBB();
     }
 
     genRet(src: RValue): void
@@ -1325,6 +1371,7 @@ export class FunctionBuilder
                 case frameReg: return "&frame";
                 case argcReg:  return "argc";
                 case argvReg:  return "argv";
+                case lastThrownValueReg: return "JS_GET_RUNTIME(&frame)->thrownObject";
             }
         }
 
@@ -1710,6 +1757,10 @@ export class FunctionBuilder
             case OpCode.CREATE: this.outCreate(<UnOp>inst); break;
             case OpCode.CREATE_ARGUMENTS: this.outCreateArguments(<UnOp>inst); break;
             case OpCode.LOAD_SC: this.outLoadSC(<LoadSCOp>inst); break;
+            case OpCode.END_TRY:
+                var endTryOp = <EndTryOp>inst;
+                this.gen("  JS_GET_RUNTIME(&frame)->popTry(&tryRec%d);\n", endTryOp.tryId);
+                break;
             case OpCode.ASM:    this.generateAsm(<AsmOp>inst); break;
 
             case OpCode.ASSIGN:
@@ -1845,37 +1896,52 @@ export class FunctionBuilder
         var bb1 = jump.label1 && jump.label1.bb;
         var bb2 = jump.label2 && jump.label2.bb;
 
-        if (jump.op === OpCode.GOTO) {
-            if (bb1 !== nextBB)
-                this.gen("  goto %s;\n", this.strBlock(bb1));
-        }
-        else if (jump.op >= OpCode._IF_FIRST && jump.op <= OpCode._IF_LAST) {
-            var ifop = <IfOp>jump;
-            var cond = this.strIfOpCond(ifop.op, ifop.src1, ifop.src2);
+        switch (jump.op) {
+            case OpCode.RET:
+                var retop = <RetOp>jump;
+                this.gen("  return %s;\n", this.strRValue(retop.src));
+                break;
+            case OpCode.THROW:
+                var throwOp = <ThrowOp>jump;
+                this.gen("  js::throwValue(%s%s);\n", callerStr, this.strRValue(throwOp.src));
+                break;
+            case OpCode.GOTO:
+                if (bb1 !== nextBB)
+                    this.gen("  goto %s;\n", this.strBlock(bb1));
+                break;
+            case OpCode.BEGIN_TRY:
+                var beginTryOp = <BeginTryOp>jump;
+                this.gen("  JS_GET_RUNTIME(&frame)->pushTry(&tryRec%d);\n", beginTryOp.tryId);
+                this.gen("  if (::setjmp(tryRec%d.jbuf) == 0) goto %s; else goto %s;\n",
+                    beginTryOp.tryId, this.strBlock(bb1), this.strBlock(bb2)
+                );
+                break;
+            case OpCode.SWITCH:
+                var switchOp = <SwitchOp>jump;
+                this.gen("  switch ((int32_t)%s.raw.nval) {", this.strRValue(switchOp.selector));
+                for ( var i = 0; i < switchOp.values.length; ++i )
+                    this.gen(" case %d: goto %s;", switchOp.values[i], this.strBlock(switchOp.targets[i].bb));
+                if (switchOp.label2)
+                    if (bb2 !== nextBB)
+                        this.gen(" default: goto %s;", this.strBlock(bb2));
+                this.gen(" };\n");
+                break;
+            default:
+                if (jump.op >= OpCode._IF_FIRST && jump.op <= OpCode._IF_LAST) {
+                    var ifop = <IfOp>jump;
+                    var cond = this.strIfOpCond(ifop.op, ifop.src1, ifop.src2);
 
-            if (bb2 === nextBB)
-                this.gen("  if (%s) goto %s;\n", cond, this.strBlock(bb1));
-            else if (bb1 === nextBB)
-                this.gen("  if (!%s) goto %s;\n", cond, this.strBlock(bb2));
-            else
-                this.gen("  if (%s) goto %s; else goto %s;\n", cond, this.strBlock(bb1), this.strBlock(bb2));
+                    if (bb2 === nextBB)
+                        this.gen("  if (%s) goto %s;\n", cond, this.strBlock(bb1));
+                    else if (bb1 === nextBB)
+                        this.gen("  if (!%s) goto %s;\n", cond, this.strBlock(bb2));
+                    else
+                        this.gen("  if (%s) goto %s; else goto %s;\n", cond, this.strBlock(bb1), this.strBlock(bb2));
+                } else {
+                    assert(false, "unknown instructiopn "+ jump);
+                }
         }
-        else if (jump.op === OpCode.RET) {
-            var retop = <RetOp>jump;
-            this.gen("  return %s;\n", this.strRValue(retop.src));
-        }
-        else if (jump.op === OpCode.SWITCH) {
-            var switchOp = <SwitchOp>jump;
-            this.gen("  switch ((int32_t)%s.raw.nval) {", this.strRValue(switchOp.selector));
-            for ( var i = 0; i < switchOp.values.length; ++i )
-                this.gen(" case %d: goto %s;", switchOp.values[i], this.strBlock(switchOp.targets[i].bb));
-            if (switchOp.label2)
-                if (bb2 !== nextBB)
-                    this.gen(" default: goto %s;", this.strBlock(bb2));
-            this.gen(" };\n");
-        }
-        else
-            assert(false, "unknown instructiopn "+ jump);
+
     }
 
     private _generateC (): void
@@ -1884,10 +1950,13 @@ export class FunctionBuilder
         gen("\n// %s\nstatic js::TaggedValue %s (js::StackFrame * caller, js::Env * env, unsigned argc, const js::TaggedValue * argv)\n{\n",
             this.name || "<unnamed>", this.module.strFunc(this)
         );
-        gen("  js::StackFrameN<%d,%d,%d> frame(caller, env, __FILE__ \":%s\", __LINE__);\n\n",
+        gen("  js::StackFrameN<%d,%d,%d> frame(caller, env, __FILE__ \":%s\", __LINE__);\n",
             this.envSize, this.locals.length, this.paramSlotsCount,
             this.name || "<unnamed>"
         );
+        for ( var i = 0; i < this.tryRecordCount; ++i )
+            this.gen("  js::TryRecord tryRec%d;\n", i );
+        this.gen("\n");
 
         // Keep track if the very last thing we generated was a label, so we can add a ';' after i
         // at the end

@@ -123,7 +123,14 @@ class Variable
     assigned: boolean = false;
     accessed: boolean = false;
     escapes: boolean = false;
-    funcRef: hir.FunctionBuilder;
+    /**
+     * Prevent this variable from being marked as escaping when accessed in 'try' block. We mark all
+     * variables accessed in a try block as escaping, very conservatively, because we currently lack
+     * the ability to analyze liveness. However in some specific cases we do know that the variable
+     * doesn't need to be escaped, and there this flag comes along.
+     */
+    overrideEscapeInTryBlocks: boolean = false;
+    funcRef: hir.FunctionBuilder = null;
 
     hvar: hir.Var = null;
 
@@ -143,9 +150,19 @@ class Variable
     {
         if (need) {
             this.accessed = true;
-            if (ctx !== this.ctx)
+            // Note: if we are inside a try block, we mark all variables as escaping
+            // it pessimizes the code a lot, but for now guarantees correctness
+            if (ctx !== this.ctx || (ctx.tryStack.length && !this.overrideEscapeInTryBlocks))
                 this.escapes = true;
         }
+    }
+    setAssigned (ctx: FunctionContext): void
+    {
+        this.assigned = true;
+        // Note: if we are inside a try block, we mark all variables as escaping
+        // it pessimizes the code a lot, but for now guarantees correctness
+        if (ctx !== this.ctx || (ctx.tryStack.length && !this.overrideEscapeInTryBlocks))
+            this.escapes = true;
     }
 }
 
@@ -226,15 +243,55 @@ class Scope
     }
 }
 
+const enum LabelKind
+{
+    INTERNAL,
+    LOOP,
+    SWITCH,
+    NAMED,
+}
+
 class Label
 {
     prev: Label = null;
 
     constructor (
+        public kind: LabelKind,
         public name: string, public loc: ESTree.SourceLocation,
         public breakLab: hir.Label, public continueLab: hir.Label
     )
     {}
+}
+
+class TryBlock
+{
+    topLabel: Label; //< the top of the label stack at the moment this block was created
+    controlVar: Variable;
+    exitHandler: hir.Label;
+    // Keep track of all jumps crossing a 'try' handler and assign consecutive
+    // numbers to each
+    jumpsSet: { [key: number]: number } = Object.create(null);
+    outgoingJumps: hir.Label[] = [];
+
+    constructor(topLabel: Label, controlVar: Variable, exitHandler: hir.Label)
+    {
+        this.topLabel = topLabel;
+        this.controlVar = controlVar;
+        this.exitHandler = exitHandler;
+    }
+
+    // Adds a jump target and returns the value that should be set in the control variable to
+    // go there through the finally block
+    addJump (target: hir.Label): number
+    {
+        var n: any;
+        if ((n = this.jumpsSet[target.id]) !== void 0)
+            return <number>n;
+        var index = this.outgoingJumps.length;
+        this.outgoingJumps.push(target);
+        this.jumpsSet[target.id] = index;
+        return index;
+    }
 }
 
 class FunctionContext
@@ -249,6 +306,10 @@ class FunctionContext
 
     labelList: Label = null;
     labels = new StringMap<Label>();
+    /** Used for 'return' from blocks guarded with try/finally */
+    returnPad: Label = null;
+    returnValue: Variable = null;
+    tryStack: TryBlock[] = [];
 
     vars: Variable[] = [];
 
@@ -266,6 +327,9 @@ class FunctionContext
         this.scope = new Scope(this, true, parentScope);
 
         this.thisParam = this.addParam("this");
+
+        this.returnPad = new Label(LabelKind.INTERNAL, null, null, this.builder.newLabel(), null);
+        this.pushLabel(this.returnPad);
     }
 
     close (): void
@@ -285,11 +349,20 @@ class FunctionContext
         return this.labels.get(name);
     }
 
-    findAnonLabel (loopOnly: boolean): Label
+    findAnonBreakContinueLabel (isBreak: boolean): Label
     {
         for ( var label = this.labelList; label; label = label.prev ) {
-            if (!label.name && (!loopOnly || label.continueLab))
-                return label;
+            if (!label.name) {
+                switch (label.kind) {
+                    case LabelKind.LOOP:
+                        return label;
+                    case LabelKind.SWITCH:
+                    case LabelKind.NAMED:
+                        if (isBreak)
+                            return label;
+                        break;
+                }
+            }
         }
         return null;
     }
@@ -309,6 +382,148 @@ class FunctionContext
             this.labels.remove(label.name);
         this.labelList = label.prev;
         label.prev = null; // Facilitate GC
+    }
+
+    pushTryBlock (): TryBlock
+    {
+        var controlVar = this.scope.newAnonymousVariable("");
+        controlVar.overrideEscapeInTryBlocks = true;
+        var tryBlock = new TryBlock(this.labelList, controlVar, this.builder.newLabel());
+        this.tryStack.push(tryBlock);
+        return tryBlock;
+    }
+    popTryBlock (tryBlock: TryBlock): void
+    {
+        var popped = this.tryStack.pop();
+        assert(popped === tryBlock);
+    }
+
+    /**
+     * Generate a goto to a label in the label stack. Normally it would be a very simple operation, but it is
+     * complicated by the presence of try blocks. If our jump crosses such a block, it must execute its exit handler.
+     * To do that, we must either inline the contents of the exit handler before we do the jump (that is what production
+     * compilers do, as far as I can tell), or we can apply our strategy (described below), which is simpler to
+     * implement and hopefully leads to less code bloat, possibly with some performance cost (though I would argue
+     * that try blocks have never been the paragon of performance). Anyway, our long term plan is to eventually
+     * do the inlining, which enables more optimization, but for now this is simpler.
+     *
+     * The code in each exit handler is generated only once and has a 'control variable' assigned to it. The value
+     * of the variable determines where to jump after the block executes. Note that 'return' is also just a goto.
+     *
+     * Nested try blocks are also handled naturally by this scheme where the inner one jumps to the outer
+     * one after executing.
+     *
+     * Example:
+     * <pre>
+     *   function () {
+     *     try {
+     *       if (foo)
+     *            return;
+     *       bar;
+     *     } finally {
+     *       baz;
+     *     }
+     *     bla;
+     * }
+     * </pre>
+     * It should produce code (conceptually) looking like:
+     * <pre>
+     *     var control_var;
+     *     if (setjmp(...) != 0) goto EXC_HANDLER;
+     *     if (foo) {
+     *          control_var = 1;
+     *          goto FIN_HANDLER;
+     *     }
+     *     bar;
+     *     control_var = 2;
+     *     goto FIN_HANDLER;
+     * EXC_HANDLER:
+     *     control_var = 0;
+     *     goto FIN_HANDLER;
+     * FIN_HANDLER:
+     *     baz;
+     *     switch (control_var) {
+     *     case 0: rethrow_exception();
+     *     case 1: goto EXIT;
+     *     case 2: goto B1;
+     *     }
+     * B1:
+     *     bla;
+     *     goto EXIT;
+     * EXIT:
+     *     return;
+     * </pre>
+     */
+    genGoto (label: Label, target: hir.Label): void
+    {
+        var lowestIndex: number; // lowest index in tryStack
+        var highestIndex: number = -1; // highest index in tryStack
+
+        // Check which try blocks we are crossing with this jump. To accomplish that, we walk backwards
+        // the label stack until after we find our target label. These are all the active labels we could potentially
+        // ever cross. In the process, each time we match the current label from the label stack to the top of tryStack,
+        // we mark it as being crossed and move to the next element in tryStack
+        var tryIndex: number = this.tryStack.length - 1;
+        for ( var curLab = this.labelList; curLab && tryIndex >= 0; curLab = curLab.prev ) {
+            for ( ; tryIndex >= 0 && this.tryStack[tryIndex].topLabel === curLab; --tryIndex ) {
+                if (highestIndex < 0)
+                    highestIndex = tryIndex;
+                lowestIndex = tryIndex;
+            }
+
+            if (curLab === label)
+                break;
+        }
+
+        if (highestIndex < 0) { // A simple jump, not crossing any try/finally blocks
+            this.builder.genGoto(target);
+            return;
+        }
+
+        var curTarget = target;
+        for ( tryIndex = lowestIndex; tryIndex <= highestIndex; ++tryIndex ) {
+            var block = this.tryStack[tryIndex];
+            var controlValue = block.addJump(curTarget);
+            block.controlVar.setAssigned(this);
+            this.builder.genAssign(block.controlVar.hvar, hir.wrapImmediate(controlValue));
+            curTarget = block.exitHandler;
+        }
+
+        this.builder.genGoto(curTarget);
+    }
+
+    genReturn (value: hir.RValue): void
+    {
+        this.releaseTemp(value);
+        if (!this.tryStack.length) { // simple case, no exception blocks to worry about
+            this.builder.genRet(value);
+            return;
+        }
+
+        if (!this.returnValue) {
+            this.returnValue = this.scope.newAnonymousVariable("returnValue");
+            this.returnValue.overrideEscapeInTryBlocks = true;
+        }
+
+        this.returnValue.setAssigned(this);
+        this.builder.genAssign(this.returnValue.hvar, value);
+        this.genGoto(this.returnPad, this.returnPad.breakLab);
+
+        if (!this.returnPad.breakLab.bb) { // If we haven't generated the return pad yet
+            this.builder.genLabel(this.returnPad.breakLab);
+            this.returnValue.setAccessed(true, this);
+            this.builder.genRet(this.returnValue.hvar);
+        }
+    }
+
+    genTryBlockSwitch (tryBlock: TryBlock): void
+    {
+        // Dispatch every outgoing jump to its actual destination
+        var values: number[] = new Array<number>(tryBlock.outgoingJumps.length);
+        for ( var i = 0; i < values.length; ++i )
+            values[i] = i;
+        tryBlock.controlVar.setAccessed(true, this);
+        this.builder.genSwitch(tryBlock.controlVar.hvar, null, values, tryBlock.outgoingJumps);
     }
 
     public allocTemp (): hir.Local
@@ -787,7 +1002,7 @@ function compileSource (
         if (!variable.initialized && !variable.assigned)
             variable.initialized = true;
         else
-            variable.assigned = true;
+            variable.setAssigned(ctx)
         variable.setAccessed(true, ctx);
 
         stmt.variable = variable;
@@ -863,21 +1078,7 @@ function compileSource (
                 compileThrowStatement(scope, NT.ThrowStatement.cast(stmt));
                 break;
             case "TryStatement":
-                error(location(stmt), "'try' is not implemented yet");
-                var tryStatement: ESTree.TryStatement = NT.TryStatement.cast(stmt);
-                compileStatement(scope, tryStatement.block, stmt);
-                if (tryStatement.handler) {
-                    var catchIdent: ESTree.Identifier = NT.Identifier.cast(tryStatement.handler.param);
-                    assert( !tryStatement.handler.guard, "catch guards not supported in ES5");
-
-                    var catchScope = new Scope(scope.ctx, false, scope);
-                    var catchVar = catchScope.newVariable(catchIdent.name);
-                    catchVar.declared = true;
-                    catchVar.initialized = true;
-                    compileStatement(catchScope, tryStatement.handler.body, stmt);
-                }
-                if (tryStatement.finalizer)
-                    compileStatement(scope, tryStatement.finalizer, stmt);
+                compileTryStatement(scope, NT.TryStatement.cast(stmt));
                 break;
             case "WhileStatement":
                 compileWhileStatement(scope, NT.WhileStatement.cast(stmt));
@@ -901,7 +1102,7 @@ function compileSource (
                     compileExpression(scope, forOfStatement.left);
                 var breakLab: hir.Label = scope.ctx.builder.newLabel();
                 var continueLab: hir.Label = scope.ctx.builder.newLabel();
-                scope.ctx.pushLabel(new Label(null, location(forOfStatement), breakLab, continueLab));
+                scope.ctx.pushLabel(new Label(LabelKind.LOOP, null, location(forOfStatement), breakLab, continueLab));
                 compileStatement(scope, forOfStatement.body, stmt);
                 scope.ctx.builder.genLabel(breakLab);
                 scope.ctx.popLabel();
@@ -941,7 +1142,7 @@ function compileSource (
                   targetStmt = NT.LabeledStatement.cast(targetStmt).body )
             {}
 
-            var label = new Label(stmt.label.name, loc, breakLab, null);
+            var label = new Label(LabelKind.NAMED, stmt.label.name, loc, breakLab, null);
             scope.ctx.pushLabel(label);
 
             // Add the label to the label set of the statement.
@@ -969,12 +1170,12 @@ function compileSource (
                 return;
             }
         } else {
-            if (!(label = scope.ctx.findAnonLabel(false))) {
+            if (!(label = scope.ctx.findAnonBreakContinueLabel(true))) {
                 error(location(stmt), "'break': there is no surrounding loop");
                 return;
             }
         }
-        scope.ctx.builder.genGoto(label.breakLab);
+        scope.ctx.genGoto(label, label.breakLab);
     }
 
     function compileContinueStatement (scope: Scope, stmt: ESTree.ContinueStatement): void
@@ -990,12 +1191,12 @@ function compileSource (
                 return;
             }
         } else {
-            if (!(label = scope.ctx.findAnonLabel(true))) {
+            if (!(label = scope.ctx.findAnonBreakContinueLabel(false))) {
                 error(location(stmt), "'continue': there is no surrounding loop");
                 return;
             }
         }
-        scope.ctx.builder.genGoto(label.continueLab);
+        scope.ctx.genGoto(label, label.continueLab);
     }
 
     function compileIfStatement (scope: Scope, ifStatement: ESTree.IfStatement): void
@@ -1131,7 +1332,7 @@ function compileSource (
 
         ctx.releaseTemp(discr);
 
-        scope.ctx.pushLabel(new Label(null, location(stmt), breakLab, null));
+        scope.ctx.pushLabel(new Label(LabelKind.SWITCH, null, location(stmt), breakLab, null));
 
         for ( var i = 0; i < stmt.cases.length; ++i ) {
             ctx.builder.genLabel(labels[i]);
@@ -1151,25 +1352,133 @@ function compileSource (
             value = compileExpression(scope, stmt.argument, true, null, null);
         else
             value = hir.undefinedValue;
-        scope.ctx.releaseTemp(value);
-        scope.ctx.builder.genRet(value);
+
+        scope.ctx.genReturn(value);
     }
 
     function compileThrowStatement (scope: Scope, stmt: ESTree.ThrowStatement): void
     {
-        //warning(location(stmt), "'throw' is not fully implemented yet");
         var value = compileExpression(scope, stmt.argument, true, null, null);
-
-        var hbnd: hir.RValue[] = [hir.frameReg, value];
-        var pat: hir.AsmPattern = ["js::throwValue(", 0, ", ", 1, ");"];
-        scope.ctx.builder.genAsm(null, hbnd, pat);
+        scope.ctx.builder.genThrow(value);
     }
 
     function fillContinueInNamedLoopLabels (labels: Label[], continueLab: hir.Label): void
     {
         if (labels)
-            for ( var i = 0, e = labels.length; i < e; ++i )
+            for ( var i = 0, e = labels.length; i < e; ++i ) {
+                assert(labels[i].kind === LabelKind.NAMED);
+                labels[i].kind = LabelKind.LOOP;
                 labels[i].continueLab = continueLab;
+            }
+    }
+
+    function compileTryStatement (scope: Scope, stmt: ESTree.TryStatement): void
+    {
+        compileFinally(scope, stmt);
+
+        function compileCatch (scope: Scope, stmt: ESTree.TryStatement): void
+        {
+            if (!stmt.handler)
+                return compileStatement(scope, stmt.block, stmt);
+
+            var ctx = scope.ctx;
+            var exitLabel = new Label(LabelKind.INTERNAL, null, null, ctx.builder.newLabel(), null);
+            ctx.pushLabel(exitLabel);
+
+            var onNormal = ctx.builder.newLabel();
+            var onException = ctx.builder.newLabel();
+            var tryId = ctx.builder.genBeginTry(onNormal, onException);
+            var tryBlock = ctx.pushTryBlock();
+
+            ctx.builder.genLabel(onNormal);
+            compileStatement(scope, stmt.block, stmt);
+
+            if (!tryBlock.outgoingJumps.length) {
+                // Fast case when there are no outgoing jumps
+                ctx.popTryBlock(tryBlock);
+                ctx.builder.genLabel(tryBlock.exitHandler);
+                ctx.builder.genEndTry(tryId);
+                ctx.builder.genGoto(exitLabel.breakLab);
+            } else {
+                // Slow case - there are outgoing jumps and the ending of the try block must be treated as one
+                // Generate an indirect jump to the "normal code" after the block
+                ctx.genGoto(exitLabel, exitLabel.breakLab);
+
+                ctx.popTryBlock(tryBlock);
+
+                ctx.builder.genLabel(tryBlock.exitHandler);
+                ctx.builder.genEndTry(tryId);
+
+                // Dispatch every outgoing jump to its actual destination
+                ctx.genTryBlockSwitch(tryBlock);
+            }
+
+            var catchIdent: ESTree.Identifier = NT.Identifier.cast(stmt.handler.param);
+            if (stmt.handler.guard)
+                error(location(stmt.handler.guard), "catch guards not supported in ES5");
+
+            var catchScope = new Scope(scope.ctx, false, scope);
+            var catchVar = catchScope.newVariable(catchIdent.name);
+            catchVar.declared = true;
+
+            ctx.builder.genLabel(onException);
+            catchVar.setAssigned(ctx);
+            ctx.builder.genAssign(catchVar.hvar, hir.lastThrownValueReg);
+            ctx.builder.genAssign(hir.lastThrownValueReg, hir.undefinedValue);
+            ctx.builder.genEndTry(tryId);
+            compileStatement(catchScope, stmt.handler.body, stmt);
+            ctx.builder.genGoto(exitLabel.breakLab);
+
+            ctx.popLabel();
+            ctx.builder.genLabel(exitLabel.breakLab);
+        }
+
+        function compileFinally (scope: Scope, stmt: ESTree.TryStatement): void
+        {
+            if (!stmt.finalizer)
+                return compileCatch(scope, stmt);
+
+            var ctx = scope.ctx;
+            var exitLabel = new Label(LabelKind.INTERNAL, null, null, ctx.builder.newLabel(), null);
+            ctx.pushLabel(exitLabel);
+            var exceptionLabel = new Label(LabelKind.INTERNAL, null, null, ctx.builder.newLabel(), null);
+            ctx.pushLabel(exceptionLabel);
+
+            var onNormal = ctx.builder.newLabel();
+            var onException = ctx.builder.newLabel();
+            var tryId = ctx.builder.genBeginTry(onNormal, onException);
+            var tryBlock = ctx.pushTryBlock();
+
+            ctx.builder.genLabel(onNormal);
+            compileCatch(scope, stmt);
+
+            // The ending of the try block must be treated as an outgoing jump
+            // Generate an indirect jump to the "normal code" after the block. It will go through the exit handler
+            ctx.genGoto(exitLabel, exitLabel.breakLab);
+
+            ctx.builder.genLabel(onException);
+            var saveLastThrown = ctx.allocTemp();
+            ctx.builder.genAssign(saveLastThrown, hir.lastThrownValueReg);
+
+            ctx.genGoto(exceptionLabel, exceptionLabel.breakLab);
+
+            ctx.popTryBlock(tryBlock);
+
+            ctx.builder.genLabel(tryBlock.exitHandler);
+            ctx.builder.genEndTry(tryId);
+            compileStatement(scope, stmt.finalizer, stmt);
+
+            // Dispatch every outgoing jump to its actual destination
+            ctx.genTryBlockSwitch(tryBlock);
+
+            ctx.popLabel();
+            ctx.builder.genLabel(exceptionLabel.breakLab);
+            ctx.releaseTemp(saveLastThrown);
+            ctx.builder.genThrow(saveLastThrown);
+
+            ctx.popLabel();
+            ctx.builder.genLabel(exitLabel.breakLab);
+        }
     }
 
     function compileWhileStatement (scope: Scope, stmt: ESTree.WhileStatement): void
@@ -1184,7 +1493,7 @@ function compileSource (
         ctx.builder.genLabel(loop);
         compileExpression(scope, stmt.test, true, body, exitLoop);
         ctx.builder.genLabel(body);
-        scope.ctx.pushLabel(new Label(null, location(stmt), exitLoop, loop));
+        scope.ctx.pushLabel(new Label(LabelKind.LOOP, null, location(stmt), exitLoop, loop));
         compileStatement(scope, stmt.body, stmt);
         scope.ctx.popLabel();
         ctx.builder.genGoto(loop);
@@ -1201,7 +1510,7 @@ function compileSource (
         fillContinueInNamedLoopLabels(stmt.labels, body);
 
         ctx.builder.genLabel(body);
-        scope.ctx.pushLabel(new Label(null, location(stmt), exitLoop, loop));
+        scope.ctx.pushLabel(new Label(LabelKind.LOOP, null, location(stmt), exitLoop, loop));
         compileStatement(scope, stmt.body, stmt);
         scope.ctx.popLabel();
         ctx.builder.genLabel(loop);
@@ -1230,7 +1539,7 @@ function compileSource (
         if (stmt.test)
             compileExpression(scope, stmt.test, true, body, exitLoop);
         ctx.builder.genLabel(body);
-        scope.ctx.pushLabel(new Label(null, location(stmt), exitLoop, loop));
+        scope.ctx.pushLabel(new Label(LabelKind.LOOP, null, location(stmt), exitLoop, loop));
         compileStatement(scope, stmt.body, stmt);
         scope.ctx.popLabel();
 
@@ -1286,7 +1595,7 @@ function compileSource (
 
         ctx.builder.genLabel(body);
         toLogical(scope, stmt, _compileAssignment(scope, hir.OpCode.ASSIGN, true, target, value, false), false, null, null);
-        scope.ctx.pushLabel(new Label(null, location(stmt), exitLoop, loop));
+        scope.ctx.pushLabel(new Label(LabelKind.LOOP, null, location(stmt), exitLoop, loop));
         compileStatement(scope, stmt.body, stmt);
         scope.ctx.popLabel();
 
@@ -1313,7 +1622,7 @@ function compileSource (
             if (!variable) {
                 // if not present, there was an error that we already reported
             } else if (vd.init) {
-                variable.assigned = true;
+                variable.setAssigned(scope.ctx);
 
                 var value = compileExpression(scope, vd.init, true, null, null);
                 scope.ctx.releaseTemp(value);
@@ -2284,10 +2593,9 @@ function compileSource (
 
         if (identifier = NT.Identifier.isTypeOf(left)) {
             variable = findVariable(scope, identifier);
-            variable.setAccessed(true, ctx);
 
             if (!variable.readOnly)
-                variable.assigned = true;
+                variable.setAssigned(ctx);
             else
                 (scope.ctx.strictMode ? error : warning)(location(left), `modifying read-only symbol ${variable.name}`);
 
@@ -2296,6 +2604,8 @@ function compileSource (
                     ctx.builder.genAssign(variable.hvar, rvalue);
                 return rvalue;
             } else {
+                variable.setAccessed(true, ctx);
+
                 if (!prefix && need) { // Postfix? It only matters if we need the result
                     var res = ctx.allocTemp();
                     ctx.builder.genUnop(hir.OpCode.TO_NUMBER, res,
@@ -2962,7 +3272,7 @@ export function compile (
         for ( var i = 0; i < sysModNames.length; ++i ) {
             var modvar = runtime.ctx.scope.newVariable(sysModNames[i]);
             modvar.declared = true;
-            modvar.assigned = true;
+            modvar.setAssigned(runtime.ctx);
             callModuleRequire(runtime, sysModules[i], modvar.hvar);
         }
 
@@ -3121,7 +3431,7 @@ export function compile (
     {
         var v = scope.newVariable(name);
         v.declared = true;
-        v.assigned = true;
+        v.setAssigned(scope.ctx);
         scope.ctx.releaseTemp(value);
         scope.ctx.builder.genAssign(v.hvar, value);
         return v;

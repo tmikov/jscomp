@@ -5,10 +5,12 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <setjmp.h>
 #include <map>
 #include <vector>
 #include <string>
 #include <new>
+#include <assert.h>
 
 //#define JS_DEBUG
 
@@ -564,6 +566,12 @@ struct StackFrameN : public StackFrame
     { }
 };
 
+struct TryRecord
+{
+    TryRecord * prev;
+    jmp_buf jbuf;
+};
+
 struct Runtime
 {
     enum
@@ -631,6 +639,9 @@ struct Runtime
     unsigned allocatedSize;
     unsigned gcThreshold;
 
+    TryRecord * tryRecord = NULL;
+    TaggedValue thrownObject = JS_UNDEFINED_VALUE;
+
     Runtime (bool strictMode);
 
     bool mark (IMark * marker, unsigned markBit);
@@ -639,6 +650,17 @@ struct Runtime
     const StringPrim * internString (StackFrame * caller, const char * str);
     void initStrings (StackFrame * caller, const StringPrim ** prims, const char * strconst, const unsigned * offsets, unsigned count);
 
+    void pushTry (TryRecord * tryRec)
+    {
+        tryRec->prev = this->tryRecord;
+        this->tryRecord = tryRec;
+    }
+
+    void popTry (TryRecord * toPop)
+    {
+        assert(this->tryRecord == toPop);
+        this->tryRecord = this->tryRecord->prev;
+    }
 
 private:
     void parseDiagEnvironment();
