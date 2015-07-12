@@ -907,7 +907,7 @@ function compileSource (
                 scope.ctx.popLabel();
                 break;
             case "DebuggerStatement":
-                error(location(stmt), "'debugger' is not implemented yet");
+                warning(location(stmt), "'debugger' is not implemented yet");
                 var debuggerStatement: ESTree.DebuggerStatement = NT.DebuggerStatement.cast(stmt);
                 break;
 
