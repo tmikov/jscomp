@@ -660,7 +660,13 @@ export function isImmediateTrue (v: RValue): boolean
     return !!unwrapImmedate(v);
 }
 
-function isNonNegativeInteger (s: string): boolean
+export function isImmediateInteger (v: RValue): boolean
+{
+    var tmp = unwrapImmedate(v);
+    return typeof tmp === "number" && (tmp | 0) === tmp;
+}
+
+export function isNonNegativeInteger (s: string): boolean
 {
     var n = Number(s) | 0; // convert to integer
     return n >= 0 && String(n) === s;

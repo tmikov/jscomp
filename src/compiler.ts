@@ -1033,6 +1033,9 @@ function compileSource (
         var ctx = scope.ctx;
         var breakLab: hir.Label = scope.ctx.builder.newLabel();
         var labels: hir.Label[] = new Array<hir.Label>(stmt.cases.length);
+        // The integer cases
+        var intCase: boolean[] = new Array<boolean>(stmt.cases.length);
+        var dupCase: boolean[] = new Array<boolean>(stmt.cases.length);
 
         for ( var i = 0; i < stmt.cases.length; ++i )
             labels[i] = ctx.builder.newLabel();
@@ -1041,15 +1044,73 @@ function compileSource (
         if (hir.isImmediate(discr))
             warning(location(stmt.discriminant), "'switch' expression is constant");
 
+        var intValueSet: { [key: string]: number } = Object.create(null);
+        var intValues: number[] = [];
+        var intTargets: hir.Label[] = [];
+        var nonIntCount = 0; // count of values who are not integer constants
         var defaultLabel: hir.Label = null;
         var elseLabel: hir.Label = null;
 
+        // Find the integer constant cases
         for ( var i = 0; i < stmt.cases.length; ++i ) {
-            var sc = stmt.cases[i];
-            if (!sc.test) {
+            if (!stmt.cases[i].test) {
+                assert(!defaultLabel);
                 defaultLabel = labels[i];
                 continue;
             }
+            var rv = tryFoldExpression(scope, stmt.cases[i].test);
+            if (rv !== null  && hir.isImmediateInteger(rv)) {
+                intCase[i] = true;
+                var nv = hir.unwrapImmedate(rv) | 0;
+                var snv = String(nv);
+                if (!(snv in intValueSet)) {
+                    intValueSet[snv] = nv;
+                    intValues.push(nv);
+                    intTargets.push(labels[i]);
+                } else {
+                    warning(location(stmt.cases[i].test), `duplicate switch case '${nv}'`);
+                    dupCase[i] = true;
+                }
+            } else {
+                ++nonIntCount;
+            }
+        }
+
+        // Not worth it for just one integer case
+        if (intValues.length < 2)
+            intValues.length = 0;
+
+        // If we have integer cases, generate a SWITCH table for them
+        if (intValues.length) {
+            if (nonIntCount > 0)
+                elseLabel = ctx.builder.newLabel();
+            var failLabel = elseLabel || defaultLabel || breakLab;
+            var goodLabel = ctx.builder.newLabel();
+
+            // Check if discr is an integer
+            var idiscr = ctx.allocTemp();
+            ctx.builder.genBinop(hir.OpCode.OR_N, idiscr, discr, hir.wrapImmediate(0));
+            ctx.builder.genIf(hir.OpCode.IF_STRICT_EQ, idiscr, discr, goodLabel, failLabel);
+
+            ctx.builder.genLabel(goodLabel);
+            ctx.releaseTemp(idiscr);
+            ctx.builder.genSwitch(idiscr, failLabel, intValues, intTargets);
+
+            if (elseLabel) {
+                ctx.builder.genLabel(elseLabel);
+                elseLabel = null;
+            }
+        }
+
+        for ( var i = 0; i < stmt.cases.length; ++i ) {
+            var sc = stmt.cases[i];
+            if (!sc.test)
+                continue;
+            if (dupCase[i]) // skip duplicate cases
+                continue;
+            // Skip integer cases, but only if we decided there were enough of them
+            if (intValues.length && intCase[i])
+                continue;
 
             if (elseLabel !== null)
                 ctx.builder.genLabel(elseLabel);
@@ -1268,6 +1329,169 @@ function compileSource (
         return compileSubExpression(scope, e, need, onTrue, onFalse);
     }
 
+    function tryFoldExpression (scope: Scope, e: ESTree.Expression): hir.RValue
+    {
+        return fold(e);
+
+        function foldLiteral (e: ESTree.Literal): hir.RValue
+        {
+            if (e.regex)
+                return null;
+            switch (typeof e.value) {
+                case "object":
+                    if (e.value !== null)
+                        return null;
+                case "number":
+                case "string":
+                case "undefined":
+                    return hir.wrapImmediate(e.value);
+            }
+            return null;
+        }
+
+        function foldSequence (e: ESTree.SequenceExpression): hir.RValue
+        {
+            var i: number;
+            for ( i = 0; i < e.expressions.length-1; ++i )
+                if (fold(e.expressions[i]) === null)
+                    return null;
+
+            return fold(e.expressions[i]);
+        }
+
+        function foldUnary (e: ESTree.UnaryExpression): hir.RValue
+        {
+            // Check for the special case of "typeof undefined identifier"
+            var ident: ESTree.Identifier;
+            if (e.operator === "typeof" && (ident = isUndefinedIdentifier(scope, e.argument)) !== null) {
+                if (!ident.warned) {
+                    ident.warned = true;
+                    warning(location(e.argument), `undefined identifier '${ident.name}'`);
+                }
+                return hir.wrapImmediate("undefined");
+            }
+
+            // Try folding the argument
+            var arg = fold(e.argument);
+            if (arg === null)
+                return null;
+
+            var op: hir.OpCode;
+
+            switch (e.operator) {
+                case "-": op = hir.OpCode.NEG_N; break;
+                case "+": op = hir.OpCode.TO_NUMBER; break;
+                case "~": op = hir.OpCode.BIN_NOT_N; break;
+                case "delete": return null;
+                case "!": op = hir.OpCode.LOG_NOT; break;
+                case "typeof": op = hir.OpCode.TYPEOF; break;
+                case "void": return hir.undefinedValue;
+                default:
+                    return null;
+            }
+
+            return hir.foldUnary(op, arg);
+        }
+
+        function foldBinary (e: ESTree.BinaryExpression): hir.RValue
+        {
+            var left = fold(e.left);
+            if (left === null)
+                return null;
+            var right = fold(e.right);
+            if (right === null)
+                return null;
+
+            var op: hir.OpCode;
+            switch (e.operator) {
+                case "in":
+                case "instanceof": return null;
+
+                case "==":
+                    if (!e.warned) {
+                        e.warned = true;
+                        warning(location(e), "operator '==' is not recommended");
+                    }
+                    op = hir.OpCode.LOOSE_EQ;
+                    break;
+                case "!=":
+                    if (!e.warned) {
+                        e.warned = true;
+                        warning(location(e), "operator '!=' is not recommended");
+                    }
+                    op = hir.OpCode.LOOSE_NE;
+                    break;
+
+                case "===": op = hir.OpCode.STRICT_EQ; break;
+                case "!==": op = hir.OpCode.STRICT_NE; break;
+                case "<":   op = hir.OpCode.LT; break;
+                case "<=":  op = hir.OpCode.LE; break;
+                case ">":   op = hir.OpCode.GT; break;
+                case ">=":  op = hir.OpCode.GE; break;
+                case "<<":   op = hir.OpCode.SHL_N; break;
+                case ">>":   op = hir.OpCode.ASR_N; break;
+                case ">>>":  op = hir.OpCode.SHR_N; break;
+                case "+":    op = hir.OpCode.ADD; break;
+                case "-":    op = hir.OpCode.SUB_N; break;
+                case "*":    op = hir.OpCode.MUL_N; break;
+                case "/":    op = hir.OpCode.DIV_N; break;
+                case "%":    op = hir.OpCode.MOD_N; break;
+                case "|":    op = hir.OpCode.OR_N; break;
+                case "^":    op = hir.OpCode.XOR_N; break;
+                case "&":    op = hir.OpCode.AND_N; break;
+                default:
+                    return null;
+            }
+
+            return hir.foldBinary(op, left, right);
+        }
+
+        function foldLogical (e: ESTree.LogicalExpression): hir.RValue
+        {
+            var left = fold(e.left);
+            if (left === null)
+                return null;
+            var right = fold(e.right);
+            if (right === null)
+                return null;
+
+            switch (e.operator) {
+                case "||": return hir.isImmediateTrue(left) ? left : right;
+                case "&&": return !hir.isImmediateTrue(left) ? left : right;
+            }
+            return null;
+        }
+
+        function foldConditional (e: ESTree.ConditionalExpression): hir.RValue
+        {
+            var test = fold(e.test);
+            if (test === null)
+                return null;
+            var cons = fold(e.consequent);
+            if (cons === null)
+                return null;
+            var alt = fold(e.alternate);
+            if (alt === null)
+                return null;
+
+            return hir.isImmediateTrue(test) ? cons : alt;
+        }
+
+        // To avoid allocating environments use this for recursion
+        function fold (e: ESTree.Expression): hir.RValue
+        {
+            switch (e.type) {
+                case "Literal": return foldLiteral(NT.Literal.cast(e));
+                case "SequenceExpression": return foldSequence(NT.SequenceExpression.cast(e));
+                case "UnaryExpression": return foldUnary(NT.UnaryExpression.cast(e));
+                case "BinaryExpression": return foldBinary(NT.BinaryExpression.cast(e));
+                case "LogicalExpression": return foldLogical(NT.LogicalExpression.cast(e));
+                case "ConditionalExpression": return foldConditional(NT.ConditionalExpression.cast(e));
+            }
+            return null;
+        }
+    }
+
     function compileSubExpression (
         scope: Scope, e: ESTree.Expression, need: boolean=true, onTrue?: hir.Label, onFalse?: hir.Label
     ): hir.RValue
@@ -1357,11 +1581,9 @@ function compileSource (
     {
         if (need) {
             // Most literal values we just pass through, but regex and null need special handling
-            if ((<any>literal).regex) {
+            if (literal.regex) {
                 var regex = (<ESTree.RegexLiteral>literal).regex;
                 return new hir.Regex(regex.pattern, regex.flags);
-            } else if (literal.value === null){
-                return hir.nullValue;
             } else
                 return hir.wrapImmediate(literal.value);
         } else {
@@ -1639,10 +1861,10 @@ function compileSource (
     }
 
     /** Check if an expression is just an undefined identifier; this is used only by "typeof" */
-    function isUndefinedIdentifier (scope: Scope, e: ESTree.Expression): boolean
+    function isUndefinedIdentifier (scope: Scope, e: ESTree.Expression): ESTree.Identifier
     {
         var ident = NT.Identifier.isTypeOf(e);
-        return ident && !scope.lookup(ident.name);
+        return ident && !scope.lookup(ident.name) ? ident : null;
     }
 
     function compileUnaryExpression (
@@ -1670,7 +1892,12 @@ function compileSource (
 
             case "typeof":
                 // Check for the special case of undefined identifier
-                if (isUndefinedIdentifier(scope, e.argument)) {
+                var ident: ESTree.Identifier;
+                if ((ident = isUndefinedIdentifier(scope, e.argument)) !== null) {
+                    if (!ident.warned) {
+                        ident.warned = true;
+                        warning(location(e.argument), `undefined identifier '${ident.name}'`);
+                    }
                     return toLogical(scope, e, hir.wrapImmediate("undefined"), need, onTrue, onFalse);
                 } else {
                     if (onTrue) {
@@ -1777,10 +2004,16 @@ function compileSource (
 
         switch (e.operator) {
             case "==":
-                warning(location(e), "operator '==' is not recommended");
+                if (!e.warned) {
+                    e.warned = true;
+                    warning(location(e), "operator '==' is not recommended");
+                }
                 return compileLogBinary(ctx, e, hir.OpCode.LOOSE_EQ, v1, v2, onTrue, onFalse);
             case "!=":
-                warning(location(e), "operator '!=' is not recommended");
+                if (!e.warned) {
+                    e.warned = true;
+                    warning(location(e), "operator '!=' is not recommended");
+                }
                 return compileLogBinary(ctx, e, hir.OpCode.LOOSE_NE, v1, v2, onTrue, onFalse);
             case "===": return compileLogBinary(ctx, e, hir.OpCode.STRICT_EQ, v1, v2, onTrue, onFalse);
             case "!==": return compileLogBinary(ctx, e, hir.OpCode.STRICT_NE, v1, v2, onTrue, onFalse);

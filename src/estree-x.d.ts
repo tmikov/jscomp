@@ -11,6 +11,7 @@ declare module ESTree
     {
         start: number;
         end: number;
+        warned?: boolean;
     }
 
     interface Statement
@@ -26,5 +27,13 @@ declare module ESTree
     interface VariableDeclarator
     {
         variable: any;
+    }
+
+    interface Literal
+    {
+        regex?: {
+            pattern: string;
+            flags: string;
+        };
     }
 }
