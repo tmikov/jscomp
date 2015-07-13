@@ -3336,6 +3336,8 @@ export function compile (
         declareBuiltin("Number", "js::numberConstructor", "number");
         declareBuiltin("Boolean", "js::booleanConstructor", "boolean");
         declareBuiltin("Array", "js::arrayConstructor", "array");
+        declareBuiltin("Error", "js::errorConstructor", "error");
+        declareBuiltin("TypeError", "js::typeErrorConstructor", "typeError");
 
         runtimeCtx.scope.newConstant("undefined", hir.undefinedValue);
 

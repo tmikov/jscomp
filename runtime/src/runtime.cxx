@@ -602,9 +602,9 @@ bool Function::mark (IMark * marker, unsigned markBit) const
     return Object::mark(marker, markBit) && markMemory(marker, markBit, env);
 }
 
-void Function::definePrototype (StackFrame * caller, Object * prototype)
+void Function::definePrototype (StackFrame * caller, Object * prototype, unsigned propFlags)
 {
-    defineOwnProperty(caller, JS_GET_RUNTIME(caller)->permStrPrototype, PROP_WRITEABLE, makeObjectValue(prototype));
+    defineOwnProperty(caller, JS_GET_RUNTIME(caller)->permStrPrototype, propFlags, makeObjectValue(prototype));
 }
 
 bool Function::hasInstance (StackFrame * caller, Object * inst)
@@ -787,6 +787,32 @@ TaggedValue arrayConstructor (StackFrame * caller, Env * env, unsigned argc, con
     return thisp.tag != VT_UNDEFINED ? JS_UNDEFINED_VALUE : frame.locals[0];
 }
 
+TaggedValue errorConstructor (StackFrame * caller, Env *, unsigned argc, const TaggedValue * argv)
+{
+    StackFrameN<0,2,0> frame(caller, NULL, __FILE__ ":errorConstructor" , __LINE__);
+    TaggedValue thisp = argv[0];
+    TaggedValue message = argc > 1 ? argv[1] : JS_UNDEFINED_VALUE;
+
+    if (thisp.tag == VT_UNDEFINED) // Called as a function?
+        frame.locals[0] = thisp = makeObjectValue(new(&frame) Error(JS_GET_RUNTIME(&frame)->errorPrototype));
+
+    if (message.tag != VT_UNDEFINED) {
+        frame.locals[1] = toString(&frame, message);
+        put(&frame, thisp, JS_GET_RUNTIME(&frame)->permStrMessage, message);
+    }
+
+    return thisp;
+}
+
+TaggedValue typeErrorConstructor (StackFrame * caller, Env * env, unsigned argc, const TaggedValue * argv)
+{
+    StackFrameN<0,2,0> frame(caller, NULL, __FILE__ ":typeErrorConstructor" , __LINE__);
+    frame.locals[0] = argv[0].tag != VT_UNDEFINED ?
+        argv[0] : makeObjectValue(JS_GET_RUNTIME(&frame)->typeErrorPrototype->createDescendant(&frame));
+    frame.locals[1] = argc > 1 ? argv[1] : JS_UNDEFINED_VALUE;
+    return errorConstructor(&frame, env, 2, &frame.locals[0]);
+}
+
 bool Runtime::MemoryHead::mark (IMark *, unsigned) const
 { return true; }
 
@@ -806,7 +832,7 @@ Runtime::Runtime (bool strictMode)
     parseDiagEnvironment();
 
     // Note: we need to be extra careful to store allocated values where the FC can trace them.
-    StackFrameN<0, 6, 0> frame(NULL, NULL, __FILE__ ":Runtime::Runtime()", __LINE__);
+    StackFrameN<0, 0, 0> frame(NULL, NULL, __FILE__ ":Runtime::Runtime()", __LINE__);
 
     // Perm strings
     permStrEmpty = internString(&frame, "");
@@ -828,90 +854,111 @@ Runtime::Runtime (bool strictMode)
     permStrFunction = internString(&frame, "function");
     permStrToString = internString(&frame, "toString");
     permStrValueOf = internString(&frame, "valueOf");
+    permStrMessage = internString(&frame, "message");
 
     // Global env
-    env = Env::make(&frame, NULL, 10);
+    env = Env::make(&frame, NULL, 20);
 
+    // Object.prototype
+    //
     objectPrototype = new(&frame) Object(NULL);
-    frame.locals[0] = makeObjectValue(objectPrototype);
-    // TODO: 'toString', 'toLocaleString', 'valueOf', 'hasOwnProperty', 'isPrototypeOf', 'propertyIsEnumerable',
-    // TODO: '__defineGetter__', '__lookupGetter__', '__defineSetter__', '__lookupSetter__', '__proto__'
+    env->vars[0] = makeObjectValue(objectPrototype);
 
+    // Function.prototype
+    //
     functionPrototype = new(&frame) PrototypeCreator<Function,Function>(objectPrototype);
-    frame.locals[1] = makeObjectValue(functionPrototype);
+    env->vars[2] = makeObjectValue(functionPrototype);
     functionPrototype->init(&frame, env, emptyFunc, internString(&frame,"functionPrototype"), 0);
-    // TODO: in functionPrototype define bind, toString, call, apply
 
-    object = new(&frame) Function(functionPrototype);
-    env->vars[0] = makeObjectValue(object);
-    object->init(&frame, env, objectConstructor, internString(&frame,"Object"), 1);
-    // TODO: keys, create, defineOwnProperty, defineProperties, freeze, getPrototypeOf, setPrototypeOf,
-    // TODO: getOwnPropertyDescriptor(), getOwnPropertyNames(), is, isExtensible, isFrozen, isSealed, preventExtensions,
-    // TODO: seal, getOwnPropertySymbols, deliverChangeRecords, getNotifier, observe, unobserve
-    // TODO: arity? (from spidermonkey)
-    object->definePrototype(&frame, objectPrototype);
-
-    function = new(&frame) Function(functionPrototype);
-    env->vars[1] = makeObjectValue(function);
-    function->init(&frame, env, functionConstructor, internString(&frame,"Function"), 1);
-    function->definePrototype(&frame, functionPrototype);
-
-    objectPrototype->defineOwnProperty(
-        &frame, permStrConstructor, PROP_WRITEABLE | PROP_CONFIGURABLE, makeObjectValue(object));
-    functionPrototype->defineOwnProperty(
-        &frame, permStrConstructor, PROP_WRITEABLE | PROP_CONFIGURABLE, makeObjectValue(function));
-
+    // Object
+    //
+    systemConstructor(
+        &frame, 0,
+        objectPrototype,
+        objectConstructor, "Object", 1, NULL, &object
+    );
+    // Function
+    //
+    systemConstructor(
+        &frame, 2,
+        functionPrototype,
+        functionConstructor, "Function", 1, NULL, &function
+    );
     // String
     //
-    stringPrototype = new(&frame) PrototypeCreator<Object,String>(objectPrototype);
-    frame.locals[2] = makeObjectValue(stringPrototype);
-
-    string = new(&frame) Function(functionPrototype);
-    env->vars[2] = makeObjectValue(string);
-    string->init(&frame, env, stringConstructor, internString(&frame,"String"), 1);
-    string->definePrototype(&frame, stringPrototype);
-
-    stringPrototype->defineOwnProperty(
-        &frame, permStrConstructor, PROP_WRITEABLE | PROP_CONFIGURABLE, makeObjectValue(string));
-
+    systemConstructor(
+        &frame, 4,
+        new(&frame) PrototypeCreator<Object,String>(objectPrototype),
+        stringConstructor, "String", 1, &stringPrototype, &string
+    );
     // Number
     //
-    numberPrototype = new(&frame) PrototypeCreator<Object,Number>(objectPrototype);
-    frame.locals[3] = makeObjectValue(numberPrototype);
-
-    number = new(&frame) Function(functionPrototype);
-    env->vars[3] = makeObjectValue(number);
-    number->init(&frame, env, numberConstructor, internString(&frame,"Number"), 1);
-    number->definePrototype(&frame, numberPrototype);
-
-    numberPrototype->defineOwnProperty(
-        &frame, permStrConstructor, PROP_WRITEABLE | PROP_CONFIGURABLE, makeObjectValue(number));
-
+    systemConstructor(
+        &frame, 6,
+        new(&frame) PrototypeCreator<Object,Number>(objectPrototype),
+        numberConstructor, "Number", 1, &numberPrototype, &number
+    );
     // Boolean
     //
-    booleanPrototype = new(&frame) PrototypeCreator<Object,Boolean>(objectPrototype);
-    frame.locals[4] = makeObjectValue(booleanPrototype);
-
-    boolean = new(&frame) Function(functionPrototype);
-    env->vars[4] = makeObjectValue(boolean);
-    boolean->init(&frame, env, booleanConstructor, internString(&frame,"Boolean"), 1);
-    boolean->definePrototype(&frame, booleanPrototype);
-
-    booleanPrototype->defineOwnProperty(
-        &frame, permStrConstructor, PROP_WRITEABLE | PROP_CONFIGURABLE, makeObjectValue(boolean));
-
+    systemConstructor(
+        &frame, 8,
+        new(&frame) PrototypeCreator<Object,Boolean>(objectPrototype),
+        booleanConstructor, "Boolean", 1, &booleanPrototype, &boolean
+    );
     // Array
     //
-    arrayPrototype = new(&frame) ArrayCreator(objectPrototype);
-    frame.locals[5] = makeObjectValue(arrayPrototype);
+    systemConstructor(
+        &frame, 10,
+        new(&frame) ArrayCreator(objectPrototype),
+        arrayConstructor, "Array", 1, &arrayPrototype, &array
+    );
+    // Error
+    //
+    systemConstructor(
+        &frame, 12,
+        new(&frame) PrototypeCreator<Error,Error>(objectPrototype),
+        errorConstructor, "Error", 1, &errorPrototype, &error
+    );
+    // Error.prototype.name
+    errorPrototype->defineOwnProperty(
+        &frame, permStrName, PROP_NORMAL, makeStringValue(internString(&frame, "Error")), NULL, NULL
+    );
+    // Error.prototype.message
+    errorPrototype->defineOwnProperty( &frame, permStrMessage, PROP_NORMAL, makeStringValue(permStrEmpty), NULL, NULL);
 
-    array = new(&frame) Function(functionPrototype);
-    env->vars[5] = makeObjectValue(array);
-    array->init(&frame, env, arrayConstructor, internString(&frame,"Array"), 1);
-    array->definePrototype(&frame, arrayPrototype);
+    // TypeError
+    //
+    systemConstructor(
+        &frame, 14,
+        new(&frame) PrototypeCreator<Object,Error>(errorPrototype),
+        typeErrorConstructor, "TypeError", 1, &typeErrorPrototype, &typeError
+    );
+    // TypeError.prototype.name
+    typeErrorPrototype->defineOwnProperty(
+        &frame, permStrName, PROP_NORMAL, makeStringValue(internString(&frame, "TypeError")), NULL, NULL
+    );
+}
 
-    arrayPrototype->defineOwnProperty(
-        &frame, permStrConstructor, PROP_WRITEABLE | PROP_CONFIGURABLE, makeObjectValue(array));
+void Runtime::systemConstructor (
+    StackFrame * caller, unsigned envIndex, Object * prototype, CodePtr code, const char * name, unsigned length,
+    Object ** outPrototype, Function ** outConstructor
+)
+{
+    if (outPrototype) {
+        env->vars[envIndex] = makeObjectValue(prototype);
+        *outPrototype = prototype;
+    }
+
+    Function * constructor = new(caller) Function(functionPrototype);
+    env->vars[envIndex+1] = makeObjectValue(constructor);
+    constructor->init(caller, env, code, internString(caller, name), length);
+    constructor->definePrototype(caller, prototype);
+
+    prototype->defineOwnProperty(
+        caller, permStrConstructor, PROP_WRITEABLE | PROP_CONFIGURABLE, makeObjectValue(constructor)
+    );
+
+    *outConstructor = constructor;
 }
 
 void Runtime::parseDiagEnvironment ()
@@ -1031,25 +1078,9 @@ TaggedValue newFunction (StackFrame * caller, Env * env, const StringPrim * name
         &frame, JS_GET_RUNTIME(caller)->permStrConstructor, PROP_WRITEABLE | PROP_CONFIGURABLE, frame.locals[0]
     );
 
-    func->definePrototype(&frame, frame.locals[1].raw.oval);
+    func->definePrototype(&frame, frame.locals[1].raw.oval, PROP_WRITEABLE);
 
     return frame.locals[0];
-}
-
-// FIXME!
-void throwTypeError (StackFrame * caller, const char * msg, ...)
-{
-    char * buf;
-    va_list ap;
-    va_start(ap, msg);
-    vasprintf(&buf, msg, ap);
-    va_end(ap);
-    // FIXME:
-    if (buf)
-        fprintf(stderr, "TypeError: %s\n", buf);
-    free(buf);
-    caller->printStackTrace();
-    abort();
 }
 
 static void unhandledException (StackFrame * caller) JS_NORETURN;
@@ -1070,6 +1101,35 @@ void throwValue (StackFrame * caller, TaggedValue val)
         ::longjmp(r->tryRecord->jbuf, 1);
     else
         unhandledException(caller);
+}
+
+void throwOutOfMemory (StackFrame * caller)
+{
+    fprintf(stderr, "OUT OF MEMORY");
+    caller->printStackTrace();
+    throw std::bad_alloc();
+}
+
+void throwTypeError (StackFrame * caller, const char * msg, ...)
+{
+    StackFrameN<0,3,0> frame(caller, NULL, __FILE__ ":throwTypeError", __LINE__);
+
+    char * buf;
+    va_list ap;
+    va_start(ap, msg);
+    vasprintf(&buf, msg, ap);
+    va_end(ap);
+
+    if (!buf) {
+        throwOutOfMemory(&frame);
+    } else {
+        frame.locals[0] = JS_UNDEFINED_VALUE;
+        frame.locals[1] = makeStringValue(StringPrim::make(&frame, buf));
+        free(buf);
+        frame.locals[2] = typeErrorConstructor(&frame, NULL, 2, &frame.locals[0]);
+
+        throwValue(&frame, frame.locals[2]);
+    }
 }
 
 bool isCallable (TaggedValue v)

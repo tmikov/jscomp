@@ -138,6 +138,7 @@ struct Env : public Memory
 enum PropAttr
 {
     PROP_ENUMERABLE = 0x01, PROP_WRITEABLE = 0x02, PROP_CONFIGURABLE = 0x04, PROP_GET_SET = 0x08,
+    PROP_NORMAL = PROP_ENUMERABLE | PROP_WRITEABLE | PROP_CONFIGURABLE
 };
 
 struct ListEntry
@@ -415,7 +416,7 @@ struct Function : public Object
     virtual bool mark (IMark * marker, unsigned markBit) const;
 
     /** Define the 'prototype' property */
-    void definePrototype (StackFrame * caller, Object * prototype);
+    void definePrototype (StackFrame * caller, Object * prototype, unsigned propsFlags = 0);
 
     bool hasInstance (StackFrame * caller, Object * inst);
 
@@ -478,6 +479,13 @@ struct Box : public Object
 typedef Box String;
 typedef Box Number;
 typedef Box Boolean;
+
+struct Error : public Object
+{
+    Error (Object * parent):
+        Object(parent)
+    {}
+};
 
 struct StackFrame
 {
@@ -596,6 +604,10 @@ struct Runtime
     Function * boolean;
     Object * arrayPrototype;
     Function * array;
+    Object * errorPrototype;
+    Function * error;
+    Object * typeErrorPrototype;
+    Function * typeError;
 
     Env * env;
 
@@ -626,6 +638,7 @@ struct Runtime
     const StringPrim * permStrFunction;
     const StringPrim * permStrToString;
     const StringPrim * permStrValueOf;
+    const StringPrim * permStrMessage;
 
     unsigned markBit; // the value that was used for marking during the previous collection
 
@@ -664,6 +677,11 @@ struct Runtime
 
 private:
     void parseDiagEnvironment();
+
+    void systemConstructor (
+        StackFrame * caller, unsigned envIndex, Object * prototype, CodePtr code, const char * name, unsigned length,
+        Object ** outPrototype, Function ** outConstructor
+    );
 };
 
 extern Runtime * g_runtime;
@@ -683,6 +701,8 @@ TaggedValue stringConstructor (StackFrame * caller, Env *, unsigned, const Tagge
 TaggedValue numberConstructor (StackFrame * caller, Env *, unsigned, const TaggedValue *);
 TaggedValue booleanConstructor (StackFrame * caller, Env *, unsigned, const TaggedValue *);
 TaggedValue arrayConstructor (StackFrame * caller, Env *, unsigned, const TaggedValue *);
+TaggedValue errorConstructor (StackFrame * caller, Env *, unsigned argc, const TaggedValue * argv);
+TaggedValue typeErrorConstructor (StackFrame * caller, Env *, unsigned argc, const TaggedValue * argv);
 
 inline bool markValue (IMark * marker, unsigned markBit, const TaggedValue & value)
 {
@@ -755,8 +775,9 @@ inline TaggedValue makeInternStringValue (StackFrame * caller, const char * str)
 Object * objectCreate (StackFrame * caller, TaggedValue parent);
 TaggedValue newFunction (StackFrame * caller, Env * env, const StringPrim * name, unsigned length, CodePtr code);
 
-void throwTypeError (StackFrame * caller, const char * str, ...) JS_NORETURN;
 void throwValue (StackFrame * caller, TaggedValue val) JS_NORETURN;
+void throwOutOfMemory (StackFrame * caller) JS_NORETURN;
+void throwTypeError (StackFrame * caller, const char * str, ...) JS_NORETURN;
 
 bool isCallable (TaggedValue val);
 TaggedValue call(StackFrame * caller, TaggedValue value, unsigned argc, const TaggedValue * argv);

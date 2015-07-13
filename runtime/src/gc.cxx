@@ -21,7 +21,7 @@ Memory * allocate (size_t size, StackFrame * caller)
 
     Memory * block = (Memory *)malloc(size);
     if (block == NULL)
-        throw std::bad_alloc();
+        throwOutOfMemory(caller);
 
     block->header = runtime->markBit;
     block->gcSize = size;

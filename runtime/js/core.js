@@ -70,16 +70,16 @@ function defineProperties (obj, props)
     return obj;
 }
 
-function method (obj, prop, func)
+function hidden (obj, prop, func)
 {
     defineProperty(obj, prop, {writable: true, configurable: true, value: func});
 }
 
-method(Object, "defineProperty", defineProperty);
+hidden(Object, "defineProperty", defineProperty);
 
-method(Object, "defineProperties", defineProperties);
+hidden(Object, "defineProperties", defineProperties);
 
-method(Object, "create", function object_create (proto, properties)
+hidden(Object, "create", function object_create (proto, properties)
 {
     var obj = __asm__({},["result"],[["proto",proto]],[],
         "%[result] = js::makeObjectValue(js::objectCreate(%[%frame], %[proto]));"
@@ -89,7 +89,7 @@ method(Object, "create", function object_create (proto, properties)
     return obj;
 });
 
-method(Object.prototype, "toString", function object_toString()
+hidden(Object.prototype, "toString", function object_toString()
 {
     if (this === void 0)
         return "[object Undefined]";
@@ -99,12 +99,12 @@ method(Object.prototype, "toString", function object_toString()
     return "[object Object]";
 });
 
-method(Object.prototype, "toLocaleString", function object_toLocaleString()
+hidden(Object.prototype, "toLocaleString", function object_toLocaleString()
 {
     return this.toString();
 });
 
-method(Function.prototype, "call", function function_call (thisArg)
+hidden(Function.prototype, "call", function function_call (thisArg)
 {
     return __asm__({},["result"],[["thisArg", thisArg]],[],
         '%[result] = %[%argc] > 1' +
@@ -114,17 +114,37 @@ method(Function.prototype, "call", function function_call (thisArg)
 });
 
 
-
-/** Temporary method to simply typing. We delete it in the end */
-method(Error.prototype, "toString", function error_toString ()
+// Error
+//
+hidden(Error.prototype, "name", "Error");
+hidden(Error.prototype, "message", "");
+hidden(Error.prototype, "toString", function error_toString ()
 {
-    return "Error: "+ this.message;
+    var name = this.name;
+    name = name !== void 0 ? String(name) : "";
+    var msg = this.message;
+    msg = msg !== void 0 ? String(msg) : "";
+
+    if (!name)
+        return msg;
+    if (!msg)
+        return name;
+    return name + ": " + msg;
 });
 
-TypeError.prototype = Object.create(Error.prototype);
-SyntaxError.prototype = Object.create(Error.prototype);
+// TypeError
+//
+hidden(TypeError.prototype, "name", "TypeError");
 
-method(Array.prototype, "push", function array_push(dummy)
+// SyntaxError
+//
+// NOTE: Error and TypeError are system-declared but the rest of the errors aren't
+SyntaxError.prototype = Object.create(Error.prototype);
+hidden(SyntaxError.prototype, "name", "SyntaxError");
+
+// Array
+//
+hidden(Array.prototype, "push", function array_push(dummy)
 {
     // TODO: special case arguments.length < 2 (also arguments.length shouldn't create the object)
     var n = this.length | 0;
