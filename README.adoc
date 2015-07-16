@@ -60,16 +60,13 @@ ever - the cost and complexity is not worth it. If an application absolutely nee
 it should be fixed :-), or it should use 'v8'. (Note that strict code can usually run fine
 in non-strict mode).
 
-* Not all statements and expressions are implemented. Only ones that were absolutely
-necessary for progress are present. Specifically, this is a not-exhaustive list of
-not supported things (yet - they will be soon!):
+* Not implemented yet:
 
 ** +with+ : it is last on our list. We think we have come up with a reasonable way to implement
 it without a huge performance penalty, but since we don't use +with+ at all, our motivation is low.
 ** +Object.setPrototypeOf()+ and +\_\_proto__+ : the plan is not to support prototype modification.
   This is not a judgement, but if you really need that you should use a different JavaScript
   implementation.
-** +try/catch/finally+ : coming, but not supported yet. Just don't cause any exceptions :-)
 ** +bind/apply+ : coming soon
 ** +arguments+ : implemented only in its 'strict mode' functionality. In other words, changes
 to +arguments+ do not propagate back to the actual arguments. There is also no +caller/callee+,
