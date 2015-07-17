@@ -144,6 +144,13 @@ hidden(SyntaxError.prototype, "name", "SyntaxError");
 
 // Array
 //
+hidden(Array, "isArray", function array_isArray (arg)
+{
+    return __asm__({},["result"],[["arg", arg]],[],
+        "%[result] = js::makeBooleanValue(js::isValueTagObject(%[arg].tag) && dynamic_cast<js::Array*>(%[arg].raw.oval));"
+    );
+});
+
 hidden(Array.prototype, "push", function array_push(dummy)
 {
     // TODO: special case arguments.length < 2 (also arguments.length shouldn't create the object)
@@ -152,6 +159,52 @@ hidden(Array.prototype, "push", function array_push(dummy)
     this.length = n + e;
     for ( var i = 0; i < e; ++i )
         this[n++] = arguments[i];
+});
+
+function copyArray (dest, destIndex, src, srcLen)
+{
+    for ( var i = 0; i < srcLen; ++i, ++destIndex )
+        if (i in src)
+            dest[destIndex] = src[i];
+}
+
+hidden(Array.prototype, "concat", function array_concat()
+{
+    var O = Object(this);
+    var n;
+
+    // Size the result array first
+    n = Array.isArray(O) ? Number(O.length) : 1;
+    for ( var i = 0, e = arguments.length; i < e; ++i ) {
+        var elem = arguments[i];
+        n += Array.isArray(elem) ? Number(elem.length) : 1;
+    }
+
+    var A = [];
+    A.length = n;
+
+    n = 0;
+    // Copy O
+    if (Array.isArray(O)) {
+        var len = Number(O.length);
+        copyArray(A, n, O, len);
+        n += len;
+    } else {
+        A[n++] = O;
+    }
+
+    for ( var i = 0, e = arguments.length; i < e; ++i ) {
+        var elem = arguments[i];
+        if (Array.isArray(elem)) {
+            var len = Number(elem.length);
+            copyArray(A, n, elem, len);
+            n += len;
+        } else {
+            A[n++] = elem;
+        }
+    }
+
+    return A;
 });
 
 hidden(Array.prototype, "slice", function array_slice(start, end)
