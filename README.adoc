@@ -67,7 +67,7 @@ it without a huge performance penalty, but since we don't use +with+ at all, our
 ** +Object.setPrototypeOf()+ and +\_\_proto__+ : the plan is not to support prototype modification.
   This is not a judgement, but if you really need that you should use a different JavaScript
   implementation.
-** +bind/apply+ : coming soon
+** +bind+ : coming soon
 ** Regular expressions: coming soon
 ** +arguments+ : implemented only in its 'strict mode' functionality. In other words, changes
 to +arguments+ do not propagate back to the actual arguments. There is also no +caller/callee+,

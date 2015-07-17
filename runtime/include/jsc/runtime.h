@@ -809,7 +809,12 @@ TaggedValue toPrimitive (StackFrame * caller, TaggedValue v, ValueTag preferredT
 double toNumber (const StringPrim * str);
 double toNumber (StackFrame * caller, TaggedValue v);
 double primToNumber (TaggedValue v);
+uint32_t toUint32 (StackFrame * caller, TaggedValue v);
 int32_t toInt32 (StackFrame * caller, TaggedValue v);
+inline uint32_t toUint32 (double num)
+{
+    return isfinite(num) ? (uint32_t)num : 0;
+}
 inline int32_t toInt32 (double num)
 {
     return isfinite(num) ? (int32_t)num : 0;

@@ -705,6 +705,41 @@ TaggedValue functionConstructor (StackFrame * caller, Env *, unsigned, const Tag
     throwTypeError(caller, "'Function' (module-level 'eval') is not supported");
 }
 
+/**
+ * Function.prototype.apply()
+ */
+TaggedValue functionApply (StackFrame * caller, Env *, unsigned argc, const TaggedValue * argv)
+{
+    StackFrameN<0,16,0> frame(caller, NULL, __FILE__ ":functionApply", __LINE__);
+    frame.locals[0] = argc > 1 ? argv[1] : JS_UNDEFINED_VALUE; // thisArg
+    TaggedValue argArray = argc > 2 ? argv[2] : JS_UNDEFINED_VALUE;
+
+    if (argArray.tag ==  VT_NULL || argArray.tag == VT_UNDEFINED)
+        return call(&frame, argv[0], 1, &frame.locals[0]);
+
+    if (!isValueTagObject(argArray.tag))
+        throwTypeError(&frame, "Function.prototype.apply() argArray parameter is not an object");
+
+    uint32_t n = toUint32(&frame, get(&frame, argArray, JS_GET_RUNTIME(&frame)->permStrLength));
+    if (JS_LIKELY(n <= 15)) {
+        // Fast path: use argument slots allocated on the stack
+        for ( uint32_t index = 0; index < n; ++index )
+            frame.locals[index+1] = argArray.raw.oval->getComputed(&frame, makeNumberValue(index));
+
+        return call(&frame, argv[0], n+1, &frame.locals[0]);
+    } else {
+        // Slow path: must allocate the arguments slots in heap
+        ArrayBase * argSlots;
+        frame.locals[1] = makeObjectValue(argSlots = new(&frame) ArrayBase(JS_GET_RUNTIME(&frame)->arrayPrototype));
+        argSlots->setLength(n+1);
+        argSlots->elems[0] = frame.locals[0]; // thisArg
+        for ( uint32_t index = 0; index < n; ++index )
+            argSlots->elems[index+1] = argArray.raw.oval->getComputed(&frame, makeNumberValue(index));
+
+        return call(&frame, argv[0], n+1, &argSlots->elems[0]);
+    }
+}
+
 TaggedValue stringConstructor (StackFrame * caller, Env *, unsigned argc, const TaggedValue * argv)
 {
     TaggedValue thisp = argv[0];
@@ -832,7 +867,7 @@ Runtime::Runtime (bool strictMode)
     parseDiagEnvironment();
 
     // Note: we need to be extra careful to store allocated values where the FC can trace them.
-    StackFrameN<0, 0, 0> frame(NULL, NULL, __FILE__ ":Runtime::Runtime()", __LINE__);
+    StackFrameN<0, 1, 0> frame(NULL, NULL, __FILE__ ":Runtime::Runtime()", __LINE__);
 
     // Perm strings
     permStrEmpty = internString(&frame, "");
@@ -884,6 +919,14 @@ Runtime::Runtime (bool strictMode)
         functionPrototype,
         functionConstructor, "Function", 1, NULL, &function
     );
+    // Function.prototype.apply() : for efficiency it is implemented in fully native code
+    {
+        const StringPrim * name = internString(&frame, "apply");
+        frame.locals[0] = newFunction(&frame, env, name, 2, functionApply);
+        functionPrototype->defineOwnProperty(
+            &frame, internString(&frame, "apply"), PROP_WRITEABLE|PROP_CONFIGURABLE, frame.locals[0], NULL, NULL
+        );
+    }
     // String
     //
     systemConstructor(
@@ -1385,6 +1428,10 @@ double primToNumber (TaggedValue v)
     };
 }
 
+uint32_t toUint32 (StackFrame * caller, TaggedValue v)
+{
+    return toUint32(toNumber(caller, v));
+}
 int32_t toInt32 (StackFrame * caller, TaggedValue v)
 {
     return toInt32(toNumber(caller, v));
