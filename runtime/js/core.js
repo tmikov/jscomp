@@ -104,6 +104,8 @@ hidden(Object.prototype, "toLocaleString", function object_toLocaleString()
     return this.toString();
 });
 
+// Function
+//
 hidden(Function.prototype, "call", function function_call (thisArg)
 {
     return __asm__({},["result"],[["thisArg", thisArg]],[],
@@ -111,6 +113,27 @@ hidden(Function.prototype, "call", function function_call (thisArg)
             '? js::call(%[%frame], %[%argv][0], %[%argc]-1, %[%argv]+1)' +
             ': js::call(%[%frame], %[%argv][0], 1, &%[thisArg]);'
     );
+});
+
+hidden(Function.prototype, "bind", function function_bind (oThis)
+{
+    if (typeof this !== 'function')
+        throw new TypeError("Function.prototype.bind - this is not a function");
+
+    var aArgs = Array.prototype.slice.call(arguments, 1),
+        fToBind = this,
+        fNOP = function() {},
+        fBound = function() {
+            return fToBind.apply(this instanceof fNOP
+                   ? this
+                   : oThis,
+                   aArgs.concat(Array.prototype.slice.call(arguments)));
+        };
+
+    fNOP.prototype = this.prototype;
+    fBound.prototype = new fNOP();
+
+    return fBound;
 });
 
 
