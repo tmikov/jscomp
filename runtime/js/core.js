@@ -167,28 +167,69 @@ hidden(SyntaxError.prototype, "name", "SyntaxError");
 
 // Array
 //
-hidden(Array, "isArray", function array_isArray (arg)
+function isArrayBase (arg)
+{
+    return __asm__({},["result"],[["arg", arg]],[],
+        "%[result] = js::makeBooleanValue(js::isValueTagObject(%[arg].tag) && dynamic_cast<js::ArrayBase*>(%[arg].raw.oval));"
+    );
+}
+function isArrayBaseOfLength (arg, length)
+{
+    return __asm__({},["result"],[["arg", arg], ["length", Number(length)]],[],
+        "js::ArrayBase * ab;\n"+
+        "%[result] = js::makeBooleanValue("+
+            "js::isValueTagObject(%[arg].tag) && (ab = dynamic_cast<js::ArrayBase*>(%[arg].raw.oval)) != NULL && "+
+            "ab->getLength() >= %[length].raw.nval"+
+        ");"
+    );
+}
+function isArray (arg)
 {
     return __asm__({},["result"],[["arg", arg]],[],
         "%[result] = js::makeBooleanValue(js::isValueTagObject(%[arg].tag) && dynamic_cast<js::Array*>(%[arg].raw.oval));"
     );
-});
+}
+
+hidden(Array, "isArray", isArray);
 
 hidden(Array.prototype, "push", function array_push(dummy)
 {
     // TODO: special case arguments.length < 2 (also arguments.length shouldn't create the object)
-    var n = this.length | 0;
+    var n = this.length >>> 0;
     var e = arguments.length;
     this.length = n + e;
     for ( var i = 0; i < e; ++i )
         this[n++] = arguments[i];
 });
 
-function copyArray (dest, destIndex, src, srcLen)
+/**
+ *
+ * @param dest - must be ArrayBase of sufficient length
+ * @param destIndex - must be a number
+ * @param src
+ * @param srcFrom - must be a number
+ * @param srcTo - must be a number
+ */
+function copyToArray (dest, destIndex, src, srcFrom, srcTo)
 {
-    for ( var i = 0; i < srcLen; ++i, ++destIndex )
-        if (i in src)
-            dest[destIndex] = src[i];
+    if (isArrayBaseOfLength(src, srcTo)) {
+        // Fast case - copying from array to array
+        // We know that dest is an array of sufficient size, destIndex, srcFrom and srcTo are numbers.
+
+        __asm__({},[],[["dest",dest], ["destIndex",destIndex], ["src",src], ["srcFrom",srcFrom], ["srcTo",srcTo]],[],
+            "uint32_t srcFrom = (uint32_t)%[srcFrom].raw.nval;\n"+
+            "uint32_t srcTo = (uint32_t)%[srcTo].raw.nval;\n"+
+            "::memcpy("+
+                "&((js::ArrayBase *)%[dest].raw.oval)->elems[(uint32_t)%[destIndex].raw.nval],"+
+                "&((js::ArrayBase *)%[src].raw.oval)->elems[srcFrom],"+
+                "sizeof(js::TaggedValue)*(srcTo - srcFrom)"+
+            ");"
+        );
+    } else {
+        for ( var i = srcFrom; i < srcTo; ++i, ++destIndex )
+            if (i in src)
+                dest[destIndex] = src[i];
+    }
 }
 
 hidden(Array.prototype, "concat", function array_concat()
@@ -197,10 +238,10 @@ hidden(Array.prototype, "concat", function array_concat()
     var n;
 
     // Size the result array first
-    n = Array.isArray(O) ? Number(O.length) : 1;
+    n = isArray(O) ? Number(O.length) : 1;
     for ( var i = 0, e = arguments.length; i < e; ++i ) {
         var elem = arguments[i];
-        n += Array.isArray(elem) ? Number(elem.length) : 1;
+        n += isArray(elem) ? Number(elem.length) : 1;
     }
 
     var A = [];
@@ -208,9 +249,9 @@ hidden(Array.prototype, "concat", function array_concat()
 
     n = 0;
     // Copy O
-    if (Array.isArray(O)) {
+    if (isArray(O)) {
         var len = Number(O.length);
-        copyArray(A, n, O, len);
+        copyToArray(A, n, O, 0, len);
         n += len;
     } else {
         A[n++] = O;
@@ -218,9 +259,9 @@ hidden(Array.prototype, "concat", function array_concat()
 
     for ( var i = 0, e = arguments.length; i < e; ++i ) {
         var elem = arguments[i];
-        if (Array.isArray(elem)) {
+        if (isArray(elem)) {
             var len = Number(elem.length);
-            copyArray(A, n, elem, len);
+            copyToArray(A, n, elem, 0, len);
             n += len;
         } else {
             A[n++] = elem;
@@ -261,9 +302,7 @@ hidden(Array.prototype, "slice", function array_slice(start, end)
     final >>>= 0; // toUint32
 
     A.length = final - k;
-    for ( var n = 0; k < final; ++k, ++n )
-        if (k in O)
-            A[n] = O[k];
+    copyToArray(A, 0, O, k, final);
 
     return A;
 });
