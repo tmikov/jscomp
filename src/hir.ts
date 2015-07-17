@@ -694,10 +694,10 @@ export function isImmediateInteger (v: RValue): boolean
     return typeof tmp === "number" && (tmp | 0) === tmp;
 }
 
-export function isNonNegativeInteger (s: string): boolean
+export function isValidArrayIndex (s: string): boolean
 {
-    var n = Number(s) | 0; // convert to integer
-    return n >= 0 && String(n) === s;
+    var n = Number(s) >>> 0; // convert to uint32
+    return n != 4294967295 && String(n) === s;
 }
 
 /**
@@ -1511,6 +1511,13 @@ export class FunctionBuilder
             util.format("%d", unwrapImmedate(rv)|0) :
             util.format("js::toInt32(%s%s)", callerStr, this.strRValue(rv));
     }
+    private strToUint32 (rv: RValue): string
+    {
+        var callerStr: string = "&frame, ";
+        return isImmediate(rv) ?
+            util.format("%d", unwrapImmedate(rv)|0) :
+            util.format("js::toUint32(%s%s)", callerStr, this.strRValue(rv));
+    }
 
     private strToString (rv: RValue): string
     {
@@ -1539,10 +1546,12 @@ export class FunctionBuilder
             this.strToNumber(binop.src1), coper, this.strToNumber(binop.src2));
     }
 
-    private outIntegerBinop (binop: BinOp, coper: string): void
+    private outIntegerBinop (binop: BinOp, coper: string, lsigned: boolean, rsigned: boolean): void
     {
-        this.gen("  %sjs::makeNumberValue(%s %s %s);\n", this.strDest(binop.dest),
-            this.strToInt32(binop.src1), coper, this.strToInt32(binop.src2));
+        var l = lsigned ? this.strToInt32(binop.src1): this.strToUint32(binop.src1);
+        var r = rsigned ? this.strToInt32(binop.src2): this.strToUint32(binop.src2);
+
+        this.gen("  %sjs::makeNumberValue(%s %s %s);\n", this.strDest(binop.dest), l, coper, r);
     }
 
     /**
@@ -1578,7 +1587,7 @@ export class FunctionBuilder
 
             // IMPORTANT: string property names looking like integer numbers must be treated as
             // computed properties
-            if (!isNonNegativeInteger(strName)) {
+            if (!isValidArrayIndex(strName)) {
                 expr = util.format("%s.raw.oval->deleteProperty(%s%s)",
                     this.strRValue(binop.src1), callerStr, this.strStringPrim(strName)
                 );
@@ -1607,15 +1616,12 @@ export class FunctionBuilder
                 this.gen("  %sjs::makeNumberValue(fmod(%s, %s));\n", this.strDest(binop.dest),
                     this.strToNumber(binop.src1), this.strToNumber(binop.src2));
                 break;
-            case OpCode.SHL_N: this.outIntegerBinop(binop, "<<"); break;
-            case OpCode.SHR_N:
-                this.gen("  %sjs::makeNumberValue((uint32_t)%s %s (int32_t)%s);\n", this.strDest(binop.dest),
-                    this.strToInt32(binop.src1), ">>", this.strToInt32(binop.src2));
-                break;
-            case OpCode.ASR_N: this.outIntegerBinop(binop, ">>"); break;
-            case OpCode.OR_N: this.outIntegerBinop(binop, "|"); break;
-            case OpCode.XOR_N: this.outIntegerBinop(binop, "^"); break;
-            case OpCode.AND_N: this.outIntegerBinop(binop, "&"); break;
+            case OpCode.SHL_N: this.outIntegerBinop(binop, "<<", true, false); break;
+            case OpCode.SHR_N: this.outIntegerBinop(binop, ">>", false, false); break;
+            case OpCode.ASR_N: this.outIntegerBinop(binop, ">>", true, false); break;
+            case OpCode.OR_N: this.outIntegerBinop(binop, "|", true, true); break;
+            case OpCode.XOR_N: this.outIntegerBinop(binop, "^", true, true); break;
+            case OpCode.AND_N: this.outIntegerBinop(binop, "&", true, true); break;
 
             case OpCode.ASSERT_OBJECT:
                 this.gen("  if (!js::isValueTagObject(%s.tag)) js::throwTypeError(%s\"%%s\", %s.raw.sval->getStr());\n",
@@ -1693,7 +1699,7 @@ export class FunctionBuilder
 
             // IMPORTANT: string property names looking like integer numbers must be treated as
             // computed properties
-            if (!isNonNegativeInteger(strName)) {
+            if (!isValidArrayIndex(strName)) {
                 this.gen("  %sjs::get(%s%s, %s);\n",
                     this.strDest(getop.dest),
                     callerStr,
@@ -1719,7 +1725,7 @@ export class FunctionBuilder
 
             // IMPORTANT: string property names looking like integer numbers must be treated as
             // computed properties
-            if (!isNonNegativeInteger(strName)) {
+            if (!isValidArrayIndex(strName)) {
                 this.gen("  js::put(%s%s, %s, %s);\n",
                     callerStr,
                     this.strRValue(putop.obj), this.strStringPrim(strName), this.strRValue(putop.src)
@@ -1813,7 +1819,7 @@ export class FunctionBuilder
 
             // IMPORTANT: string property names looking like integer numbers must be treated as
             // computed properties, but if not, we can go the faster way
-            if (!isNonNegativeInteger(strName)) {
+            if (!isValidArrayIndex(strName)) {
                 return util.format("%s.raw.oval->hasProperty(%s)",
                     this.strRValue(src2), this.strStringPrim(strName)
                 );

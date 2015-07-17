@@ -325,7 +325,7 @@ bool ArrayBase::hasComputed (StackFrame * caller, TaggedValue propName)
 {
     uint32_t index;
     // Fast path
-    if (!(this->flags & OF_INDEX_PROPERTIES) && isNonNegativeInteger(propName, &index))
+    if (!(this->flags & OF_INDEX_PROPERTIES) && isValidArrayIndexNumber(propName, &index))
         return hasElem(index);
 
     StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":ArrayBase::hasComputed()", __LINE__);
@@ -347,7 +347,7 @@ TaggedValue ArrayBase::getComputed (StackFrame * caller, TaggedValue propName)
 {
     uint32_t index;
     // Fast path
-    if (!(this->flags & OF_INDEX_PROPERTIES) && isNonNegativeInteger(propName, &index))
+    if (!(this->flags & OF_INDEX_PROPERTIES) && isValidArrayIndexNumber(propName, &index))
         return getElem(index);
 
     StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":ArrayBase::getComputed()", __LINE__);
@@ -375,7 +375,7 @@ void ArrayBase::putComputed (StackFrame * caller, TaggedValue propName, TaggedVa
 
     uint32_t index;
     // Fast path
-    if (!(this->flags & OF_INDEX_PROPERTIES) && isNonNegativeInteger(propName, &index)) {
+    if (!(this->flags & OF_INDEX_PROPERTIES) && isValidArrayIndexNumber(propName, &index)) {
         setElem(index, v);
         return;
     }
@@ -411,7 +411,7 @@ bool ArrayBase::deleteComputed (StackFrame * caller, TaggedValue propName)
     }
 
     uint32_t index;
-    if (JS_UNLIKELY(!isNonNegativeInteger(propName, &index))) {
+    if (JS_UNLIKELY(!isValidArrayIndexNumber(propName, &index))) {
         if (JS_LIKELY(frame.locals[0].tag == VT_UNDEFINED)) // if we didn't already convert it to string
             frame.locals[0] = toString(&frame, propName);
 
@@ -474,7 +474,7 @@ TaggedValue Array::lengthSetter (StackFrame * caller, Env *, unsigned argc, cons
     assert(argc == 2);
     TaggedValue n = makeNumberValue(toNumber(caller, argv[1]));
     uint32_t len;
-    if (!isNonNegativeInteger(n, &len))
+    if (!isValidArrayIndexNumber(n, &len))
         throwTypeError(caller, "Invalid array length");
     findArrayInstance(caller, argv[0])->setLength(len);
     return JS_UNDEFINED_VALUE;
@@ -810,7 +810,7 @@ TaggedValue arrayConstructor (StackFrame * caller, Env * env, unsigned argc, con
     }
 
     uint32_t size;
-    if (argc == 2 && isNonNegativeInteger(argv[1], &size)) { // size constructor?
+    if (argc == 2 && isValidArrayIndexNumber(argv[1], &size)) { // size constructor?
         array->setLength(size);
     } else if (argc > 1) {
         array->setLength(argc - 1);

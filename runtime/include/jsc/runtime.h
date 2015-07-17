@@ -783,13 +783,13 @@ bool isCallable (TaggedValue val);
 TaggedValue call(StackFrame * caller, TaggedValue value, unsigned argc, const TaggedValue * argv);
 
 /**
- * Checks whether the value is a non-negative integer
+ * Checks whether the ToString(ToUint32(val)) === ToString(val) && val != 2**32-1.
  */
-inline bool isNonNegativeInteger (TaggedValue val, uint32_t * index)
+inline bool isValidArrayIndexNumber (TaggedValue val, uint32_t * index)
 {
     if (val.tag == VT_NUMBER) {
         uint32_t n = (uint32_t)val.raw.nval;
-        if (n == val.raw.nval) {
+        if (n == val.raw.nval && n != UINT32_MAX) {
             *index = n;
             return true;
         }
