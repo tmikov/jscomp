@@ -153,3 +153,41 @@ hidden(Array.prototype, "push", function array_push(dummy)
     for ( var i = 0; i < e; ++i )
         this[n++] = arguments[i];
 });
+
+hidden(Array.prototype, "slice", function array_slice(start, end)
+{
+    var O = Object(this);
+    var A = [];
+    var len = O.length >>> 0; // toUint32()
+    var k, final;
+
+    if ((k = Number(start)) < 0) {
+        if ((k += len) < 0)
+            k = 0;
+    } else {
+        if (k > len)
+            k = len;
+    }
+
+    if (end !== void 0) {
+        if ((final = Number(end)) < 0) {
+            if ((final += len) < 0)
+                final = 0;
+        } else {
+            if (final > len)
+                final = len;
+        }
+    } else {
+        final = len;
+    }
+
+    k >>>= 0; // toUint32
+    final >>>= 0; // toUint32
+
+    A.length = final - k;
+    for ( var n = 0; k < final; ++k, ++n )
+        if (k in O)
+            A[n] = O[k];
+
+    return A;
+});
