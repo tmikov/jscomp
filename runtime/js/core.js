@@ -8,14 +8,16 @@ function _defineAccessor (obj, prop, getter, setter)
     __asm__({},[],[
             ["obj", obj], ["prop", String(prop)],
             ["get", getter], ["set", setter]
-        ],[],
+        ],[["accessor"]],
+        "%[accessor] = js::makePropertyAccessorValue(new(%[%frame]) js::PropertyAccessor("+
+            "%[get].tag == js::VT_FUNCTION ? %[get].raw.fval : NULL,"+
+            "%[set].tag == js::VT_FUNCTION ? %[set].raw.fval : NULL"+
+        "));\n"+
         "%[obj].raw.oval->defineOwnProperty(%[%frame], %[prop].raw.sval,"+
         "js::PROP_CONFIGURABLE |"+
         "js::PROP_ENUMERABLE |"+
         "js::PROP_GET_SET"+
-        ", JS_UNDEFINED_VALUE"+
-        ", %[get].tag == js::VT_FUNCTION ? %[get].raw.fval : NULL"+
-        ", %[set].tag == js::VT_FUNCTION ? %[set].raw.fval : NULL"+
+        ", %[accessor]"+
         ");"
     );
 }
@@ -33,17 +35,27 @@ function defineProperty (obj, prop, descriptor)
     if (("set" in descriptor) && typeof descriptor.set !== "function")
         throw new TypeError("'set' is not a function");
 
+    var value;
     var getset = false;
     if (descriptor.get || descriptor.set) {
-        getset = true;
         if (("value" in descriptor) || ("writable" in descriptor))
             throw new TypeError("Cannot specify 'value' or 'writable' with get/set");
+
+        getset = true;
+        __asm__({},[],[["get", descriptor.get], ["set", descriptor.set], ["value", value]],[],
+            "%[value] = js::makePropertyAccessorValue(new(%[%frame]) js::PropertyAccessor("+
+            "%[get].tag == js::VT_FUNCTION ? %[get].raw.fval : NULL,"+
+            "%[set].tag == js::VT_FUNCTION ? %[set].raw.fval : NULL"+
+            "));"
+        );
+    } else {
+        value = descriptor.value;
     }
 
     __asm__({},[],[
-            ["obj", obj], ["prop", String(prop)], ["value", descriptor.value],
+            ["obj", obj], ["prop", String(prop)], ["value", value],
             ["configurable", !!descriptor.configurable], ["enumerable", !!descriptor.enumerable],
-            ["writable", !!descriptor.writable], ["getset", getset], ["get", descriptor.get], ["set", descriptor.set]
+            ["writable", !!descriptor.writable], ["getset", getset]
         ],[],
         "%[obj].raw.oval->defineOwnProperty(%[%frame], %[prop].raw.sval,"+
           "(%[configurable].raw.bval ? js::PROP_CONFIGURABLE : 0) |"+
@@ -51,8 +63,6 @@ function defineProperty (obj, prop, descriptor)
           "(%[writable].raw.bval ? js::PROP_WRITEABLE : 0) |"+
           "(%[getset].raw.bval ? js::PROP_GET_SET : 0)"+
         ", %[value]"+
-        ", %[get].tag == js::VT_FUNCTION ? %[get].raw.fval : NULL"+
-        ", %[set].tag == js::VT_FUNCTION ? %[set].raw.fval : NULL"+
         ");"
     );
 

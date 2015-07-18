@@ -67,13 +67,8 @@ bool Object::mark (IMark * marker, unsigned markBit) const
     return true;
 }
 
-Object * Object::defineOwnProperty (StackFrame * caller, const StringPrim * name, unsigned flags, TaggedValue value,
-                                    Function * get, Function * set
-)
+Object * Object::defineOwnProperty (StackFrame * caller, const StringPrim * name, unsigned flags, TaggedValue value)
 {
-    if (flags & PROP_GET_SET)
-        value = makeMemoryValue(VT_MEMORY, new(caller) PropertyAccessor(get, set));
-
     auto it = props.find(name->getStr());
     if (it != props.end()) {
         if ((this->flags & OF_NOCONFIG) || !(it->second.flags & PROP_CONFIGURABLE)) {
@@ -436,15 +431,15 @@ bool ArrayBase::deleteComputed (StackFrame * caller, TaggedValue propName)
 
 void Array::init (StackFrame * caller)
 {
-    StackFrameN<0,2,0> frame(caller, NULL, __FILE__ ":Array::init", __LINE__);
+    StackFrameN<0,3,0> frame(caller, NULL, __FILE__ ":Array::init", __LINE__);
     Runtime * r = JS_GET_RUNTIME(&frame);
     frame.locals[0] = newFunction(&frame, NULL, r->permStrLength, 0, lengthGetter);
     frame.locals[1] = newFunction(&frame, NULL, r->permStrLength, 1, lengthSetter);
-
-    defineOwnProperty(&frame, r->permStrLength, PROP_WRITEABLE|PROP_GET_SET, JS_UNDEFINED_VALUE,
-        frame.locals[0].raw.fval,
-        frame.locals[1].raw.fval
+    frame.locals[2] = makeMemoryValue(
+        VT_MEMORY, new(&frame) PropertyAccessor(frame.locals[0].raw.fval, frame.locals[1].raw.fval)
     );
+
+    defineOwnProperty(&frame, r->permStrLength, PROP_WRITEABLE|PROP_GET_SET, frame.locals[2]);
 }
 
 Array * Array::findArrayInstance (StackFrame * caller, TaggedValue thisp)
@@ -492,7 +487,7 @@ void Arguments::init (StackFrame * caller, int argc, const TaggedValue * argv)
 {
     elems.assign(argv, argv+argc);
     defineOwnProperty(caller, JS_GET_RUNTIME(caller)->permStrLength, PROP_WRITEABLE|PROP_CONFIGURABLE,
-                      makeNumberValue(argc), NULL, NULL);
+                      makeNumberValue(argc));
 }
 
 void ForInIterator::make (StackFrame * caller, TaggedValue * result, Object * obj)
@@ -586,6 +581,7 @@ bool ForInIterator::mark (IMark * marker, unsigned markBit) const
 void Function::init (StackFrame * caller, Env * env, CodePtr code, const StringPrim * name, unsigned length)
 {
     Runtime * r = JS_GET_RUNTIME(caller);
+
     this->env = env;
     this->code = code;
     if (!name)
@@ -593,8 +589,15 @@ void Function::init (StackFrame * caller, Env * env, CodePtr code, const StringP
     this->length = length;
     defineOwnProperty(caller, r->permStrLength, 0, makeNumberValue(length));
     defineOwnProperty(caller, r->permStrName, 0, makeStringValue(name));
-    defineOwnProperty(caller, r->permStrArguments, 0, JS_NULL_VALUE);
-    defineOwnProperty(caller, r->permStrCaller, 0, JS_NULL_VALUE);
+    if (r->strictMode) {
+        defineOwnProperty(caller, r->permStrCaller, PROP_GET_SET, r->strictThrowerAccessor);
+        defineOwnProperty(caller, r->permStrCallee, PROP_GET_SET, r->strictThrowerAccessor);
+        defineOwnProperty(caller, r->permStrArguments, PROP_GET_SET, r->strictThrowerAccessor);
+    } else {
+        defineOwnProperty(caller, r->permStrCaller, PROP_WRITEABLE, JS_NULL_VALUE);
+        defineOwnProperty(caller, r->permStrCallee, PROP_WRITEABLE, JS_NULL_VALUE);
+        defineOwnProperty(caller, r->permStrArguments, PROP_WRITEABLE, JS_NULL_VALUE);
+    }
 }
 
 bool Function::mark (IMark * marker, unsigned markBit) const
@@ -848,6 +851,11 @@ TaggedValue typeErrorConstructor (StackFrame * caller, Env * env, unsigned argc,
     return errorConstructor(&frame, env, 2, &frame.locals[0]);
 }
 
+static TaggedValue strictThrower (StackFrame * caller, Env *, unsigned, const TaggedValue *)
+{
+    throwTypeError(caller, "'caller', 'callee' and 'arguments' Function properties cannot be accessed in strict mode");
+}
+
 bool Runtime::MemoryHead::mark (IMark *, unsigned) const
 { return true; }
 
@@ -882,6 +890,7 @@ Runtime::Runtime (bool strictMode)
     permStrName = internString(&frame, "name");
     permStrArguments = internString(&frame, "arguments");
     permStrCaller = internString(&frame, "caller");
+    permStrCallee = internString(&frame, "callee");
     permStrObject = internString(&frame, "object");
     permStrBoolean = internString(&frame, "boolean");
     permStrNumber = internString(&frame, "number");
@@ -894,10 +903,29 @@ Runtime::Runtime (bool strictMode)
     // Global env
     env = Env::make(&frame, NULL, 20);
 
+    // strictThrowerFunction
+    // Used as a "poison pill" when accessing forbidden properties
+    {
+        // Disable strict mode temporarily to avoid an endless loop
+        bool saveStrict = this->strictMode;
+        this->strictMode = false;
+
+        Function * strictThrowerFunction = new(&frame) Function(NULL);
+        frame.locals[0] = makeObjectValue(strictThrowerFunction);
+        strictThrowerFunction->init(&frame, env, strictThrower, NULL, 0);
+
+        env->vars[16] = strictThrowerAccessor = makePropertyAccessorValue(
+            new(&frame) PropertyAccessor(strictThrowerFunction, strictThrowerFunction)
+        );
+
+        this->strictMode = saveStrict;
+    }
+
     // Object.prototype
     //
     objectPrototype = new(&frame) Object(NULL);
     env->vars[0] = makeObjectValue(objectPrototype);
+
 
     // Function.prototype
     //
@@ -924,7 +952,7 @@ Runtime::Runtime (bool strictMode)
         const StringPrim * name = internString(&frame, "apply");
         frame.locals[0] = newFunction(&frame, env, name, 2, functionApply);
         functionPrototype->defineOwnProperty(
-            &frame, internString(&frame, "apply"), PROP_WRITEABLE|PROP_CONFIGURABLE, frame.locals[0], NULL, NULL
+            &frame, internString(&frame, "apply"), PROP_WRITEABLE|PROP_CONFIGURABLE, frame.locals[0]
         );
     }
     // String
@@ -964,10 +992,10 @@ Runtime::Runtime (bool strictMode)
     );
     // Error.prototype.name
     errorPrototype->defineOwnProperty(
-        &frame, permStrName, PROP_NORMAL, makeStringValue(internString(&frame, "Error")), NULL, NULL
+        &frame, permStrName, PROP_NORMAL, makeStringValue(internString(&frame, "Error"))
     );
     // Error.prototype.message
-    errorPrototype->defineOwnProperty( &frame, permStrMessage, PROP_NORMAL, makeStringValue(permStrEmpty), NULL, NULL);
+    errorPrototype->defineOwnProperty( &frame, permStrMessage, PROP_NORMAL, makeStringValue(permStrEmpty));
 
     // TypeError
     //
@@ -978,8 +1006,10 @@ Runtime::Runtime (bool strictMode)
     );
     // TypeError.prototype.name
     typeErrorPrototype->defineOwnProperty(
-        &frame, permStrName, PROP_NORMAL, makeStringValue(internString(&frame, "TypeError")), NULL, NULL
+        &frame, permStrName, PROP_NORMAL, makeStringValue(internString(&frame, "TypeError"))
     );
+
+    // Next free is env[17]
 }
 
 void Runtime::systemConstructor (

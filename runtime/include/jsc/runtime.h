@@ -218,8 +218,7 @@ struct Object : public Memory
     virtual bool mark (IMark * marker, unsigned markBit) const;
 
     Object * defineOwnProperty (
-        StackFrame * caller, const StringPrim * name, unsigned flags,
-        TaggedValue value = JS_UNDEFINED_VALUE, Function * get = NULL, Function * set = NULL
+        StackFrame * caller, const StringPrim * name, unsigned flags, TaggedValue value = JS_UNDEFINED_VALUE
     );
 
     Property * getOwnProperty (const StringPrim * name);
@@ -591,6 +590,8 @@ struct Runtime
     unsigned diagFlags;
     bool strictMode;
 
+    TaggedValue strictThrowerAccessor;
+
     Object * objectPrototype;
     Function * functionPrototype;
     Function * object;
@@ -631,6 +632,7 @@ struct Runtime
     const StringPrim * permStrName;
     const StringPrim * permStrArguments;
     const StringPrim * permStrCaller;
+    const StringPrim * permStrCallee;
     const StringPrim * permStrObject;
     const StringPrim * permStrBoolean;
     const StringPrim * permStrNumber;
@@ -742,6 +744,11 @@ inline TaggedValue makeMemoryValue (ValueTag tag, Memory * m)
     val.tag = tag;
     val.raw.mval = m;
     return val;
+}
+
+inline TaggedValue makePropertyAccessorValue (PropertyAccessor * pr)
+{
+    return makeMemoryValue(VT_MEMORY, pr);
 }
 
 inline TaggedValue makeObjectValue (Object * o)
