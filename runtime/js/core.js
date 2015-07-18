@@ -194,12 +194,37 @@ hidden(Array, "isArray", isArray);
 
 hidden(Array.prototype, "push", function array_push(dummy)
 {
-    // TODO: special case arguments.length < 2 (also arguments.length shouldn't create the object)
-    var n = this.length >>> 0;
-    var e = arguments.length;
-    this.length = n + e;
-    for ( var i = 0; i < e; ++i )
-        this[n++] = arguments[i];
+    var O = Object(this);
+    var n = O.length >>> 0;
+    /*
+        This is what the code does, but we want to avoid allocating the arguments object
+
+        var argc = arguments.length >>> 0;
+        O.length = n + argc; // Resize the array in advance
+        for ( var i = 0; i < argc; ++i )
+            O[n++] = arguments[i];
+     */
+    var argc = __asm__({},["result"],[],[],"%[result] = js::makeNumberValue(%[%argc]);");
+    O.length = n + argc - 1;
+    for ( var i = 1; i < argc; ++i )
+        O[n++] = __asm__({},["result"],[["i",i]],[],"%[result] = %[%argv][(uint32_t)%[i].raw.nval]");
+    return n;
+});
+
+hidden(Array.prototype, "pop", function array_pop()
+{
+    var O = Object(this);
+    var len = O.length >>> 0;
+    if (len !== 0) {
+        --len;
+        var element = O[len];
+        delete O[len];
+        O.length = len;
+        return element;
+    } else {
+        O.length = 0;
+        return void 0;
+    }
 });
 
 /**
