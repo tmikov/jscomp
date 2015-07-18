@@ -710,16 +710,18 @@ function compileSource (
     m_fileName: string, m_reporter: IErrorReporter,
     m_specVars: SpecialVars, m_modules: Modules,
     m_options: Options
-): void
+): boolean
 {
     var m_absFileName = path.resolve(m_fileName);
     var m_dirname = path.dirname(m_absFileName);
     var m_input: string;
+    var m_errors = 0;
 
     if (m_options.verbose)
         console.log("Compiling", m_fileName);
 
-    return compileIt();
+    compileIt();
+    return m_errors === 0;
 
     function compileIt (): void
     {
@@ -747,6 +749,7 @@ function compileSource (
 
     function error (loc: ESTree.SourceLocation, msg: string)
     {
+        ++m_errors;
         m_reporter.error(loc, msg);
     }
 
@@ -3258,7 +3261,7 @@ export function compile (
         m_globalContext.strictMode = m_options.strictMode;
 
         var runtime = compileRuntime(m_globalContext);
-        if (m_reporter.errorCount() > 0)
+        if (!runtime || m_reporter.errorCount() > 0)
             return;
 
         // Resolve and compile all system modules
@@ -3341,9 +3344,15 @@ export function compile (
 
         runtimeCtx.scope.newConstant("undefined", hir.undefinedValue);
 
-        compileSource(runtimeCtx.scope, runtimeCtx.scope, runtimeFileName, m_reporter, new SpecialVars(), m_modules, m_options);
+        if (!compileSource(runtimeCtx.scope, runtimeCtx.scope, runtimeFileName, m_reporter, new SpecialVars(), m_modules, m_options))
+            return null;
+
         var coreScope = compileInANestedScope(runtimeCtx, coreFileName);
+        if (!coreScope)
+            return null;
         var modScope = compileInANestedScope(runtimeCtx, modFileName);
+        if (!modScope)
+            return null;
 
         var r: Runtime = {
             ctx: runtimeCtx,
@@ -3368,7 +3377,8 @@ export function compile (
     {
         var scope = new Scope(coreCtx, true, coreCtx.scope);
         definePaths(scope, fileName);
-        compileSource(scope, coreCtx.scope, fileName, m_reporter, new SpecialVars(), m_modules, m_options);
+        if (!compileSource(scope, coreCtx.scope, fileName, m_reporter, new SpecialVars(), m_modules, m_options))
+            return null;
         return scope;
     }
 
