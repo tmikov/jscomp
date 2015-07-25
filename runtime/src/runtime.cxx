@@ -243,8 +243,8 @@ TaggedValue Object::defaultValue (StackFrame * caller, ValueTag preferredType)
 
 preferString:
     frame.locals[0] = get(&frame, JS_GET_RUNTIME(&frame)->permStrToString);
-    if (js::isCallable(frame.locals[0])) {
-        tmp = frame.locals[0].raw.oval->call(&frame, 1, &frame.locals[1]);
+    if (Function * func = js::isCallable(frame.locals[0])) {
+        tmp = func->call(&frame, 1, &frame.locals[1]);
         if (isValueTagPrimitive(tmp.tag))
             return tmp;
     }
@@ -253,8 +253,8 @@ preferString:
 
 preferNumber:
     frame.locals[0] = get(&frame, JS_GET_RUNTIME(&frame)->permStrValueOf);
-    if (js::isCallable(frame.locals[0])) {
-        tmp = frame.locals[0].raw.oval->call(&frame, 1, &frame.locals[1]);
+    if (Function * func = js::isCallable(frame.locals[0])) {
+        tmp = func->call(&frame, 1, &frame.locals[1]);
         if (isValueTagPrimitive(tmp.tag))
             return tmp;
     }
@@ -263,20 +263,6 @@ preferNumber:
 
 error:
     throwTypeError(&frame, "Cannot determine default value");
-}
-
-bool Object::isCallable () const
-{
-    return false;
-}
-
-TaggedValue Object::call (StackFrame * caller, unsigned argc, const TaggedValue * argv)
-{
-    throwTypeError(caller, "not a function");
-}
-TaggedValue Object::callCons (StackFrame * caller, unsigned argc, const TaggedValue * argv)
-{
-    throwTypeError(caller, "not a function");
 }
 
 bool Object::isIndexString (const char * str, uint32_t * res)
@@ -626,11 +612,6 @@ bool Function::hasInstance (StackFrame * caller, Object * inst)
     return false;
 }
 
-bool Function::isCallable () const
-{
-    return true;
-}
-
 TaggedValue Function::call (StackFrame * caller, unsigned argc, const TaggedValue * argv)
 {
     return (*this->code)(caller, this->env, argc, argv);
@@ -638,6 +619,78 @@ TaggedValue Function::call (StackFrame * caller, unsigned argc, const TaggedValu
 TaggedValue Function::callCons (StackFrame * caller, unsigned argc, const TaggedValue * argv)
 {
     return (*this->consCode)(caller, this->env, argc, argv);
+}
+
+bool BoundFunction::mark (IMark * marker, unsigned markBit) const
+{
+    if (!Function::mark(marker, markBit))
+        return false;
+    if (!markMemory(marker, markBit, this->target))
+        return false;
+    for ( unsigned i = 0, e = this->boundCount; i < e; ++i )
+        if (!markValue(marker, markBit, this->boundArgs[i]))
+            return false;
+    return true;
+}
+
+TaggedValue BoundFunction::call (StackFrame * caller, unsigned argc, const TaggedValue * argv)
+{
+    StackFrameN<0,16,0> frame(caller, NULL, __FILE__ ":BoundFunction::call", __LINE__);
+    unsigned const count = argc - 1;
+
+    if (this->boundCount + count <= 16) {
+        // Fast path - use the local frame as stack
+        memcpy(&frame.locals[0], &this->boundArgs[0], sizeof(frame.locals[0]) * this->boundCount);
+        memcpy(&frame.locals[this->boundCount], argv + 1, sizeof(frame.locals[0]) * count);
+
+        return this->target->call(&frame, this->boundCount + count, &frame.locals[0]);
+    } else {
+        ArrayBase * argSlots;
+        frame.locals[0] = makeObjectValue(argSlots = new(&frame) ArrayBase(JS_GET_RUNTIME(&frame)->arrayPrototype));
+        argSlots->setLength(this->boundCount + count);
+
+        memcpy(&argSlots->elems[0], &this->boundArgs[0], sizeof(argSlots->elems[0]) * this->boundCount);
+        memcpy(&argSlots->elems[this->boundCount], argv + 1, sizeof(argSlots->elems[0]) * count);
+
+        return this->target->call(&frame, this->boundCount + count, &argSlots->elems[0]);
+    }
+}
+
+TaggedValue BoundFunction::callCons (StackFrame * caller, unsigned argc, const TaggedValue * argv)
+{
+    StackFrameN<0,16,0> frame(caller, NULL, __FILE__ ":BoundFunction::callCons", __LINE__);
+    unsigned const count = argc - 1;
+
+    if (this->boundCount + count <= 16) {
+        // Fast path - use the local frame as stack
+        frame.locals[0] = argv[0]; // copy the supplied 'this'
+        if (this->boundCount > 0)
+            memcpy(&frame.locals[1], &this->boundArgs[1], sizeof(frame.locals[0]) * (this->boundCount - 1));
+        memcpy(&frame.locals[this->boundCount], argv + 1, sizeof(frame.locals[0]) * count);
+
+        return this->target->callCons(&frame, this->boundCount + count, &frame.locals[0]);
+    } else {
+        ArrayBase * argSlots;
+        frame.locals[0] = makeObjectValue(argSlots = new(&frame) ArrayBase(JS_GET_RUNTIME(&frame)->arrayPrototype));
+        argSlots->setLength(this->boundCount + count);
+
+        argSlots->elems[0] = argv[0]; // copy the supplied 'this'
+        if (this->boundCount > 0)
+            memcpy(&argSlots->elems[1], &this->boundArgs[1], sizeof(argSlots->elems[0]) * (this->boundCount - 1));
+        memcpy(&argSlots->elems[this->boundCount], argv + 1, sizeof(argSlots->elems[0]) * count);
+
+        return this->target->callCons(&frame, this->boundCount + count, &argSlots->elems[0]);
+    }
+}
+
+Object * BoundPrototype::createDescendant (StackFrame * caller)
+{
+    StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":BoundPrototype::createDescendant", __LINE__);
+    frame.locals[0] = this->target->get(&frame, JS_GET_RUNTIME(&frame)->permStrPrototype);
+    if (isValueTagObject(frame.locals[0].tag))
+        return frame.locals[0].raw.oval->createDescendant(&frame);
+    else
+        return JS_GET_RUNTIME(&frame)->objectPrototype->createDescendant(&frame);
 }
 
 bool StringPrim::mark (IMark * marker, unsigned markBit) const
@@ -731,7 +784,7 @@ TaggedValue functionApply (StackFrame * caller, Env *, unsigned argc, const Tagg
     frame.locals[0] = argc > 1 ? argv[1] : JS_UNDEFINED_VALUE; // thisArg
     TaggedValue argArray = argc > 2 ? argv[2] : JS_UNDEFINED_VALUE;
 
-    if (argArray.tag ==  VT_NULL || argArray.tag == VT_UNDEFINED)
+    if (argArray.tag == VT_NULL || argArray.tag == VT_UNDEFINED)
         return call(&frame, argv[0], 1, &frame.locals[0]);
 
     if (!isValueTagObject(argArray.tag))
@@ -755,6 +808,37 @@ TaggedValue functionApply (StackFrame * caller, Env *, unsigned argc, const Tagg
 
         return call(&frame, argv[0], n+1, &argSlots->elems[0]);
     }
+}
+
+/**
+ * Function.prototype.bind
+ */
+TaggedValue functionBind (StackFrame * caller, Env *, unsigned argc, const TaggedValue * argv)
+{
+    StackFrameN<0,2,0> frame(caller, NULL, __FILE__ ":functionBind", __LINE__);
+    unsigned bindArgCount = argc - 1; // number of bound arguments, including 'thisArg'
+
+    Function * target;
+    if (! (target = isCallable(argv[0])) )
+        throwTypeError(&frame, "bind() first parameter is not callable");
+
+    BoundFunction * boundFunc;
+    frame.locals[0] = makeObjectValue(boundFunc = new(&frame) BoundFunction(
+        JS_GET_RUNTIME(&frame)->functionPrototype,
+        target,
+        // If we are called without a 'thisArg', pass #undefined
+        bindArgCount > 0 ? bindArgCount : 1, bindArgCount > 0 ? argv + 1 : &frame.locals[1]
+    ));
+
+    boundFunc->init(
+        &frame, NULL, NULL, NULL, NULL,
+        target->length >= bindArgCount - 1 ? target->length - bindArgCount - 1 : 0
+    );
+
+    frame.locals[1] = makeObjectValue(new(&frame) BoundPrototype(JS_GET_RUNTIME(&frame)->objectPrototype, target));
+    boundFunc->definePrototype(&frame, frame.locals[1].raw.oval, 0);
+
+    return frame.locals[0];
 }
 
 TaggedValue stringFunction (StackFrame * caller, Env *, unsigned argc, const TaggedValue * argv)
@@ -953,6 +1037,14 @@ Runtime::Runtime (bool strictMode)
         frame.locals[0] = newFunction(&frame, env, name, 2, functionApply);
         functionPrototype->defineOwnProperty(
             &frame, internString(&frame, "apply"), PROP_WRITEABLE|PROP_CONFIGURABLE, frame.locals[0]
+        );
+    }
+    // Function.prototype.bind() : it needs to be implemented in native code
+    {
+        const StringPrim * name = internString(&frame, "bind");
+        frame.locals[0] = newFunction(&frame, env, name, 1, functionBind);
+        functionPrototype->defineOwnProperty(
+            &frame, internString(&frame, "bind"), PROP_WRITEABLE|PROP_CONFIGURABLE, frame.locals[0]
         );
     }
     // String
@@ -1206,15 +1298,11 @@ void throwTypeError (StackFrame * caller, const char * msg, ...)
     }
 }
 
-bool isCallable (TaggedValue v)
-{
-    return isValueTagObject(v.tag) && v.raw.oval->isCallable();
-}
 
 TaggedValue call (StackFrame * caller, TaggedValue value, unsigned argc, const TaggedValue * argv)
 {
-    if (isValueTagObject(value.tag))
-        return value.raw.oval->call(caller, argc, argv);
+    if (Function * func = isCallable(value))
+        return func->call(caller, argc, argv);
 
     throwTypeError(caller, "not a function");
     return JS_UNDEFINED_VALUE;
@@ -1222,8 +1310,8 @@ TaggedValue call (StackFrame * caller, TaggedValue value, unsigned argc, const T
 
 TaggedValue callCons (StackFrame * caller, TaggedValue value, unsigned argc, const TaggedValue * argv)
 {
-    if (isValueTagObject(value.tag))
-        return value.raw.oval->callCons(caller, argc, argv);
+    if (Function * func = isCallable(value))
+        return func->callCons(caller, argc, argv);
 
     throwTypeError(caller, "not a function");
     return JS_UNDEFINED_VALUE;

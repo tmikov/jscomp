@@ -125,6 +125,7 @@ hidden(Function.prototype, "call", function function_call (thisArg)
     );
 });
 
+/* MDN bind() polyfill preserved here for posterity
 hidden(Function.prototype, "bind", function function_bind (oThis)
 {
     if (typeof this !== 'function')
@@ -145,6 +146,7 @@ hidden(Function.prototype, "bind", function function_bind (oThis)
 
     return fBound;
 });
+*/
 
 
 // Error

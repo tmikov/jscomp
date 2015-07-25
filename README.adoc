@@ -67,8 +67,14 @@ it without a huge performance penalty, but since we don't use +with+ at all, our
 ** +Object.setPrototypeOf()+ and +\_\_proto__+ : the plan is not to support prototype modification.
   This is not a judgement, but if you really need that you should use a different JavaScript
   implementation.
-** +bind+ : for now implemented only as the polyfill described in MDN
 ** Regular expressions: coming soon
+
+* Differing from the spec:
+
+** +bind+ : it is a true implementation (not a shim), where the only difference from the spec
+is that it has a read-only +prototype+ property (the spec says it shouldn't have one at all).
+We need that property due to how our object allocation work and we believe that well behaved
+code shouldn't be relying on its absence.
 ** +arguments+ : implemented only in its 'strict mode' functionality. In other words, changes
 to +arguments+ do not propagate back to the actual arguments. There is also no +caller/callee+,
 properties. We can implement all of that (non-strict mode stuff), but it is not high on

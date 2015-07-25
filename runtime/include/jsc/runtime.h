@@ -265,9 +265,6 @@ struct Object : public Memory
     }
 
     virtual TaggedValue defaultValue (StackFrame * caller, ValueTag preferredType);
-    virtual bool isCallable () const;
-    virtual TaggedValue call (StackFrame * caller, unsigned argc, const TaggedValue * argv);
-    virtual TaggedValue callCons (StackFrame * caller, unsigned argc, const TaggedValue * argv);
 
     static bool isIndexString (const char * str, uint32_t * index);
 };
@@ -421,9 +418,41 @@ struct Function : public Object
 
     bool hasInstance (StackFrame * caller, Object * inst);
 
-    virtual bool isCallable () const;
     virtual TaggedValue call (StackFrame * caller, unsigned argc, const TaggedValue * argv);
     virtual TaggedValue callCons (StackFrame * caller, unsigned argc, const TaggedValue * argv);
+};
+
+struct BoundFunction : public Function
+{
+    Function * const target;
+    unsigned const boundCount;
+    std::vector<TaggedValue> boundArgs;
+
+    BoundFunction (Object * parent, Function * aTarget, unsigned argc, const TaggedValue * argv) :
+        Function(parent),
+        target(aTarget),
+        boundCount(argc),
+        boundArgs(&argv[0], &argv[argc])
+    {}
+
+    virtual bool mark (IMark * marker, unsigned markBit) const;
+
+    virtual TaggedValue call (StackFrame * caller, unsigned argc, const TaggedValue * argv);
+    virtual TaggedValue callCons (StackFrame * caller, unsigned argc, const TaggedValue * argv);
+};
+
+/**
+ * This object creates a descendant based on the prototype of the target function instead of itself
+ */
+struct BoundPrototype : public Object
+{
+    Function * const target;
+
+    BoundPrototype (Object * parent, Function * aTarget) :
+        Object(parent), target(aTarget)
+    {}
+
+    virtual Object * createDescendant (StackFrame * caller);
 };
 
 struct StringPrim : public Memory
@@ -798,7 +827,10 @@ void throwValue (StackFrame * caller, TaggedValue val) JS_NORETURN;
 void throwOutOfMemory (StackFrame * caller) JS_NORETURN;
 void throwTypeError (StackFrame * caller, const char * str, ...) JS_NORETURN;
 
-bool isCallable (TaggedValue val);
+inline Function * isCallable (TaggedValue v)
+{
+    return isValueTagObject(v.tag) ? dynamic_cast<Function *>(v.raw.oval) : NULL;
+}
 TaggedValue call(StackFrame * caller, TaggedValue value, unsigned argc, const TaggedValue * argv);
 TaggedValue callCons(StackFrame * caller, TaggedValue value, unsigned argc, const TaggedValue * argv);
 
