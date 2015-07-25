@@ -80,6 +80,7 @@ export class Var extends LValue
     constant: boolean = false;
     accessed: boolean = true;
     funcRef: FunctionBuilder = null;
+    consRef: FunctionBuilder = null;
     local: Local = null; // The corresponding local to use if it doesn't escape
     param: Param = null; // The corresponding param to use if it is constant and doesn't escape
     envIndex: number = -1; //< index in its environment block, if it escapes
@@ -255,6 +256,7 @@ export const enum OpCode
     // Call
     CALL,
     CALLIND,
+    CALLCONS,
 
     // Unconditional jumps
     RET,
@@ -345,6 +347,7 @@ var g_opcodeName: string[] = [
     // Call
     "CALL",
     "CALLIND",
+    "CALLCONS",
 
     // Unconditional jumps
     "RET",
@@ -872,7 +875,7 @@ export class FunctionBuilder
         this.exitLabel = this.newLabel();
     }
 
-    toString() { return `Function(${this.id}/*${this.name}*/)`; }
+    toString() { return `Function(${this.id}/*${this.mangledName}*/)`; }
 
     newClosure (name: string): FunctionBuilder
     {
@@ -928,14 +931,19 @@ export class FunctionBuilder
         return lab;
     }
 
-    setVarAttributes (v: Var, escapes: boolean, accessed: boolean, constant: boolean, funcRef: FunctionBuilder): void
+    setVarAttributes (
+        v: Var, escapes: boolean, accessed: boolean, constant: boolean,
+        funcRef: FunctionBuilder, consRef: FunctionBuilder
+    ): void
     {
         v.escapes = escapes;
         v.constant = constant;
         v.accessed = accessed;
 
-        if (constant)
+        if (constant) {
             v.funcRef = funcRef;
+            v.consRef = consRef;
+        }
     }
 
     private getBB (): BasicBlock
@@ -1114,7 +1122,7 @@ export class FunctionBuilder
         this.getBB().push(new PutOp(obj, propName, src));
     }
 
-    genCall(dest: LValue, closure: RValue, args: RValue[]): void
+    private _genCall(op: OpCode, dest: LValue, closure: RValue, args: RValue[]): void
     {
         if (dest === null)
             dest = nullReg;
@@ -1127,7 +1135,15 @@ export class FunctionBuilder
             bb.push(new AssignOp(slots[i], args[i]));
         }
 
-        this.getBB().push(new CallOp(OpCode.CALLIND, dest, null, closure, slots));
+        this.getBB().push(new CallOp(op, dest, null, closure, slots));
+    }
+    genCall(dest: LValue, closure: RValue, args: RValue[]): void
+    {
+        return this._genCall(OpCode.CALLIND, dest, closure, args);
+    }
+    genCallCons(dest: LValue, closure: RValue, args: RValue[]): void
+    {
+        return this._genCall(OpCode.CALLCONS, dest, closure, args);
     }
 
     genMakeForInIterator (dest: LValue, obj: RValue): void
@@ -1254,7 +1270,7 @@ export class FunctionBuilder
         {
             for ( var i = 0, e = bb.body.length; i < e; ++i ) {
                 var inst = bb.body[i];
-                // Transform CALLIND with a known funcRef into CALL(funcRef)
+                // Transform CALLIND,CALLCONS with a known funcRef/consRef into CALL(funcRef)
                 //
                 if (inst.op === OpCode.CALLIND) {
                     var callInst = <CallOp>inst;
@@ -1265,6 +1281,17 @@ export class FunctionBuilder
                         {
                             callInst.op = OpCode.CALL;
                             callInst.fref = closure.funcRef;
+                        }
+                    }
+                } else if (inst.op === OpCode.CALLCONS) {
+                    var callInst = <CallOp>inst;
+
+                    var closure: Var;
+                    if (closure = isVar(callInst.closure)) {
+                        if (closure.consRef)
+                        {
+                            callInst.op = OpCode.CALL;
+                            callInst.fref = closure.consRef;
                         }
                     }
                 }
@@ -1791,6 +1818,16 @@ export class FunctionBuilder
                 var callop = <CallOp>inst;
                 this.outCallerLine();
                 this.gen("  %sjs::call(&frame, %s, %d, &%s);\n",
+                    this.strDest(callop.dest),
+                    this.strRValue(callop.closure),
+                    callop.args.length,
+                    this.strMemValue(callop.args[0])
+                );
+                break;
+            case OpCode.CALLCONS:
+                var callop = <CallOp>inst;
+                this.outCallerLine();
+                this.gen("  %sjs::callCons(&frame, %s, %d, &%s);\n",
                     this.strDest(callop.dest),
                     this.strRValue(callop.closure),
                     callop.args.length,

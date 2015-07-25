@@ -131,6 +131,7 @@ class Variable
      */
     overrideEscapeInTryBlocks: boolean = false;
     funcRef: hir.FunctionBuilder = null;
+    consRef: hir.FunctionBuilder = null;
 
     hvar: hir.Var = null;
 
@@ -337,7 +338,7 @@ class FunctionContext
         this.vars.forEach( (v: Variable) => {
             if (v.hvar)
                 this.builder.setVarAttributes(v.hvar,
-                    v.escapes, v.accessed || v.assigned, v.initialized && !v.assigned, v.funcRef
+                    v.escapes, v.accessed || v.assigned, v.initialized && !v.assigned, v.funcRef, v.consRef
                 );
         });
 
@@ -3159,7 +3160,7 @@ function compileSource (
             ctx.releaseTemp(args[i]);
 
         var res = ctx.allocTemp();
-        ctx.builder.genCall(res, closure, args);
+        ctx.builder.genCallCons(res, closure, args);
 
         var undLab = ctx.builder.newLabel();
         var notUndLab = ctx.builder.newLabel();
@@ -3324,23 +3325,25 @@ export function compile (
             parentContext, parentContext.scope, runtimeFileName, parentContext.builder.newClosure(runtimeFileName)
         );
 
-        function declareBuiltin (name: string, mangled: string, runtimeVar: string): void
+        function declareBuiltinConstructor (name: string, mangled: string, runtimeVar: string): void
         {
-            var fobj = runtimeCtx.addBuiltinClosure(name, mangled, runtimeVar);
+            var fobj = runtimeCtx.addBuiltinClosure(name, mangled+"Function", runtimeVar);
+            var consobj = runtimeCtx.addBuiltinClosure(name, mangled+"Constructor", runtimeVar);
             var vobj = runtimeCtx.scope.newVariable(fobj.name, fobj.closureVar);
             vobj.funcRef = fobj;
+            vobj.consRef = consobj;
             vobj.declared = true;
             vobj.initialized = true;
         }
 
-        declareBuiltin("Object", "js::objectConstructor", "object");
-        declareBuiltin("Function", "js::functionConstructor", "function");
-        declareBuiltin("String", "js::stringConstructor", "string");
-        declareBuiltin("Number", "js::numberConstructor", "number");
-        declareBuiltin("Boolean", "js::booleanConstructor", "boolean");
-        declareBuiltin("Array", "js::arrayConstructor", "array");
-        declareBuiltin("Error", "js::errorConstructor", "error");
-        declareBuiltin("TypeError", "js::typeErrorConstructor", "typeError");
+        declareBuiltinConstructor("Object", "js::object", "object");
+        declareBuiltinConstructor("Function", "js::function", "function");
+        declareBuiltinConstructor("String", "js::string", "string");
+        declareBuiltinConstructor("Number", "js::number", "number");
+        declareBuiltinConstructor("Boolean", "js::boolean", "boolean");
+        declareBuiltinConstructor("Array", "js::array", "array");
+        declareBuiltinConstructor("Error", "js::error", "error");
+        declareBuiltinConstructor("TypeError", "js::typeError", "typeError");
 
         runtimeCtx.scope.newConstant("undefined", hir.undefinedValue);
 

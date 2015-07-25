@@ -267,6 +267,7 @@ struct Object : public Memory
     virtual TaggedValue defaultValue (StackFrame * caller, ValueTag preferredType);
     virtual bool isCallable () const;
     virtual TaggedValue call (StackFrame * caller, unsigned argc, const TaggedValue * argv);
+    virtual TaggedValue callCons (StackFrame * caller, unsigned argc, const TaggedValue * argv);
 
     static bool isIndexString (const char * str, uint32_t * index);
 };
@@ -406,11 +407,12 @@ struct Function : public Object
     Env * env;
     unsigned length; //< number of argumenrs
     CodePtr code;
+    CodePtr consCode;
 
     Function (Object * parent):
         Object(parent), env(NULL), length(0), code(NULL)
     {}
-    void init (StackFrame * caller, Env * env, CodePtr code, const StringPrim * name, unsigned length);
+    void init (StackFrame * caller, Env * env, CodePtr code, CodePtr consCode, const StringPrim * name, unsigned length);
 
     virtual bool mark (IMark * marker, unsigned markBit) const;
 
@@ -421,6 +423,7 @@ struct Function : public Object
 
     virtual bool isCallable () const;
     virtual TaggedValue call (StackFrame * caller, unsigned argc, const TaggedValue * argv);
+    virtual TaggedValue callCons (StackFrame * caller, unsigned argc, const TaggedValue * argv);
 };
 
 struct StringPrim : public Memory
@@ -681,7 +684,8 @@ private:
     void parseDiagEnvironment();
 
     void systemConstructor (
-        StackFrame * caller, unsigned envIndex, Object * prototype, CodePtr code, const char * name, unsigned length,
+        StackFrame * caller, unsigned envIndex, Object * prototype, CodePtr code, CodePtr consCode,
+        const char * name, unsigned length,
         Object ** outPrototype, Function ** outConstructor
     );
 };
@@ -697,13 +701,21 @@ inline Runtime * getRuntime (StackFrame * frame) { return g_runtime; }
 
 #define JS_IS_STRICT_MODE(frame) (JS_GET_RUNTIME(frame)->strictMode != false)
 
+TaggedValue objectFunction (StackFrame * caller, Env *, unsigned, const TaggedValue *);
 TaggedValue objectConstructor (StackFrame * caller, Env *, unsigned, const TaggedValue *);
+TaggedValue functionFunction (StackFrame * caller, Env *, unsigned, const TaggedValue *);
 TaggedValue functionConstructor (StackFrame * caller, Env *, unsigned, const TaggedValue *);
+TaggedValue stringFunction (StackFrame * caller, Env *, unsigned, const TaggedValue *);
 TaggedValue stringConstructor (StackFrame * caller, Env *, unsigned, const TaggedValue *);
+TaggedValue numberFunction (StackFrame * caller, Env *, unsigned, const TaggedValue *);
 TaggedValue numberConstructor (StackFrame * caller, Env *, unsigned, const TaggedValue *);
+TaggedValue booleanFunction (StackFrame * caller, Env *, unsigned, const TaggedValue *);
 TaggedValue booleanConstructor (StackFrame * caller, Env *, unsigned, const TaggedValue *);
+TaggedValue arrayFunction (StackFrame * caller, Env *, unsigned, const TaggedValue *);
 TaggedValue arrayConstructor (StackFrame * caller, Env *, unsigned, const TaggedValue *);
+TaggedValue errorFunction (StackFrame * caller, Env *, unsigned argc, const TaggedValue * argv);
 TaggedValue errorConstructor (StackFrame * caller, Env *, unsigned argc, const TaggedValue * argv);
+TaggedValue typeErrorFunction (StackFrame * caller, Env *, unsigned argc, const TaggedValue * argv);
 TaggedValue typeErrorConstructor (StackFrame * caller, Env *, unsigned argc, const TaggedValue * argv);
 
 inline bool markValue (IMark * marker, unsigned markBit, const TaggedValue & value)
@@ -788,6 +800,7 @@ void throwTypeError (StackFrame * caller, const char * str, ...) JS_NORETURN;
 
 bool isCallable (TaggedValue val);
 TaggedValue call(StackFrame * caller, TaggedValue value, unsigned argc, const TaggedValue * argv);
+TaggedValue callCons(StackFrame * caller, TaggedValue value, unsigned argc, const TaggedValue * argv);
 
 /**
  * Checks whether the ToString(ToUint32(val)) === ToString(val) && val != 2**32-1.

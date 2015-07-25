@@ -274,6 +274,10 @@ TaggedValue Object::call (StackFrame * caller, unsigned argc, const TaggedValue 
 {
     throwTypeError(caller, "not a function");
 }
+TaggedValue Object::callCons (StackFrame * caller, unsigned argc, const TaggedValue * argv)
+{
+    throwTypeError(caller, "not a function");
+}
 
 bool Object::isIndexString (const char * str, uint32_t * res)
 {
@@ -578,12 +582,13 @@ bool ForInIterator::mark (IMark * marker, unsigned markBit) const
     return true;
 }
 
-void Function::init (StackFrame * caller, Env * env, CodePtr code, const StringPrim * name, unsigned length)
+void Function::init (StackFrame * caller, Env * env, CodePtr code, CodePtr consCode, const StringPrim * name, unsigned length)
 {
     Runtime * r = JS_GET_RUNTIME(caller);
 
     this->env = env;
     this->code = code;
+    this->consCode = consCode;
     if (!name)
         name = r->permStrEmpty;
     this->length = length;
@@ -629,6 +634,10 @@ bool Function::isCallable () const
 TaggedValue Function::call (StackFrame * caller, unsigned argc, const TaggedValue * argv)
 {
     return (*this->code)(caller, this->env, argc, argv);
+}
+TaggedValue Function::callCons (StackFrame * caller, unsigned argc, const TaggedValue * argv)
+{
+    return (*this->consCode)(caller, this->env, argc, argv);
 }
 
 bool StringPrim::mark (IMark * marker, unsigned markBit) const
@@ -685,27 +694,32 @@ static TaggedValue emptyFunc (StackFrame * caller, Env *, unsigned, const Tagged
     return JS_UNDEFINED_VALUE;
 }
 
-TaggedValue objectConstructor (StackFrame * caller, Env *, unsigned argc, const TaggedValue * argv)
+TaggedValue objectFunction (StackFrame * caller, Env *, unsigned argc, const TaggedValue * argv)
 {
-    TaggedValue thisp = argc > 0 ? argv[0] : JS_UNDEFINED_VALUE;
     TaggedValue value = argc > 1 ? argv[1] : JS_UNDEFINED_VALUE;
 
-    if (thisp.tag == VT_UNDEFINED) { // Called as a function?
-        if (value.tag == VT_UNDEFINED || value.tag == VT_NULL)
-            return makeObjectValue(new (caller) Object(JS_GET_RUNTIME(caller)->objectPrototype));
-        else
-            return makeObjectValue(toObject(caller, value));
-    }
+    if (value.tag == VT_UNDEFINED || value.tag == VT_NULL)
+        return makeObjectValue(new (caller) Object(JS_GET_RUNTIME(caller)->objectPrototype));
+    else
+        return makeObjectValue(toObject(caller, value));
+}
+TaggedValue objectConstructor (StackFrame * caller, Env *, unsigned argc, const TaggedValue * argv)
+{
+    TaggedValue value = argc > 1 ? argv[1] : JS_UNDEFINED_VALUE;
 
     if (value.tag != VT_UNDEFINED && value.tag != VT_NULL)
         return makeObjectValue(toObject(caller, value));
 
-    return thisp.tag == VT_OBJECT ? thisp : makeObjectValue(toObject(caller, thisp));
+    return JS_UNDEFINED_VALUE;
 }
 
+TaggedValue functionFunction (StackFrame * caller, Env *, unsigned, const TaggedValue *)
+{
+    throwTypeError(caller, "'Function' (module-level 'eval') is not supported in  static compiler");
+}
 TaggedValue functionConstructor (StackFrame * caller, Env *, unsigned, const TaggedValue *)
 {
-    throwTypeError(caller, "'Function' (module-level 'eval') is not supported");
+    throwTypeError(caller, "'Function' (module-level 'eval') is not supported in a static compiler");
 }
 
 /**
@@ -743,75 +757,38 @@ TaggedValue functionApply (StackFrame * caller, Env *, unsigned argc, const Tagg
     }
 }
 
+TaggedValue stringFunction (StackFrame * caller, Env *, unsigned argc, const TaggedValue * argv)
+{
+    return argc > 1 ? toString(caller, argv[1]) : makeStringValue(JS_GET_RUNTIME(caller)->permStrEmpty);
+}
 TaggedValue stringConstructor (StackFrame * caller, Env *, unsigned argc, const TaggedValue * argv)
 {
-    TaggedValue thisp = argv[0];
-    TaggedValue value = argc > 1 ? argv[1] : JS_UNDEFINED_VALUE;
-
-    TaggedValue v  = value.tag != VT_UNDEFINED ? toString(caller, value) : makeStringValue(JS_GET_RUNTIME(caller)->permStrEmpty);
-
-    if (thisp.tag == VT_UNDEFINED) // called as a function?
-        return v;
-
-    if (thisp.tag == VT_OBJECT && thisp.raw.oval->parent == JS_GET_RUNTIME(caller)->stringPrototype) {
-        ((String *)thisp.raw.oval)->setValue(v);
-        return thisp;
-    }
-    else
-        throwTypeError(caller, "Not an instance of String");
+    ((String *)argv[0].raw.oval)->setValue(stringFunction(caller, NULL, argc, argv));
+    return JS_UNDEFINED_VALUE;
 }
 
+TaggedValue numberFunction (StackFrame * caller, Env *, unsigned argc, const TaggedValue * argv)
+{
+    return makeNumberValue(argc > 1 ? toNumber(caller, argv[1]) : 0);
+}
 TaggedValue numberConstructor (StackFrame * caller, Env *, unsigned argc, const TaggedValue * argv)
 {
-    TaggedValue thisp = argv[0];
-    TaggedValue value = argc > 1 ? argv[1] : JS_UNDEFINED_VALUE;
-
-    TaggedValue v = makeNumberValue(value.tag != VT_UNDEFINED ? toNumber(caller, value) : 0);
-
-    if (thisp.tag == VT_UNDEFINED) // called as a function?
-        return v;
-
-    if (thisp.tag == VT_OBJECT && thisp.raw.oval->parent == JS_GET_RUNTIME(caller)->numberPrototype) {
-        ((Number *)thisp.raw.oval)->setValue(v);
-        return thisp;
-    }
-    else
-        throwTypeError(caller, "Not an instance of Number");
+    ((Number *)argv[0].raw.oval)->setValue(numberFunction(caller, NULL, argc, argv));
+    return JS_UNDEFINED_VALUE;
 }
 
+TaggedValue booleanFunction (StackFrame *, Env *, unsigned argc, const TaggedValue * argv)
+{
+    return makeBooleanValue(argc > 1 ? toBoolean(argv[1]) : false);
+}
 TaggedValue booleanConstructor (StackFrame * caller, Env *, unsigned argc, const TaggedValue * argv)
 {
-    TaggedValue thisp = argv[0];
-    TaggedValue value = argc > 1 ? argv[1] : JS_UNDEFINED_VALUE;
-
-    TaggedValue v = makeBooleanValue(toBoolean(value));
-
-    if (thisp.tag == VT_UNDEFINED) // called as a function?
-        return v;
-
-    if (thisp.tag == VT_OBJECT && thisp.raw.oval->parent == JS_GET_RUNTIME(caller)->booleanPrototype) {
-        ((Boolean *)thisp.raw.oval)->setValue(v);
-        return thisp;
-    }
-    else
-        throwTypeError(caller, "Not an instance of Boolean");
+    ((Boolean *)argv[0].raw.oval)->setValue(booleanFunction(caller, NULL, argc, argv));
+    return JS_UNDEFINED_VALUE;
 }
 
-TaggedValue arrayConstructor (StackFrame * caller, Env * env, unsigned argc, const TaggedValue * argv)
+static void arrayInit (Array * array, unsigned argc, const TaggedValue * argv)
 {
-    StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":arrayConstructor", __LINE__);
-    TaggedValue thisp = argv[0];
-    Array * array;
-
-    if (thisp.tag == VT_UNDEFINED) { // called as a function?
-        frame.locals[0] = makeObjectValue(array = new (&frame) Array(JS_GET_RUNTIME(&frame)->arrayPrototype));
-    } else if (thisp.tag == VT_OBJECT && thisp.raw.oval->parent == JS_GET_RUNTIME(&frame)->arrayPrototype) {
-        array = (Array *)thisp.raw.oval;
-    } else {
-        throwTypeError(caller, "Not an instance of Array");
-        return JS_UNDEFINED_VALUE;
-    }
-
     uint32_t size;
     if (argc == 2 && isValidArrayIndexNumber(argv[1], &size)) { // size constructor?
         array->setLength(size);
@@ -820,35 +797,58 @@ TaggedValue arrayConstructor (StackFrame * caller, Env * env, unsigned argc, con
         for ( unsigned i = 1; i != argc; ++i )
             array->setElem(i - 1, argv[i]);
     }
+}
+TaggedValue arrayFunction (StackFrame * caller, Env *, unsigned argc, const TaggedValue * argv)
+{
+    StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":arrayFunction", __LINE__);
+    Array * array;
 
-    // If we were called as a constructor, return #undefined, otherwise return the new object
-    return thisp.tag != VT_UNDEFINED ? JS_UNDEFINED_VALUE : frame.locals[0];
+    frame.locals[0] = makeObjectValue(array = new (&frame) Array(JS_GET_RUNTIME(&frame)->arrayPrototype));
+    arrayInit(array, argc, argv);
+    return frame.locals[0];
+}
+TaggedValue arrayConstructor (StackFrame * caller, Env * env, unsigned argc, const TaggedValue * argv)
+{
+    arrayInit((Array *)argv[0].raw.oval, argc, argv);
+    return JS_UNDEFINED_VALUE;
 }
 
+TaggedValue errorFunction (StackFrame * caller, Env *, unsigned argc, const TaggedValue * argv)
+{
+    StackFrameN<0,2,0> frame(caller, NULL, __FILE__ ":errorFunction" , __LINE__);
+
+    frame.locals[0] = makeObjectValue(new(&frame) Error(JS_GET_RUNTIME(&frame)->errorPrototype));
+    frame.locals[1] = argc > 1 ? argv[1] : JS_UNDEFINED_VALUE;
+    errorConstructor(&frame, NULL, 2, &frame.locals[0]);
+
+    return frame.locals[0];
+}
 TaggedValue errorConstructor (StackFrame * caller, Env *, unsigned argc, const TaggedValue * argv)
 {
-    StackFrameN<0,2,0> frame(caller, NULL, __FILE__ ":errorConstructor" , __LINE__);
+    StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":errorConstructor" , __LINE__);
     TaggedValue thisp = argv[0];
     TaggedValue message = argc > 1 ? argv[1] : JS_UNDEFINED_VALUE;
 
-    if (thisp.tag == VT_UNDEFINED) // Called as a function?
-        frame.locals[0] = thisp = makeObjectValue(new(&frame) Error(JS_GET_RUNTIME(&frame)->errorPrototype));
-
     if (message.tag != VT_UNDEFINED) {
-        frame.locals[1] = toString(&frame, message);
-        put(&frame, thisp, JS_GET_RUNTIME(&frame)->permStrMessage, message);
+        frame.locals[0] = toString(&frame, message);
+        put(&frame, thisp, JS_GET_RUNTIME(&frame)->permStrMessage, frame.locals[0]);
     }
 
-    return thisp;
+    return JS_UNDEFINED_VALUE;
 }
 
-TaggedValue typeErrorConstructor (StackFrame * caller, Env * env, unsigned argc, const TaggedValue * argv)
+TaggedValue typeErrorFunction (StackFrame * caller, Env *, unsigned argc, const TaggedValue * argv)
 {
-    StackFrameN<0,2,0> frame(caller, NULL, __FILE__ ":typeErrorConstructor" , __LINE__);
-    frame.locals[0] = argv[0].tag != VT_UNDEFINED ?
-        argv[0] : makeObjectValue(JS_GET_RUNTIME(&frame)->typeErrorPrototype->createDescendant(&frame));
+    StackFrameN<0,2,0> frame(caller, NULL, __FILE__ ":typeErrorFunction" , __LINE__);
+    frame.locals[0] = makeObjectValue(JS_GET_RUNTIME(&frame)->typeErrorPrototype->createDescendant(&frame));
     frame.locals[1] = argc > 1 ? argv[1] : JS_UNDEFINED_VALUE;
-    return errorConstructor(&frame, env, 2, &frame.locals[0]);
+    errorConstructor(&frame, NULL, 2, &frame.locals[0]);
+
+    return frame.locals[0];
+}
+TaggedValue typeErrorConstructor (StackFrame * caller, Env *, unsigned argc, const TaggedValue * argv)
+{
+    return errorConstructor(caller, NULL, argc, argv);
 }
 
 static TaggedValue strictThrower (StackFrame * caller, Env *, unsigned, const TaggedValue *)
@@ -912,7 +912,7 @@ Runtime::Runtime (bool strictMode)
 
         Function * strictThrowerFunction = new(&frame) Function(NULL);
         frame.locals[0] = makeObjectValue(strictThrowerFunction);
-        strictThrowerFunction->init(&frame, env, strictThrower, NULL, 0);
+        strictThrowerFunction->init(&frame, env, strictThrower, strictThrower, NULL, 0);
 
         env->vars[16] = strictThrowerAccessor = makePropertyAccessorValue(
             new(&frame) PropertyAccessor(strictThrowerFunction, strictThrowerFunction)
@@ -931,21 +931,21 @@ Runtime::Runtime (bool strictMode)
     //
     functionPrototype = new(&frame) PrototypeCreator<Function,Function>(objectPrototype);
     env->vars[2] = makeObjectValue(functionPrototype);
-    functionPrototype->init(&frame, env, emptyFunc, internString(&frame,"functionPrototype"), 0);
+    functionPrototype->init(&frame, env, emptyFunc, emptyFunc, internString(&frame,"functionPrototype"), 0);
 
     // Object
     //
     systemConstructor(
         &frame, 0,
         objectPrototype,
-        objectConstructor, "Object", 1, NULL, &object
+        objectConstructor, objectFunction, "Object", 1, NULL, &object
     );
     // Function
     //
     systemConstructor(
         &frame, 2,
         functionPrototype,
-        functionConstructor, "Function", 1, NULL, &function
+        functionConstructor, functionFunction, "Function", 1, NULL, &function
     );
     // Function.prototype.apply() : for efficiency it is implemented in fully native code
     {
@@ -960,35 +960,35 @@ Runtime::Runtime (bool strictMode)
     systemConstructor(
         &frame, 4,
         new(&frame) PrototypeCreator<Object,String>(objectPrototype),
-        stringConstructor, "String", 1, &stringPrototype, &string
+        stringConstructor, stringFunction, "String", 1, &stringPrototype, &string
     );
     // Number
     //
     systemConstructor(
         &frame, 6,
         new(&frame) PrototypeCreator<Object,Number>(objectPrototype),
-        numberConstructor, "Number", 1, &numberPrototype, &number
+        numberConstructor, numberFunction, "Number", 1, &numberPrototype, &number
     );
     // Boolean
     //
     systemConstructor(
         &frame, 8,
         new(&frame) PrototypeCreator<Object,Boolean>(objectPrototype),
-        booleanConstructor, "Boolean", 1, &booleanPrototype, &boolean
+        booleanConstructor, booleanFunction, "Boolean", 1, &booleanPrototype, &boolean
     );
     // Array
     //
     systemConstructor(
         &frame, 10,
         new(&frame) ArrayCreator(objectPrototype),
-        arrayConstructor, "Array", 1, &arrayPrototype, &array
+        arrayConstructor, arrayFunction, "Array", 1, &arrayPrototype, &array
     );
     // Error
     //
     systemConstructor(
         &frame, 12,
         new(&frame) PrototypeCreator<Error,Error>(objectPrototype),
-        errorConstructor, "Error", 1, &errorPrototype, &error
+        errorConstructor, errorFunction, "Error", 1, &errorPrototype, &error
     );
     // Error.prototype.name
     errorPrototype->defineOwnProperty(
@@ -1002,7 +1002,7 @@ Runtime::Runtime (bool strictMode)
     systemConstructor(
         &frame, 14,
         new(&frame) PrototypeCreator<Object,Error>(errorPrototype),
-        typeErrorConstructor, "TypeError", 1, &typeErrorPrototype, &typeError
+        typeErrorConstructor, typeErrorFunction, "TypeError", 1, &typeErrorPrototype, &typeError
     );
     // TypeError.prototype.name
     typeErrorPrototype->defineOwnProperty(
@@ -1013,7 +1013,8 @@ Runtime::Runtime (bool strictMode)
 }
 
 void Runtime::systemConstructor (
-    StackFrame * caller, unsigned envIndex, Object * prototype, CodePtr code, const char * name, unsigned length,
+    StackFrame * caller, unsigned envIndex, Object * prototype, CodePtr code, CodePtr consCode,
+    const char * name, unsigned length,
     Object ** outPrototype, Function ** outConstructor
 )
 {
@@ -1024,7 +1025,7 @@ void Runtime::systemConstructor (
 
     Function * constructor = new(caller) Function(functionPrototype);
     env->vars[envIndex+1] = makeObjectValue(constructor);
-    constructor->init(caller, env, code, internString(caller, name), length);
+    constructor->init(caller, env, code, consCode, internString(caller, name), length);
     constructor->definePrototype(caller, prototype);
 
     prototype->defineOwnProperty(
@@ -1144,7 +1145,7 @@ TaggedValue newFunction (StackFrame * caller, Env * env, const StringPrim * name
     Function * func;
     frame.locals[0] = makeObjectValue(
         func = new(&frame) Function(JS_GET_RUNTIME(&frame)->functionPrototype));
-    func->init(&frame, env, code, name, length);
+    func->init(&frame, env, code, code, name, length);
 
     frame.locals[1] = makeObjectValue(new(&frame) Object(JS_GET_RUNTIME(&frame)->objectPrototype));
     frame.locals[1].raw.oval->defineOwnProperty(
@@ -1199,7 +1200,7 @@ void throwTypeError (StackFrame * caller, const char * msg, ...)
         frame.locals[0] = JS_UNDEFINED_VALUE;
         frame.locals[1] = makeStringValue(StringPrim::make(&frame, buf));
         free(buf);
-        frame.locals[2] = typeErrorConstructor(&frame, NULL, 2, &frame.locals[0]);
+        frame.locals[2] = typeErrorFunction(&frame, NULL, 2, &frame.locals[0]);
 
         throwValue(&frame, frame.locals[2]);
     }
@@ -1214,6 +1215,15 @@ TaggedValue call (StackFrame * caller, TaggedValue value, unsigned argc, const T
 {
     if (isValueTagObject(value.tag))
         return value.raw.oval->call(caller, argc, argv);
+
+    throwTypeError(caller, "not a function");
+    return JS_UNDEFINED_VALUE;
+};
+
+TaggedValue callCons (StackFrame * caller, TaggedValue value, unsigned argc, const TaggedValue * argv)
+{
+    if (isValueTagObject(value.tag))
+        return value.raw.oval->callCons(caller, argc, argv);
 
     throwTypeError(caller, "not a function");
     return JS_UNDEFINED_VALUE;
