@@ -69,6 +69,9 @@ bool Object::mark (IMark * marker, unsigned markBit) const
 
 Object * Object::defineOwnProperty (StackFrame * caller, const StringPrim * name, unsigned flags, TaggedValue value)
 {
+    if (JS_UNLIKELY(!name->isInterned()))
+        name = JS_GET_RUNTIME(caller)->internString(name);
+
     auto it = props.find(name->getStr());
     if (it != props.end()) {
         if ((this->flags & OF_NOCONFIG) || !(it->second.flags & PROP_CONFIGURABLE)) {
@@ -167,6 +170,9 @@ void Object::put (StackFrame * caller, const StringPrim * name, TaggedValue v)
 
         if (JS_LIKELY(!(this->flags & OF_NOEXTEND)))
         {
+            if (JS_UNLIKELY(!name->isInterned()))
+                name = JS_GET_RUNTIME(caller)->internString(name);
+
             Property * prop = &this->props.emplace(
                 std::piecewise_construct, std::make_tuple(name->getStr()),
                 std::make_tuple(name, PROP_WRITEABLE|PROP_ENUMERABLE|PROP_CONFIGURABLE, v)
