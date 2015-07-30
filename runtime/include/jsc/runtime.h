@@ -2,6 +2,9 @@
 // Licensed under the Apache License v2.0. See LICENSE in the project
 // root for complete license information.
 
+#include "jsc/common.h"
+#include "jsc/utf.h"
+
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
@@ -14,9 +17,6 @@
 
 //#define JS_DEBUG
 
-#define JS_NORETURN __attribute__((noreturn))
-#define JS_LIKELY(cond)          __builtin_expect(!!(cond), 1)
-#define JS_UNLIKELY(cond)        __builtin_expect(!!(cond), 0)
 
 namespace js
 {

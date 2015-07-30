@@ -9,5 +9,8 @@ endif()
 
 include_directories(include)
 
-set(SOURCE_FILES src/runtime.cxx src/gc.cxx include/jsc/runtime.h src/operators.cpp)
-add_library(jsruntime ${SOURCE_FILES})
+set(SOURCE_FILES
+    src/runtime.cxx src/gc.cxx include/jsc/runtime.h src/operators.cpp
+    include/jsc/utf.h src/utf.cxx include/jsc/common.h
+)
+add_library(jsruntime ${SOURCE_FILES} )
