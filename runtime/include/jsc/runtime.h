@@ -458,7 +458,7 @@ struct StringPrim : public Memory
 {
     const unsigned length;
     //private:
-    char _str[];
+    unsigned char _str[];
 
     StringPrim (unsigned length) :
         length(length)
@@ -479,7 +479,7 @@ struct StringPrim : public Memory
 
     const char * getStr () const
     {
-        return this->_str;
+        return (const char *)this->_str;
     }
 };
 
@@ -643,7 +643,7 @@ struct Runtime
 
     Env * env;
 
-    typedef std::pair<unsigned,const char*> PasStr;
+    typedef std::pair<unsigned,const unsigned char*> PasStr;
 
     struct less_PasStr {
         bool operator() (const PasStr & a, const PasStr & b) const;

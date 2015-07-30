@@ -1173,7 +1173,7 @@ bool Runtime::less_PasStr::operator() (const PasStr & a, const PasStr & b) const
 const StringPrim * Runtime::internString (StackFrame * caller, const char * str, unsigned len)
 {
     StringPrim * res;
-    PasStr key(len, str);
+    PasStr key(len, (const unsigned char *)str);
     auto it = permStrings.find(key);
     if (it == permStrings.end()) {
         res = StringPrim::make(caller, str, len);
