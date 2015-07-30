@@ -287,15 +287,6 @@ struct PropertyAccessor : public Memory
     virtual bool mark (IMark * marker, unsigned markBit) const;
 };
 
-/*struct Arguments : public Object
-{
-    std::vector<TaggedValue> elems;
-    unsigned length;
-    // TODO: array-line functionality
-    virtual TaggedValue getComputed (StackFrame * caller, TaggedValue propName);
-    virtual void putComputed (StackFrame * caller, TaggedValue propName, TaggedValue v);
-};*/
-
 struct ArrayBase : public Object
 {
     std::vector<TaggedValue> elems;
