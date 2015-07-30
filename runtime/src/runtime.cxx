@@ -1398,16 +1398,10 @@ TaggedValue get (StackFrame * caller, TaggedValue obj, const StringPrim * propNa
         case VT_OBJECT:
         case VT_FUNCTION: return obj.raw.oval->get(caller, propName); break;
 
-        case VT_NUMBER:
-        case VT_BOOLEAN:
-        case VT_STRINGPRIM: {
-            // TODO: avoid temporary object creation
-            StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":get", __LINE__);
-            Object * o = toObject(&frame, obj);
-            frame.locals[0] = makeObjectValue(o);
-            return o->get(&frame, propName);
-        }
-        break;
+        case VT_NUMBER:   return JS_GET_RUNTIME(caller)->numberPrototype->get(caller, propName);
+        case VT_BOOLEAN:  return JS_GET_RUNTIME(caller)->booleanPrototype->get(caller, propName);
+        case VT_STRINGPRIM: return JS_GET_RUNTIME(caller)->stringPrototype->get(caller, propName);
+
         default:
             assert(false);
             break;

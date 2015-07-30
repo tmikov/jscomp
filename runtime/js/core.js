@@ -85,6 +85,20 @@ function hidden (obj, prop, func)
     defineProperty(obj, prop, {writable: true, configurable: true, value: func});
 }
 
+function getUnboxedValue (v)
+{
+    return __asm__({},["result"],[["v", v]],[],
+        "{js::Box * box;\n"+
+        "if (js::isValueTagPrimitive(%[v].tag))\n"+
+        "  %[result] = %[v];\n"+
+        "else if (js::isValueTagObject(%[v].tag) && (box = dynamic_cast<js::Box*>(%[v].raw.oval)))\n"+
+        "  %[result] = box->value;\n"+
+        "else\n"+
+        "  %[result] = JS_UNDEFINED_VALUE;\n"+
+        "}"
+    );
+}
+
 hidden(Object, "defineProperty", defineProperty);
 
 hidden(Object, "defineProperties", defineProperties);
@@ -342,4 +356,14 @@ hidden(Array.prototype, "slice", function array_slice(start, end)
     copyToArray(A, 0, O, k, final);
 
     return A;
+});
+
+// Boolean
+//
+hidden(Boolean.prototype, "toString", function boolean_tostring()
+{
+    var b = getUnboxedValue(this);
+    if (typeof b !== "boolean")
+        throw TypeError("Boolean.prototype.toString called with a non-boolean");
+    return b ? "true" : "false";
 });
