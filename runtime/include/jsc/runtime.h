@@ -42,8 +42,8 @@ union RawValue
 
 enum ValueTag
 {
-    VT_UNDEFINED, VT_NULL, VT_BOOLEAN, VT_NUMBER, VT_ARRAY_HOLE, VT_STRINGPRIM, VT_MEMORY, VT_OBJECT, VT_FUNCTION,
-    _VT_SHIFT = 4,
+    VT_UNDEFINED, VT_NULL, VT_BOOLEAN, VT_NUMBER, VT_ARRAY_HOLE, VT_STRINGPRIM, VT_MEMORY, VT_OBJECT,
+    _VT_SHIFT = 3,
 };
 
 inline bool isValueTagPointer (unsigned t)
@@ -56,11 +56,7 @@ inline bool isValueTagPrimitive (unsigned t)
 }
 inline bool isValueTagObject (unsigned t)
 {
-    return t >= VT_OBJECT;
-}
-inline bool isValueTagFunction (unsigned t)
-{
-    return t == VT_FUNCTION;
+    return t == VT_OBJECT;
 }
 
 struct TaggedValue
@@ -835,15 +831,7 @@ inline TaggedValue makePropertyAccessorValue (PropertyAccessor * pr)
 
 inline TaggedValue makeObjectValue (Object * o)
 {
-    if (dynamic_cast<Function *>(o))
-        return makeMemoryValue(VT_FUNCTION, o);
-    else
-        return makeMemoryValue(VT_OBJECT, o);
-}
-
-inline TaggedValue makeObjectValue (Function * f)
-{
-    return makeMemoryValue(VT_FUNCTION, f);
+    return makeMemoryValue(VT_OBJECT, o);
 }
 
 inline TaggedValue makeStringValue (const StringPrim * s)
@@ -868,6 +856,10 @@ void throwValue (StackFrame * caller, TaggedValue val) JS_NORETURN;
 void throwOutOfMemory (StackFrame * caller) JS_NORETURN;
 void throwTypeError (StackFrame * caller, const char * str, ...) JS_NORETURN;
 
+inline Function * isFunction (TaggedValue v)
+{
+    return isValueTagObject(v.tag) ? dynamic_cast<Function *>(v.raw.oval) : NULL;
+}
 inline Function * isCallable (TaggedValue v)
 {
     return isValueTagObject(v.tag) ? dynamic_cast<Function *>(v.raw.oval) : NULL;

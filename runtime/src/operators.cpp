@@ -34,8 +34,8 @@ const StringPrim * operator_TYPEOF (StackFrame * caller, TaggedValue a)
         case VT_BOOLEAN:   return JS_GET_RUNTIME(caller)->permStrBoolean;
         case VT_NUMBER:    return JS_GET_RUNTIME(caller)->permStrNumber;
         case VT_STRINGPRIM:return JS_GET_RUNTIME(caller)->permStrString;
-        case VT_OBJECT:    return JS_GET_RUNTIME(caller)->permStrObject;
-        case VT_FUNCTION:  return JS_GET_RUNTIME(caller)->permStrFunction;
+        case VT_OBJECT:    return dynamic_cast<Function*>(a.raw.oval) == NULL ?
+                               JS_GET_RUNTIME(caller)->permStrObject : JS_GET_RUNTIME(caller)->permStrFunction;
         default:
             assert(false);
             return JS_GET_RUNTIME(caller)->permStrEmpty;
@@ -74,14 +74,10 @@ tailcall:
 
         case C(VT_STRINGPRIM, VT_OBJECT):
         case C(VT_NUMBER, VT_OBJECT):
-        case C(VT_STRINGPRIM, VT_FUNCTION):
-        case C(VT_NUMBER, VT_FUNCTION):
             b = toPrimitive(caller, b);
             goto tailcall;
         case C(VT_OBJECT, VT_STRINGPRIM):
         case C(VT_OBJECT, VT_NUMBER):
-        case C(VT_FUNCTION, VT_STRINGPRIM):
-        case C(VT_FUNCTION, VT_NUMBER):
             a = toPrimitive(caller, a);
             goto tailcall;
     }

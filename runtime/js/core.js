@@ -10,8 +10,8 @@ function _defineAccessor (obj, prop, getter, setter)
             ["get", getter], ["set", setter]
         ],[["accessor"]],
         "%[accessor] = js::makePropertyAccessorValue(new(%[%frame]) js::PropertyAccessor("+
-            "%[get].tag == js::VT_FUNCTION ? %[get].raw.fval : NULL,"+
-            "%[set].tag == js::VT_FUNCTION ? %[set].raw.fval : NULL"+
+            "js::isFunction(%[get]),"+
+            "js::isFunction(%[set])"+
         "));\n"+
         "%[obj].raw.oval->defineOwnProperty(%[%frame], %[prop].raw.sval,"+
         "js::PROP_CONFIGURABLE |"+
@@ -44,8 +44,8 @@ function defineProperty (obj, prop, descriptor)
         getset = true;
         __asm__({},[],[["get", descriptor.get], ["set", descriptor.set], ["value", value]],[],
             "%[value] = js::makePropertyAccessorValue(new(%[%frame]) js::PropertyAccessor("+
-            "%[get].tag == js::VT_FUNCTION ? %[get].raw.fval : NULL,"+
-            "%[set].tag == js::VT_FUNCTION ? %[set].raw.fval : NULL"+
+            "js::isFunction(%[get]),"+
+            "js::isFunction(%[set])"+
             "));"
         );
     } else {

@@ -1514,8 +1514,7 @@ void put (StackFrame * caller, TaggedValue obj, const StringPrim * propName, Tag
         case VT_UNDEFINED: throwTypeError(caller, "cannot assign property '%s' of undefined", propName->getStr()); break;
         case VT_NULL:      throwTypeError(caller, "cannot assign property '%s' of null", propName->getStr()); break;
 
-        case VT_OBJECT:
-        case VT_FUNCTION: obj.raw.oval->put(caller, propName, val); break;
+        case VT_OBJECT:    obj.raw.oval->put(caller, propName, val); break;
 
         case VT_NUMBER:
         case VT_BOOLEAN:
@@ -1533,8 +1532,7 @@ void putComputed (StackFrame * caller, TaggedValue obj, TaggedValue propName, Ta
 {
     switch (obj.tag) {
 
-        case VT_OBJECT:
-        case VT_FUNCTION: obj.raw.oval->putComputed(caller, propName, val); break;
+        case VT_OBJECT: obj.raw.oval->putComputed(caller, propName, val); break;
 
         case VT_NUMBER:
         case VT_BOOLEAN:
@@ -1559,8 +1557,7 @@ TaggedValue get (StackFrame * caller, TaggedValue obj, const StringPrim * propNa
         case VT_UNDEFINED: throwTypeError(caller, "cannot read property '%s' of undefined", propName->getStr()); break;
         case VT_NULL:      throwTypeError(caller, "cannot read property '%s' of null", propName->getStr()); break;
 
-        case VT_OBJECT:
-        case VT_FUNCTION: return obj.raw.oval->get(caller, propName); break;
+        case VT_OBJECT:   return obj.raw.oval->get(caller, propName); break;
 
         case VT_NUMBER:   return JS_GET_RUNTIME(caller)->numberPrototype->get(caller, propName);
         case VT_BOOLEAN:  return JS_GET_RUNTIME(caller)->booleanPrototype->get(caller, propName);
@@ -1592,8 +1589,7 @@ TaggedValue getComputed (StackFrame * caller, TaggedValue obj, TaggedValue propN
         }
         break;
 
-        case VT_OBJECT:
-        case VT_FUNCTION: return obj.raw.oval->getComputed(caller, propName); break;
+        case VT_OBJECT:  return obj.raw.oval->getComputed(caller, propName); break;
 
         case VT_NUMBER:  return JS_GET_RUNTIME(caller)->numberPrototype->getComputed(caller, propName);
         case VT_BOOLEAN: return JS_GET_RUNTIME(caller)->booleanPrototype->getComputed(caller, propName);
@@ -1673,8 +1669,7 @@ TaggedValue toString (StackFrame * caller, TaggedValue v)
         case VT_BOOLEAN:    return makeStringValue(v.raw.bval ? JS_GET_RUNTIME(caller)->permStrTrue : JS_GET_RUNTIME(caller)->permStrFalse);
         case VT_NUMBER:     return toString(caller, v.raw.nval);
         case VT_STRINGPRIM: return v;
-        case VT_OBJECT:
-        case VT_FUNCTION: {
+        case VT_OBJECT: {
                 StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":toString", __LINE__);
             frame.locals[0] = toPrimitive(&frame, v, VT_STRINGPRIM);
             return toString(&frame, frame.locals[0]);
@@ -1695,7 +1690,6 @@ TaggedValue toPrimitive (StackFrame * caller, TaggedValue v, ValueTag preferredT
         case VT_STRINGPRIM:
             return v;
         case VT_OBJECT:
-        case VT_FUNCTION:
             return v.raw.oval->defaultValue(caller, preferredType);
         default:
             assert(false);
@@ -1730,8 +1724,7 @@ double toNumber (StackFrame * caller, TaggedValue v)
         case VT_BOOLEAN: return v.raw.bval;
         case VT_NUMBER: return v.raw.nval;
         case VT_STRINGPRIM: return toNumber(v.raw.sval);
-        case VT_OBJECT:
-        case VT_FUNCTION: {
+        case VT_OBJECT: {
             StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":toNumber", __LINE__);
             frame.locals[0] = toPrimitive(&frame, v, VT_NUMBER);
             return toNumber(&frame, frame.locals[0]);

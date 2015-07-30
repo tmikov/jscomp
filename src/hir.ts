@@ -1660,7 +1660,7 @@ export class FunctionBuilder
                     this.gen("  %s%s;\n", this.strDest(binop.dest), this.strRValue(binop.src1));
                 break;
             case OpCode.ASSERT_FUNC:
-                this.gen("  if (!js::isValueTagFunction(%s.tag)) js::throwTypeError(%s\"%%s\", %s.raw.sval->getStr());\n",
+                this.gen("  if (!js::isFunction(%s)) js::throwTypeError(%s\"%%s\", %s.raw.sval->getStr());\n",
                     this.strRValue(binop.src1),
                     callerStr,
                     this.strToString(binop.src2)
