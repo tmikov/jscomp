@@ -461,21 +461,39 @@ struct StringPrim : public Memory
         F_PERMANENT = 2,
     };
     mutable unsigned stringFlags;
-    const unsigned length;
+    const unsigned byteLength;
+    unsigned charLength;
+    mutable unsigned lastPos;
+    mutable unsigned lastIndex;
     //private:
     unsigned char _str[];
 
-    StringPrim (unsigned length) :
-        length(length)
+    StringPrim (unsigned byteLength) :
+        byteLength(byteLength)
     {
         this->stringFlags = 0;
-        this->_str[length] = 0;
+        this->_str[byteLength] = 0;
+        this->lastPos = 0;
+        this->lastIndex = 0;
+#ifdef JS_DEBUG
+        this->charLength = ~0u; // for debugging to show uninitialized
+#endif
+    }
+
+    void init ()
+    {
+        this->charLength = lengthInUTF16Units((const unsigned char *)_str, (const unsigned char *)_str + byteLength);
+    }
+    void init (unsigned charLength)
+    {
+        this->charLength = charLength;
     }
 
     //public:
     bool mark (IMark * marker, unsigned markBit) const;
 
     static StringPrim * makeEmpty (StackFrame * caller, unsigned length);
+    static StringPrim * make (StackFrame * caller, const char * str, unsigned length, unsigned charLength);
     static StringPrim * make (StackFrame * caller, const char * str, unsigned length);
 
     static StringPrim * make (StackFrame * caller, const char * str)
@@ -489,6 +507,11 @@ struct StringPrim : public Memory
     {
         return (const char *)this->_str;
     }
+
+    TaggedValue charCodeAt (uint32_t index) const;
+    TaggedValue charAt (StackFrame * caller, uint32_t index) const;
+
+    static unsigned lengthInUTF16Units (const unsigned char * from, const unsigned char * to);
 };
 
 struct less_StringPrim {
@@ -680,6 +703,7 @@ struct Runtime
     const StringPrim * permStrToString;
     const StringPrim * permStrValueOf;
     const StringPrim * permStrMessage;
+    const StringPrim * permStrUnicodeReplacementChar;
 
     // Pre-allocated ASCII chars for faster substring/charAt/[] in the common case
     enum { CACHED_CHARS = 128 };
@@ -704,6 +728,7 @@ struct Runtime
 
     bool mark (IMark * marker, unsigned markBit);
 
+    const StringPrim * findInterned (const StringPrim * str);
     const StringPrim * internString (StackFrame * caller, bool permanent, const char * str, unsigned len);
     const StringPrim * internString (StackFrame * caller, bool permanent, const char * str);
     const StringPrim * internString (const StringPrim * str);

@@ -695,11 +695,126 @@ StringPrim * StringPrim::makeEmpty (StackFrame * caller, unsigned length)
     return new(caller, OFFSETOF(StringPrim, _str) + length + 1) StringPrim(length);
 }
 
-StringPrim * StringPrim::make (StackFrame * caller, const char * str, unsigned length)
+StringPrim * StringPrim::make (StackFrame * caller, const char * str, unsigned length, unsigned charLength)
 {
     StringPrim * res = makeEmpty(caller, length);
     memcpy( res->_str, str, length);
+    res->init(charLength);
     return res;
+}
+
+StringPrim * StringPrim::make (StackFrame * caller, const char * str, unsigned length)
+{
+    return make(caller, str, length, lengthInUTF16Units((const unsigned char *)str, (const unsigned char *)str + length));
+}
+
+TaggedValue StringPrim::charCodeAt (uint32_t index) const
+{
+    if (JS_UNLIKELY(index >= this->charLength))
+        return makeNumberValue(NAN);
+
+    unsigned lindex, cpLen;
+    const unsigned char * lpos;
+
+    lpos = this->_str + this->lastPos;
+    lindex = this->lastIndex;
+
+    if (index == lindex) {
+        // nothing
+    } else {
+        if (index < lindex) {
+            lpos = this->_str;
+            lindex = 0;
+        }
+        cpLen = 0;
+        while (lindex < index) {
+            cpLen = utf8CodePointLength(*lpos);
+            lpos += cpLen;
+            lindex += (cpLen >> 2) + 1; // same as cpLen < 4 ? 1 : 2
+        }
+
+        if (index < lindex) { // Did we skip over index? That means we hit the second part of a surrogate pair
+            // Get back to the beginning of the codepoint
+            lpos -= cpLen;
+            lindex -= (cpLen >> 2)+1;
+            this->lastPos = lpos - this->_str;
+            this->lastIndex = lindex;
+
+            // Decode the character
+            uint32_t cp = utf8DecodeFast(lpos);
+            assert(cp > 0xFFFF);
+            return makeNumberValue((cp & 0x3FF) + 0xDC00);
+        }
+
+        this->lastPos = lpos - this->_str;
+        this->lastIndex = lindex;
+    }
+
+    uint32_t cp = utf8DecodeFast(lpos);
+    if (JS_LIKELY(cp <= 0xFFFF))
+        return makeNumberValue(cp);
+    else // first part of the surrogate pair (hugh surrogate)
+        return makeNumberValue((((cp - 0x10000) >> 10) & 0x3FF) + 0xD800);
+}
+
+TaggedValue StringPrim::charAt (StackFrame * caller, uint32_t index) const
+{
+    if (JS_UNLIKELY(index >= this->charLength))
+        return JS_UNDEFINED_VALUE;
+
+    unsigned lindex, cpLen;
+    const unsigned char * lpos;
+
+    lpos = this->_str + this->lastPos;
+    lindex = this->lastIndex;
+
+    if (index == lindex) {
+        // nothing
+    } else {
+        if (index < lindex) {
+            lpos = this->_str;
+            lindex = 0;
+        }
+        cpLen = 0;
+        while (lindex < index) {
+            cpLen = utf8CodePointLength(*lpos);
+            lpos += cpLen;
+            lindex += (cpLen >> 2) + 1; // same as cpLen < 4 ? 1 : 2
+        }
+
+        if (index < lindex) { // Did we skip over index? That means we hit the second part of a surrogate pair?
+            this->lastPos = lpos - cpLen - this->_str;
+            this->lastIndex = lindex - ((cpLen >> 2) + 1);
+            return makeStringValue(JS_GET_RUNTIME(caller)->permStrUnicodeReplacementChar);
+        }
+
+        this->lastPos = lpos - this->_str;
+        this->lastIndex = lindex;
+    }
+
+    unsigned char ch0 = *lpos;
+    cpLen = utf8CodePointLength(ch0);
+
+    if (cpLen > 3) // First part of a surrogate pair?
+        return makeStringValue(JS_GET_RUNTIME(caller)->permStrUnicodeReplacementChar);
+
+    if (cpLen == 1) // A good old ASCII character?
+        return makeStringValue(JS_GET_RUNTIME(caller)->asciiChars[ch0]);
+
+    return makeStringValue(StringPrim::make(caller, (const char *)lpos, cpLen, 1));
+}
+
+unsigned StringPrim::lengthInUTF16Units (const unsigned char * from, const unsigned char * to)
+{
+    unsigned length = 0;
+
+    while (from < to) {
+        unsigned cpLen = utf8CodePointLength(*from);
+        from += cpLen;
+        length += (cpLen >> 2) + 1; // same as cpLen < 4 ? 1 : 2
+    }
+
+    return length;
 }
 
 bool Box::mark (IMark * marker, unsigned markBit) const
@@ -843,6 +958,30 @@ TaggedValue stringConstructor (StackFrame * caller, Env *, unsigned argc, const 
     return JS_UNDEFINED_VALUE;
 }
 
+TaggedValue stringCharCodeAt (StackFrame * caller, Env *, unsigned argc, const TaggedValue * argv)
+{
+    StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":stringCharCodeAt", __LINE__);
+    TaggedValue pos = argc > 1 ? argv[1] : JS_UNDEFINED_VALUE;
+
+    if (argv[0].tag == VT_UNDEFINED || argv[0].tag == VT_NULL)
+        throwTypeError(&frame, "'this' is not coercible to string");
+
+    frame.locals[0] = toString(&frame, argv[0]);
+    const StringPrim * sprim = frame.locals[0].raw.sval;
+
+    // We need to convert pos to integer, which is not necessarily fast as we need to support cases
+    // like infinity, etc. So, first we check for the fastest case and if not, go real slow
+    uint32_t upos;
+    if (JS_LIKELY(pos.tag == VT_NUMBER && (upos = (uint32_t)pos.raw.nval) == pos.raw.nval))
+        return sprim->charCodeAt(upos);
+
+    double fpos = toInteger(&frame, pos);
+    if (JS_UNLIKELY(fpos < 0 || fpos >= sprim->charLength))
+        return makeNumberValue(NAN);
+    else
+        return sprim->charCodeAt((uint32_t)fpos);
+}
+
 TaggedValue numberFunction (StackFrame * caller, Env *, unsigned argc, const TaggedValue * argv)
 {
     return makeNumberValue(argc > 1 ? toNumber(caller, argv[1]) : 0);
@@ -975,6 +1114,12 @@ Runtime::Runtime (bool strictMode)
     permStrToString = internString(&frame, true, "toString");
     permStrValueOf = internString(&frame, true, "valueOf");
     permStrMessage = internString(&frame, true, "message");
+    {
+        char buf[8];
+        unsigned length;
+        length = utf8Encode((unsigned char *)buf, UNICODE_REPLACEMENT_CHARACTER);
+        permStrUnicodeReplacementChar = internString(&frame, true, buf, length);
+    }
 
     // Initialize the pre-allocated ASCII chars
     //
@@ -1039,6 +1184,9 @@ Runtime::Runtime (bool strictMode)
         new(&frame) PrototypeCreator<Object,String>(objectPrototype),
         stringConstructor, stringFunction, "String", 1, &stringPrototype, &string
     );
+    // String.prototype.charCodeAt()
+    defineMethod(&frame, stringPrototype, "charCodeAt", 1, stringCharCodeAt);
+
     // Number
     //
     systemConstructor(
@@ -1186,6 +1334,15 @@ bool Runtime::less_PasStr::operator() (const PasStr & a, const PasStr & b) const
         return (rel = memcmp(a.second, b.second, b.first)) != 0 ? rel < 0 : false;
 }
 
+const StringPrim * Runtime::findInterned (const StringPrim * str)
+{
+    if (JS_UNLIKELY(str->isInterned()))
+        return str;
+
+    auto it = permStrings.find(PasStr(str->byteLength, str->_str));
+    return it != permStrings.end() ? it->second : NULL;
+}
+
 const StringPrim * Runtime::internString (StackFrame * caller, bool permanent, const char * str, unsigned len)
 {
     const StringPrim * res;
@@ -1211,7 +1368,7 @@ const StringPrim * Runtime::internString (const StringPrim * str)
     if (JS_UNLIKELY(str->isInterned()))
         return str;
 
-    auto res = permStrings.insert(std::make_pair(PasStr(str->length, str->_str), str));
+    auto res = permStrings.insert(std::make_pair(PasStr(str->byteLength, str->_str), str));
     if (res.second) {
         str->stringFlags |= StringPrim::F_INTERNED;
         return str;
@@ -1223,7 +1380,7 @@ const StringPrim * Runtime::internString (const StringPrim * str)
 void Runtime::uninternString (StringPrim * str)
 {
     assert((str->stringFlags & (StringPrim::F_INTERNED | StringPrim::F_PERMANENT)) == StringPrim::F_INTERNED);
-    size_t t = this->permStrings.erase(PasStr(str->length, str->_str));
+    size_t t = this->permStrings.erase(PasStr(str->byteLength, str->_str));
     assert(t == 1);
     str->stringFlags &= ~StringPrim::F_INTERNED;
 }
@@ -1407,7 +1564,13 @@ TaggedValue get (StackFrame * caller, TaggedValue obj, const StringPrim * propNa
 
         case VT_NUMBER:   return JS_GET_RUNTIME(caller)->numberPrototype->get(caller, propName);
         case VT_BOOLEAN:  return JS_GET_RUNTIME(caller)->booleanPrototype->get(caller, propName);
-        case VT_STRINGPRIM: return JS_GET_RUNTIME(caller)->stringPrototype->get(caller, propName);
+        case VT_STRINGPRIM: {
+            Runtime * r = JS_GET_RUNTIME(caller);
+            if (propName == r->permStrLength)
+                return makeNumberValue(obj.raw.sval->charLength);
+            else
+                return JS_GET_RUNTIME(caller)->stringPrototype->get(caller, propName);
+        }
 
         default:
             assert(false);
@@ -1432,14 +1595,23 @@ TaggedValue getComputed (StackFrame * caller, TaggedValue obj, TaggedValue propN
         case VT_OBJECT:
         case VT_FUNCTION: return obj.raw.oval->getComputed(caller, propName); break;
 
-        case VT_NUMBER:
-        case VT_BOOLEAN:
+        case VT_NUMBER:  return JS_GET_RUNTIME(caller)->numberPrototype->getComputed(caller, propName);
+        case VT_BOOLEAN: return JS_GET_RUNTIME(caller)->booleanPrototype->getComputed(caller, propName);
         case VT_STRINGPRIM: {
-            // TODO: avoid temporary object creation
-            StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":get", __LINE__);
-            Object * o = toObject(&frame, obj);
-            frame.locals[0] = makeObjectValue(o);
-            return o->getComputed(&frame, propName);
+            uint32_t index;
+            if (JS_LIKELY(isValidArrayIndexNumber(propName, &index)))
+                return obj.raw.sval->charAt(caller, index);
+
+            StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":getComputed", __LINE__);
+            frame.locals[0] = toString(&frame, propName);
+            if (isIndexString(frame.locals[0].raw.sval->getStr(), &index))
+                return obj.raw.sval->charAt(&frame, index);
+
+            Runtime * r = JS_GET_RUNTIME(caller);
+            if (r->findInterned(frame.locals[0].raw.sval) == r->permStrLength)
+                return makeNumberValue(obj.raw.sval->charLength);
+            else
+                return r->stringPrototype->getComputed(&frame, propName);
         }
         break;
         default:
@@ -1460,7 +1632,7 @@ bool toBoolean (TaggedValue v)
         case VT_NUMBER:
             return !isnan(v.raw.nval) && v.raw.nval;
         case VT_STRINGPRIM:
-            return v.raw.sval->length != 0;
+            return v.raw.sval->byteLength != 0;
         default:
             return true;
     }
@@ -1604,9 +1776,10 @@ int32_t toInt32 (StackFrame * caller, TaggedValue v)
 
 TaggedValue concatString (StackFrame * caller, StringPrim * a, StringPrim * b)
 {
-    StringPrim * res = StringPrim::makeEmpty(caller, a->length + b->length);
-    memcpy( res->_str, a->_str, a->length );
-    memcpy( res->_str+a->length, b->_str, b->length);
+    StringPrim * res = StringPrim::makeEmpty(caller, a->byteLength + b->byteLength);
+    memcpy( res->_str, a->_str, a->byteLength);
+    memcpy( res->_str+a->byteLength, b->_str, b->byteLength);
+    res->init();
     return makeStringValue(res);
 }
 
