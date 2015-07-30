@@ -1031,22 +1031,8 @@ Runtime::Runtime (bool strictMode)
         functionPrototype,
         functionConstructor, functionFunction, "Function", 1, NULL, &function
     );
-    // Function.prototype.apply() : for efficiency it is implemented in fully native code
-    {
-        const StringPrim * name = internString(&frame, "apply");
-        frame.locals[0] = newFunction(&frame, env, name, 2, functionApply);
-        functionPrototype->defineOwnProperty(
-            &frame, internString(&frame, "apply"), PROP_WRITEABLE|PROP_CONFIGURABLE, frame.locals[0]
-        );
-    }
-    // Function.prototype.bind() : it needs to be implemented in native code
-    {
-        const StringPrim * name = internString(&frame, "bind");
-        frame.locals[0] = newFunction(&frame, env, name, 1, functionBind);
-        functionPrototype->defineOwnProperty(
-            &frame, internString(&frame, "bind"), PROP_WRITEABLE|PROP_CONFIGURABLE, frame.locals[0]
-        );
-    }
+    defineMethod(&frame, functionPrototype, "apply", 2, functionApply);
+    defineMethod(&frame, functionPrototype, "bind", 1, functionBind);
     // String
     //
     systemConstructor(
@@ -1125,6 +1111,14 @@ void Runtime::systemConstructor (
     );
 
     *outConstructor = constructor;
+}
+
+void Runtime::defineMethod (StackFrame * caller, Object * prototype, const char * sname, unsigned length, CodePtr code)
+{
+    StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":Runtime::defineMethod", __LINE__);
+    const StringPrim * name = internString(&frame, sname);
+    frame.locals[0] = newFunction(&frame, env, name, length, code);
+    prototype->defineOwnProperty(&frame, name, PROP_WRITEABLE|PROP_CONFIGURABLE, frame.locals[0]);
 }
 
 void Runtime::parseDiagEnvironment ()

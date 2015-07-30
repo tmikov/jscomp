@@ -717,6 +717,8 @@ private:
         const char * name, unsigned length,
         Object ** outPrototype, Function ** outConstructor
     );
+
+    void defineMethod (StackFrame * caller, Object * prototype, const char * sname, unsigned length, CodePtr code);
 };
 
 extern Runtime * g_runtime;
