@@ -1550,6 +1550,15 @@ double primToNumber (TaggedValue v)
     };
 }
 
+double toInteger (double n)
+{
+    if (JS_UNLIKELY(isnan(n)))
+        return 0;
+    if (JS_UNLIKELY(!isfinite(n)))
+        return n;
+    return n >= 0 ? floor(n) : ceil(n);
+}
+
 uint32_t toUint32 (StackFrame * caller, TaggedValue v)
 {
     return toUint32(toNumber(caller, v));

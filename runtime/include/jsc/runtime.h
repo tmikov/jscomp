@@ -863,6 +863,11 @@ TaggedValue toPrimitive (StackFrame * caller, TaggedValue v, ValueTag preferredT
 double toNumber (const StringPrim * str);
 double toNumber (StackFrame * caller, TaggedValue v);
 double primToNumber (TaggedValue v);
+double toInteger (double n);
+inline double toInteger (StackFrame * caller, TaggedValue v)
+{
+    return toInteger(toNumber(caller, v));
+}
 uint32_t toUint32 (StackFrame * caller, TaggedValue v);
 int32_t toInt32 (StackFrame * caller, TaggedValue v);
 inline uint32_t toUint32 (double num)
