@@ -25,6 +25,7 @@ struct Env;
 struct PropertyAccessor;
 struct Memory;
 struct Object;
+struct NativeObject;
 struct Function;
 struct StringPrim;
 struct StackFrame;
@@ -285,6 +286,43 @@ struct PropertyAccessor : public Memory
     { }
 
     virtual bool mark (IMark * marker, unsigned markBit) const;
+};
+
+typedef void (*NativeFinalizerFn)(NativeObject*);
+
+struct NativeObject : public Object
+{
+    NativeFinalizerFn nativeFinalizer;
+    unsigned const internalCount;
+    uintptr_t internalProps[1];
+
+    static NativeObject * make (StackFrame * caller, Object * parent, unsigned internalPropCount);
+
+    virtual ~NativeObject ();
+
+    void setNativeFinalizer (NativeFinalizerFn finalizer)
+    {
+        this->nativeFinalizer = finalizer;
+    }
+
+    inline uintptr_t getInternal (unsigned index) const
+    {
+        assert(index < this->internalCount);
+        return this->internalProps[index];
+    }
+
+    inline void setInternal (unsigned index, uintptr_t value)
+    {
+        assert(index < this->internalCount);
+        this->internalProps[index] = value;
+    }
+
+private:
+    NativeObject (Object * parent, unsigned internalCount) :
+        Object(parent),
+        internalCount(internalCount),
+        nativeFinalizer(NULL)
+    {}
 };
 
 struct ArrayBase : public Object

@@ -276,6 +276,19 @@ bool PropertyAccessor::mark (IMark * marker, unsigned markBit) const
     return markMemory(marker, markBit, get) && markMemory(marker, markBit, set);
 }
 
+NativeObject * NativeObject::make (StackFrame * caller, Object * parent, unsigned internalPropCount)
+{
+    return
+        new(caller,OFFSETOF(NativeObject,internalProps) + sizeof(uintptr_t)*internalPropCount)
+            NativeObject(parent, internalPropCount);
+}
+
+NativeObject::~NativeObject ()
+{
+    if (this->nativeFinalizer)
+        (*this->nativeFinalizer)(this);
+}
+
 bool ArrayBase::mark (IMark * marker, unsigned markBit) const
 {
     if (!Object::mark(marker, markBit))
