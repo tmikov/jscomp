@@ -265,20 +265,6 @@ error:
     throwTypeError(&frame, "Cannot determine default value");
 }
 
-bool Object::isIndexString (const char * str, uint32_t * res)
-{
-    if (str[0] >= '0' && str[0] <= '9') { // Filter out the obvious cases
-        char * end;
-        errno = 0;
-        unsigned long ul = strtoul(str, &end, 10);
-        if (errno == 0 && *end == 0 && ul <= UINT32_MAX) {
-            *res = (uint32_t)ul;
-            return true;
-        }
-    }
-    return false;
-}
-
 bool PropertyAccessor::mark (IMark * marker, unsigned markBit) const
 {
     return markMemory(marker, markBit, get) && markMemory(marker, markBit, set);
@@ -1310,6 +1296,20 @@ TaggedValue callCons (StackFrame * caller, TaggedValue value, unsigned argc, con
     throwTypeError(caller, "not a function");
     return JS_UNDEFINED_VALUE;
 };
+
+bool isIndexString (const char * str, uint32_t * res)
+{
+    if (str[0] >= '0' && str[0] <= '9') { // Filter out the obvious cases
+        char * end;
+        errno = 0;
+        unsigned long ul = strtoul(str, &end, 10);
+        if (errno == 0 && *end == 0 && ul < UINT32_MAX) {
+            *res = (uint32_t)ul;
+            return true;
+        }
+    }
+    return false;
+}
 
 void put (StackFrame * caller, TaggedValue obj, const StringPrim * propName, TaggedValue val)
 {

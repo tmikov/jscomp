@@ -266,7 +266,6 @@ struct Object : public Memory
 
     virtual TaggedValue defaultValue (StackFrame * caller, ValueTag preferredType);
 
-    static bool isIndexString (const char * str, uint32_t * index);
 };
 
 template<class BASE, class TOCREATE>
@@ -850,6 +849,8 @@ inline bool isValidArrayIndexNumber (TaggedValue val, uint32_t * index)
     }
     return false;
 }
+
+bool isIndexString (const char * str, uint32_t * index);
 
 void put (StackFrame * caller, TaggedValue obj, const StringPrim * propName, TaggedValue val);
 void putComputed (StackFrame * caller, TaggedValue obj, TaggedValue propName, TaggedValue val);
