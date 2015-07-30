@@ -948,27 +948,27 @@ Runtime::Runtime (bool strictMode)
     StackFrameN<0, 1, 0> frame(NULL, NULL, __FILE__ ":Runtime::Runtime()", __LINE__);
 
     // Perm strings
-    permStrEmpty = internString(&frame, "");
-    permStrUndefined = internString(&frame, "undefined");
-    permStrNull = internString(&frame, "null");
-    permStrTrue = internString(&frame, "true");
-    permStrFalse = internString(&frame, "false");
-    permStrNaN = internString(&frame, "NaN");
-    permStrPrototype = internString(&frame, "prototype");
-    permStrConstructor = internString(&frame, "constructor");
-    permStrLength = internString(&frame, "length");
-    permStrName = internString(&frame, "name");
-    permStrArguments = internString(&frame, "arguments");
-    permStrCaller = internString(&frame, "caller");
-    permStrCallee = internString(&frame, "callee");
-    permStrObject = internString(&frame, "object");
-    permStrBoolean = internString(&frame, "boolean");
-    permStrNumber = internString(&frame, "number");
-    permStrString = internString(&frame, "string");
-    permStrFunction = internString(&frame, "function");
-    permStrToString = internString(&frame, "toString");
-    permStrValueOf = internString(&frame, "valueOf");
-    permStrMessage = internString(&frame, "message");
+    permStrEmpty = internString(&frame, true, "");
+    permStrUndefined = internString(&frame, true, "undefined");
+    permStrNull = internString(&frame, true, "null");
+    permStrTrue = internString(&frame, true, "true");
+    permStrFalse = internString(&frame, true, "false");
+    permStrNaN = internString(&frame, true, "NaN");
+    permStrPrototype = internString(&frame, true, "prototype");
+    permStrConstructor = internString(&frame, true, "constructor");
+    permStrLength = internString(&frame, true, "length");
+    permStrName = internString(&frame, true, "name");
+    permStrArguments = internString(&frame, true, "arguments");
+    permStrCaller = internString(&frame, true, "caller");
+    permStrCallee = internString(&frame, true, "callee");
+    permStrObject = internString(&frame, true, "object");
+    permStrBoolean = internString(&frame, true, "boolean");
+    permStrNumber = internString(&frame, true, "number");
+    permStrString = internString(&frame, true, "string");
+    permStrFunction = internString(&frame, true, "function");
+    permStrToString = internString(&frame, true, "toString");
+    permStrValueOf = internString(&frame, true, "valueOf");
+    permStrMessage = internString(&frame, true, "message");
 
     // Global env
     env = Env::make(&frame, NULL, 20);
@@ -1001,7 +1001,7 @@ Runtime::Runtime (bool strictMode)
     //
     functionPrototype = new(&frame) PrototypeCreator<Function,Function>(objectPrototype);
     env->vars[2] = makeObjectValue(functionPrototype);
-    functionPrototype->init(&frame, env, emptyFunc, emptyFunc, internString(&frame,"functionPrototype"), 0);
+    functionPrototype->init(&frame, env, emptyFunc, emptyFunc, internString(&frame, true, "functionPrototype"), 0);
 
     // Object
     //
@@ -1056,7 +1056,7 @@ Runtime::Runtime (bool strictMode)
     );
     // Error.prototype.name
     errorPrototype->defineOwnProperty(
-        &frame, permStrName, PROP_NORMAL, makeStringValue(internString(&frame, "Error"))
+        &frame, permStrName, PROP_NORMAL, makeStringValue(internString(&frame, true, "Error"))
     );
     // Error.prototype.message
     errorPrototype->defineOwnProperty( &frame, permStrMessage, PROP_NORMAL, makeStringValue(permStrEmpty));
@@ -1070,7 +1070,7 @@ Runtime::Runtime (bool strictMode)
     );
     // TypeError.prototype.name
     typeErrorPrototype->defineOwnProperty(
-        &frame, permStrName, PROP_NORMAL, makeStringValue(internString(&frame, "TypeError"))
+        &frame, permStrName, PROP_NORMAL, makeStringValue(internString(&frame, true, "TypeError"))
     );
 
     // Next free is env[17]
@@ -1089,7 +1089,7 @@ void Runtime::systemConstructor (
 
     Function * constructor = new(caller) Function(functionPrototype);
     env->vars[envIndex+1] = makeObjectValue(constructor);
-    constructor->init(caller, env, code, consCode, internString(caller, name), length);
+    constructor->init(caller, env, code, consCode, internString(caller, true, name), length);
     constructor->definePrototype(caller, prototype);
 
     prototype->defineOwnProperty(
@@ -1101,10 +1101,11 @@ void Runtime::systemConstructor (
 
 void Runtime::defineMethod (StackFrame * caller, Object * prototype, const char * sname, unsigned length, CodePtr code)
 {
-    StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":Runtime::defineMethod", __LINE__);
-    const StringPrim * name = internString(&frame, sname);
-    frame.locals[0] = newFunction(&frame, env, name, length, code);
-    prototype->defineOwnProperty(&frame, name, PROP_WRITEABLE|PROP_CONFIGURABLE, frame.locals[0]);
+    StackFrameN<0,2,0> frame(caller, NULL, __FILE__ ":Runtime::defineMethod", __LINE__);
+    const StringPrim * name;
+    frame.locals[0] = makeStringValue(name = internString(&frame, true, sname));
+    frame.locals[1] = newFunction(&frame, env, name, length, code);
+    prototype->defineOwnProperty(&frame, name, PROP_WRITEABLE|PROP_CONFIGURABLE, frame.locals[1]);
 }
 
 void Runtime::parseDiagEnvironment ()
@@ -1151,9 +1152,11 @@ void Runtime::parseDiagEnvironment ()
 
 bool Runtime::mark (IMark * marker, unsigned markBit)
 {
+#if 0 // The GC has special handling of interned strings, so we must not mark them
     for ( auto it : this->permStrings )
         if (!markMemory(marker, markBit, it.second))
             return false;
+#endif
     return
         markMemory(marker, markBit, env) &&
         markValue(marker, markBit, this->thrownObject);
@@ -1170,22 +1173,46 @@ bool Runtime::less_PasStr::operator() (const PasStr & a, const PasStr & b) const
         return (rel = memcmp(a.second, b.second, b.first)) != 0 ? rel < 0 : false;
 }
 
-const StringPrim * Runtime::internString (StackFrame * caller, const char * str, unsigned len)
+const StringPrim * Runtime::internString (StackFrame * caller, bool permanent, const char * str, unsigned len)
 {
-    StringPrim * res;
-    PasStr key(len, (const unsigned char *)str);
-    auto it = permStrings.find(key);
+    const StringPrim * res;
+    auto it = permStrings.find(PasStr(len, (const unsigned char *)str));
     if (it == permStrings.end()) {
         res = StringPrim::make(caller, str, len);
+        res->stringFlags |= StringPrim::F_INTERNED | (permanent ? StringPrim::F_PERMANENT : 0);
         permStrings[PasStr(len, res->_str)] = res;
     } else {
         res = it->second;
+        if (JS_UNLIKELY(permanent)) // avoid writing to the existing entry unless we have to
+            res->stringFlags |= StringPrim::F_PERMANENT;
     }
     return res;
 }
-const StringPrim * Runtime::internString (StackFrame * caller, const char * str)
+const StringPrim * Runtime::internString (StackFrame * caller, bool permanent, const char * str)
 {
-    return internString(caller, str, (unsigned)strlen(str));
+    return internString(caller, permanent, str, (unsigned)strlen(str));
+}
+
+const StringPrim * Runtime::internString (const StringPrim * str)
+{
+    if (JS_UNLIKELY(str->isInterned()))
+        return str;
+
+    auto res = permStrings.insert(std::make_pair(PasStr(str->length, str->_str), str));
+    if (res.second) {
+        str->stringFlags |= StringPrim::F_INTERNED;
+        return str;
+    } else {
+        return res.first->second;
+    }
+}
+
+void Runtime::uninternString (StringPrim * str)
+{
+    assert((str->stringFlags & (StringPrim::F_INTERNED | StringPrim::F_PERMANENT)) == StringPrim::F_INTERNED);
+    size_t t = this->permStrings.erase(PasStr(str->length, str->_str));
+    assert(t == 1);
+    str->stringFlags &= ~StringPrim::F_INTERNED;
 }
 
 void Runtime::initStrings (
@@ -1193,7 +1220,7 @@ void Runtime::initStrings (
 )
 {
     for ( unsigned i = 0; i < count; ++i )
-        prims[i] = internString(caller, strconst + offsets[i<<1], offsets[(i<<1)+1]);
+        prims[i] = internString(caller, true, strconst + offsets[i << 1], offsets[(i << 1) + 1]);
 }
 
 /**

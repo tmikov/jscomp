@@ -456,6 +456,11 @@ struct BoundPrototype : public Object
 
 struct StringPrim : public Memory
 {
+    enum {
+        F_INTERNED = 1,
+        F_PERMANENT = 2,
+    };
+    mutable unsigned stringFlags;
     const unsigned length;
     //private:
     unsigned char _str[];
@@ -463,6 +468,7 @@ struct StringPrim : public Memory
     StringPrim (unsigned length) :
         length(length)
     {
+        this->stringFlags = 0;
         this->_str[length] = 0;
     }
 
@@ -476,6 +482,8 @@ struct StringPrim : public Memory
     {
         return make(caller, str, (unsigned)strlen(str));
     }
+
+    bool isInterned () const { return (this->stringFlags & F_INTERNED) != 0; }
 
     const char * getStr () const
     {
@@ -649,7 +657,7 @@ struct Runtime
         bool operator() (const PasStr & a, const PasStr & b) const;
     };
 
-    std::map<PasStr,StringPrim*,less_PasStr> permStrings;
+    std::map<PasStr,const StringPrim*,less_PasStr> permStrings;
 
     const StringPrim * permStrEmpty;
     const StringPrim * permStrUndefined;
@@ -692,9 +700,12 @@ struct Runtime
 
     bool mark (IMark * marker, unsigned markBit);
 
-    const StringPrim * internString (StackFrame * caller, const char * str, unsigned len);
-    const StringPrim * internString (StackFrame * caller, const char * str);
+    const StringPrim * internString (StackFrame * caller, bool permanent, const char * str, unsigned len);
+    const StringPrim * internString (StackFrame * caller, bool permanent, const char * str);
+    const StringPrim * internString (const StringPrim * str);
+    void uninternString (StringPrim * str);
     void initStrings (StackFrame * caller, const StringPrim ** prims, const char * strconst, const unsigned * offsets, unsigned count);
+
 
     void pushTry (TryRecord * tryRec)
     {
@@ -816,9 +827,9 @@ inline TaggedValue makeStringValue (StackFrame * caller, const char * str)
     return makeStringValue(StringPrim::make(caller, str));
 }
 
-inline TaggedValue makeInternStringValue (StackFrame * caller, const char * str)
+inline TaggedValue makeInternStringValue (StackFrame * caller, const char * str, bool permanent)
 {
-    return makeStringValue(JS_GET_RUNTIME(caller)->internString(caller, str));
+    return makeStringValue(JS_GET_RUNTIME(caller)->internString(caller, permanent, str));
 }
 
 Object * objectCreate (StackFrame * caller, TaggedValue parent);

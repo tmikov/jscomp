@@ -138,6 +138,23 @@ static void collect (StackFrame * caller)
     unsigned const markBit = marker.d_markBit; // cache it for speed
     for (Memory * m = runtime->head.getNext(); m != NULL;) {
         if ((m->header & Memory::MARK_BIT_MASK) != markBit) {
+
+            // Interned strings need special care. Some of them (permanent ones) may not be freed at all, and
+            // the rest need to be removed from the map first
+            if (StringPrim * sprim = dynamic_cast<StringPrim *>(m)) {
+                if (sprim->stringFlags & StringPrim::F_INTERNED) {
+                    if (!(sprim->stringFlags & StringPrim::F_PERMANENT)) {
+#ifdef JS_DEBUG
+                        if (runtime->diagFlags & Runtime::DIAG_HEAP_GC_VERBOSE)
+                            fprintf(stderr, "  unintern %p %s\n", sprim, sprim->getStr());
+#endif
+                        runtime->uninternString(sprim);
+                    } else {
+                        goto dontFree;
+                    }
+                }
+            }
+
 #ifdef JS_DEBUG
             if (runtime->diagFlags & Runtime::DIAG_HEAP_GC_VERBOSE)
                 fprintf(stderr, "  free %p %s\n", m, typeid(*m).name());
@@ -148,6 +165,7 @@ static void collect (StackFrame * caller)
             _release(toFree, runtime);
             freed = true;
         } else {
+    dontFree:
             if (freed) {
                 // Chain the last marked block to this one, since we freed blocks in the interim
                 lastMarked->setNext(m);
