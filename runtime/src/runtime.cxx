@@ -976,6 +976,13 @@ Runtime::Runtime (bool strictMode)
     permStrValueOf = internString(&frame, true, "valueOf");
     permStrMessage = internString(&frame, true, "message");
 
+    // Initialize the pre-allocated ASCII chars
+    //
+    for ( int i = 0; i < CACHED_CHARS; ++i ) {
+        char ch = (char)i;
+        this->asciiChars[i] = internString(&frame, true, &ch, 1);
+    }
+
     // Global env
     env = Env::make(&frame, NULL, 20);
 

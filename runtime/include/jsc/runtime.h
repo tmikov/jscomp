@@ -681,6 +681,10 @@ struct Runtime
     const StringPrim * permStrValueOf;
     const StringPrim * permStrMessage;
 
+    // Pre-allocated ASCII chars for faster substring/charAt/[] in the common case
+    enum { CACHED_CHARS = 128 };
+    const StringPrim * asciiChars[CACHED_CHARS];
+
     unsigned markBit; // the value that was used for marking during the previous collection
 
     struct MemoryHead : public Memory
