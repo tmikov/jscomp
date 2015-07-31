@@ -1144,23 +1144,8 @@ Runtime::Runtime (bool strictMode)
     // Global env
     env = Env::make(&frame, NULL, 20);
 
-    // strictThrowerFunction
-    // Used as a "poison pill" when accessing forbidden properties
-    {
-        // Disable strict mode temporarily to avoid an endless loop
-        bool saveStrict = this->strictMode;
-        this->strictMode = false;
-
-        Function * strictThrowerFunction = new(&frame) Function(NULL);
-        frame.locals[0] = makeObjectValue(strictThrowerFunction);
-        strictThrowerFunction->init(&frame, env, strictThrower, strictThrower, NULL, 0);
-
-        env->vars[16] = strictThrowerAccessor = makePropertyAccessorValue(
-            new(&frame) PropertyAccessor(strictThrowerFunction, strictThrowerFunction)
-        );
-
-        this->strictMode = saveStrict;
-    }
+    // strictThrowerAccessor: the functions will be initialized later when the object system is up
+    env->vars[16] = strictThrowerAccessor = makePropertyAccessorValue(new(&frame) PropertyAccessor(NULL, NULL));
 
     // Object.prototype
     //
@@ -1173,6 +1158,16 @@ Runtime::Runtime (bool strictMode)
     functionPrototype = new(&frame) PrototypeCreator<Function,Function>(objectPrototype);
     env->vars[2] = makeObjectValue(functionPrototype);
     functionPrototype->init(&frame, env, emptyFunc, emptyFunc, internString(&frame, true, "functionPrototype"), 0);
+
+    // strictThrowerAccessor: Used as a "poison pill" when accessing forbidden properties
+    {
+        Function * strictThrowerFunction = new(&frame) Function(functionPrototype);
+        frame.locals[0] = makeObjectValue(strictThrowerFunction);
+        strictThrowerFunction->init(&frame, env, strictThrower, strictThrower, NULL, 0);
+
+        ((PropertyAccessor *)strictThrowerAccessor.raw.mval)->get = strictThrowerFunction;
+        ((PropertyAccessor *)strictThrowerAccessor.raw.mval)->set = strictThrowerFunction;
+    }
 
     // Object
     //
