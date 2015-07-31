@@ -22,10 +22,15 @@ function _defineAccessor (obj, prop, getter, setter)
     );
 }
 
-function defineProperty (obj, prop, descriptor)
+function needObject (obj, msgPrefix)
 {
     if (obj === null || typeof obj !== "object" && typeof obj !== "function")
-        throw new TypeError("defineProperty() with a non-object");
+        throw new TypeError(msgPrefix + " with a non-object");
+}
+
+function defineProperty (obj, prop, descriptor)
+{
+    needObject(obj, "defineProperty()");
 
     if (descriptor === void 0)
         descriptor = {};
@@ -71,8 +76,7 @@ function defineProperty (obj, prop, descriptor)
 
 function defineProperties (obj, props)
 {
-    if (obj === null || typeof obj !== "object" && typeof obj !== "function")
-        throw new TypeError("defineProperties() with a non-object");
+    needObject(obj, "defineProperties()");
 
     for ( var pn in Object(props) )
         defineProperty(obj, pn, props[pn]);
@@ -84,6 +88,30 @@ function hidden (obj, prop, func)
 {
     defineProperty(obj, prop, {writable: true, configurable: true, value: func});
 }
+
+// Object
+//
+function object_protoGetter ()
+{
+    return __asm__({},["result"],[["this",this]],[],
+        "%[result] = js::toObject(%[%frame], %[this])->getParentValue()"
+    );
+}
+
+function object_protoSetter ()
+{
+    throw TypeError("setting of __proto__ is not supported");
+}
+
+defineProperty(Object.prototype, "__proto__", {configurable: true, get: object_protoGetter, set: object_protoSetter});
+
+hidden(Object, "getPrototypeOf", function object_getPrototypeOf(O)
+{
+    needObject(O, "getPrototypeOf");
+    return __asm__({},["result"],[["O",O]],[],
+        "%[result] = %[O].raw.oval->getParentValue()"
+    );
+});
 
 function getUnboxedValue (v)
 {

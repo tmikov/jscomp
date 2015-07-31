@@ -248,6 +248,8 @@ struct Object : public Memory
     bool deleteProperty (StackFrame * caller, const StringPrim * name);
     virtual bool deleteComputed (StackFrame * caller, TaggedValue propName);
 
+    TaggedValue getParentValue() const;
+
     void freeze ()
     {
         this->flags |= OF_NOEXTEND | OF_NOCONFIG | OF_NOWRITE;
@@ -982,5 +984,10 @@ inline TaggedValue Object::getPropertyValue (StackFrame * caller, Property * p)
         }
     }
     return JS_UNDEFINED_VALUE;
+}
+
+inline TaggedValue Object::getParentValue () const
+{
+    return this->parent ? makeObjectValue(this->parent) : JS_NULL_VALUE;
 }
 };
