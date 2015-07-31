@@ -3345,6 +3345,8 @@ export function compile (
         declareBuiltinConstructor("Error", "js::error", "error");
         declareBuiltinConstructor("TypeError", "js::typeError", "typeError");
 
+        runtimeCtx.scope.newConstant("NaN", hir.wrapImmediate(NaN));
+        runtimeCtx.scope.newConstant("Infinity", hir.wrapImmediate(Infinity));
         runtimeCtx.scope.newConstant("undefined", hir.undefinedValue);
 
         if (!compileSource(runtimeCtx.scope, runtimeCtx.scope, runtimeFileName, m_reporter, new SpecialVars(), m_modules, m_options))
