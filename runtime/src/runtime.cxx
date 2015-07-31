@@ -54,7 +54,7 @@ TaggedValue * Env::var (unsigned level, unsigned index)
 
 Object * Object::createDescendant (StackFrame * caller)
 {
-    return new (caller) Object(this);
+    return newInit<Object>(caller, this);
 }
 
 bool Object::mark (IMark * marker, unsigned markBit) const
@@ -278,9 +278,12 @@ bool PropertyAccessor::mark (IMark * marker, unsigned markBit) const
 
 NativeObject * NativeObject::make (StackFrame * caller, Object * parent, unsigned internalPropCount)
 {
-    return
-        new(caller,OFFSETOF(NativeObject,internalProps) + sizeof(uintptr_t)*internalPropCount)
+    StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":NativeObject::make()", __LINE__);
+    NativeObject * res = new(&frame,OFFSETOF(NativeObject,internalProps) + sizeof(uintptr_t)*internalPropCount)
             NativeObject(parent, internalPropCount);
+    frame.locals[0] = makeObjectValue(res);
+    res->init(&frame);
+    return res;
 }
 
 NativeObject::~NativeObject ()
@@ -426,6 +429,7 @@ bool ArrayBase::deleteComputed (StackFrame * caller, TaggedValue propName)
 
 void Array::init (StackFrame * caller)
 {
+    ArrayBase::init(caller);
     Runtime * r = JS_GET_RUNTIME(caller);
     defineOwnProperty(caller, r->permStrLength, PROP_WRITEABLE|PROP_GET_SET, r->arrayLengthAccessor);
 }
@@ -463,16 +467,9 @@ TaggedValue Array::lengthSetter (StackFrame * caller, Env *, unsigned argc, cons
     return JS_UNDEFINED_VALUE;
 }
 
-Object * ArrayCreator::createDescendant (StackFrame * caller)
-{
-    StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":ArrayCreator::createDescendant", __LINE__);
-    frame.locals[0] = makeObjectValue(new (&frame) Array(this));
-    ((Array*)frame.locals[0].raw.oval)->init(&frame);
-    return frame.locals[0].raw.oval;
-}
-
 void Arguments::init (StackFrame * caller, int argc, const TaggedValue * argv)
 {
+    ArrayBase::init(caller);
     elems.assign(argv, argv+argc);
     defineOwnProperty(caller, JS_GET_RUNTIME(caller)->permStrLength, PROP_WRITEABLE|PROP_CONFIGURABLE,
                       makeNumberValue(argc));
@@ -480,8 +477,9 @@ void Arguments::init (StackFrame * caller, int argc, const TaggedValue * argv)
 
 void ForInIterator::make (StackFrame * caller, TaggedValue * result, Object * obj)
 {
+    StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":ForInIterator::make()", __LINE__);
     ForInIterator * iter;
-    *result = makeMemoryValue(VT_MEMORY, iter = new (caller) ForInIterator());
+    frame.locals[0] = *result = makeMemoryValue(VT_MEMORY, iter = new (&frame) ForInIterator());
     iter->init(caller, obj);
 }
 
@@ -568,6 +566,8 @@ bool ForInIterator::mark (IMark * marker, unsigned markBit) const
 
 void Function::init (StackFrame * caller, Env * env, CodePtr code, CodePtr consCode, const StringPrim * name, unsigned length)
 {
+    Object::init(caller);
+
     Runtime * r = JS_GET_RUNTIME(caller);
 
     this->env = env;
@@ -619,6 +619,15 @@ TaggedValue Function::callCons (StackFrame * caller, unsigned argc, const Tagged
     return (*this->consCode)(caller, this->env, argc, argv);
 }
 
+Object * FunctionCreator::createDescendant (StackFrame * caller)
+{
+    StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":FunctionCreator::createDescendant()", __LINE__);
+    Function * f;
+    frame.locals[0] = makeObjectValue(f = new(&frame) Function(this));
+    f->init(&frame, NULL, emptyFunc, emptyFunc, NULL, 0);
+    return f;
+}
+
 bool BoundFunction::mark (IMark * marker, unsigned markBit) const
 {
     if (!Function::mark(marker, markBit))
@@ -643,8 +652,7 @@ TaggedValue BoundFunction::call (StackFrame * caller, unsigned argc, const Tagge
 
         return this->target->call(&frame, this->boundCount + count, &frame.locals[0]);
     } else {
-        ArrayBase * argSlots;
-        frame.locals[0] = makeObjectValue(argSlots = new(&frame) ArrayBase(JS_GET_RUNTIME(&frame)->arrayPrototype));
+        ArrayBase * argSlots = newInit<ArrayBase>(&frame, &frame.locals[0], JS_GET_RUNTIME(&frame)->arrayPrototype);
         argSlots->setLength(this->boundCount + count);
 
         memcpy(&argSlots->elems[0], &this->boundArgs[0], sizeof(argSlots->elems[0]) * this->boundCount);
@@ -668,8 +676,7 @@ TaggedValue BoundFunction::callCons (StackFrame * caller, unsigned argc, const T
 
         return this->target->callCons(&frame, this->boundCount + count, &frame.locals[0]);
     } else {
-        ArrayBase * argSlots;
-        frame.locals[0] = makeObjectValue(argSlots = new(&frame) ArrayBase(JS_GET_RUNTIME(&frame)->arrayPrototype));
+        ArrayBase * argSlots = newInit<ArrayBase>(&frame, &frame.locals[0], JS_GET_RUNTIME(&frame)->arrayPrototype);
         argSlots->setLength(this->boundCount + count);
 
         argSlots->elems[0] = argv[0]; // copy the supplied 'this'
@@ -855,7 +862,7 @@ void StackFrame::printStackTrace ()
     }
 }
 
-static TaggedValue emptyFunc (StackFrame * caller, Env *, unsigned, const TaggedValue *)
+TaggedValue emptyFunc (StackFrame * caller, Env *, unsigned, const TaggedValue *)
 {
     return JS_UNDEFINED_VALUE;
 }
@@ -865,7 +872,7 @@ TaggedValue objectFunction (StackFrame * caller, Env *, unsigned argc, const Tag
     TaggedValue value = argc > 1 ? argv[1] : JS_UNDEFINED_VALUE;
 
     if (value.tag == VT_UNDEFINED || value.tag == VT_NULL)
-        return makeObjectValue(new (caller) Object(JS_GET_RUNTIME(caller)->objectPrototype));
+        return makeObjectValue(newInit<Object>(caller, JS_GET_RUNTIME(caller)->objectPrototype));
     else
         return makeObjectValue(toObject(caller, value));
 }
@@ -912,8 +919,7 @@ TaggedValue functionApply (StackFrame * caller, Env *, unsigned argc, const Tagg
         return call(&frame, argv[0], n+1, &frame.locals[0]);
     } else {
         // Slow path: must allocate the arguments slots in heap
-        ArrayBase * argSlots;
-        frame.locals[1] = makeObjectValue(argSlots = new(&frame) ArrayBase(JS_GET_RUNTIME(&frame)->arrayPrototype));
+        ArrayBase * argSlots = newInit<ArrayBase>(&frame, &frame.locals[1], JS_GET_RUNTIME(&frame)->arrayPrototype);
         argSlots->setLength(n+1);
         argSlots->elems[0] = frame.locals[0]; // thisArg
         for ( uint32_t index = 0; index < n; ++index )
@@ -948,7 +954,7 @@ TaggedValue functionBind (StackFrame * caller, Env *, unsigned argc, const Tagge
         target->length >= bindArgCount - 1 ? target->length - bindArgCount - 1 : 0
     );
 
-    frame.locals[1] = makeObjectValue(new(&frame) BoundPrototype(JS_GET_RUNTIME(&frame)->objectPrototype, target));
+    newInit2<BoundPrototype>(&frame, &frame.locals[1], JS_GET_RUNTIME(&frame)->objectPrototype, target);
     boundFunc->definePrototype(&frame, frame.locals[1].raw.oval, 0);
 
     return frame.locals[0];
@@ -1021,12 +1027,9 @@ static void arrayInit (Array * array, unsigned argc, const TaggedValue * argv)
 }
 TaggedValue arrayFunction (StackFrame * caller, Env *, unsigned argc, const TaggedValue * argv)
 {
-    StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":arrayFunction", __LINE__);
-    Array * array;
-
-    frame.locals[0] = makeObjectValue(array = new (&frame) Array(JS_GET_RUNTIME(&frame)->arrayPrototype));
+    Array * array = newInit<Array>(caller, JS_GET_RUNTIME(caller)->arrayPrototype);
     arrayInit(array, argc, argv);
-    return frame.locals[0];
+    return makeObjectValue(array);
 }
 TaggedValue arrayConstructor (StackFrame * caller, Env * env, unsigned argc, const TaggedValue * argv)
 {
@@ -1038,7 +1041,7 @@ TaggedValue errorFunction (StackFrame * caller, Env *, unsigned argc, const Tagg
 {
     StackFrameN<0,2,0> frame(caller, NULL, __FILE__ ":errorFunction" , __LINE__);
 
-    frame.locals[0] = makeObjectValue(new(&frame) Error(JS_GET_RUNTIME(&frame)->errorPrototype));
+    newInit<Error>(&frame, &frame.locals[0], JS_GET_RUNTIME(&frame)->errorPrototype);
     frame.locals[1] = argc > 1 ? argv[1] : JS_UNDEFINED_VALUE;
     errorConstructor(&frame, NULL, 2, &frame.locals[0]);
 
@@ -1142,13 +1145,11 @@ Runtime::Runtime (bool strictMode)
 
     // Object.prototype
     //
-    objectPrototype = new(&frame) Object(NULL);
-    env->vars[0] = makeObjectValue(objectPrototype);
-
+    objectPrototype = newInit<Object>(&frame, &env->vars[0], NULL);
 
     // Function.prototype
     //
-    functionPrototype = new(&frame) PrototypeCreator<Function,Function>(objectPrototype);
+    functionPrototype = new(&frame) FunctionCreator(objectPrototype);
     env->vars[2] = makeObjectValue(functionPrototype);
     functionPrototype->init(&frame, env, emptyFunc, emptyFunc, internString(&frame, true, "functionPrototype"), 0);
 
@@ -1191,7 +1192,7 @@ Runtime::Runtime (bool strictMode)
     //
     systemConstructor(
         &frame, 4,
-        new(&frame) PrototypeCreator<Object,String>(objectPrototype),
+        newInit< PrototypeCreator<Object,String> >(&frame, &frame.locals[0], objectPrototype),
         stringConstructor, stringFunction, "String", 1, &stringPrototype, &string
     );
     // String.prototype.charCodeAt()
@@ -1201,28 +1202,28 @@ Runtime::Runtime (bool strictMode)
     //
     systemConstructor(
         &frame, 6,
-        new(&frame) PrototypeCreator<Object,Number>(objectPrototype),
+        newInit< PrototypeCreator<Object,Number> >(&frame, &frame.locals[0], objectPrototype),
         numberConstructor, numberFunction, "Number", 1, &numberPrototype, &number
     );
     // Boolean
     //
     systemConstructor(
         &frame, 8,
-        new(&frame) PrototypeCreator<Object,Boolean>(objectPrototype),
+        newInit< PrototypeCreator<Object,Boolean> >(&frame, &frame.locals[0], objectPrototype),
         booleanConstructor, booleanFunction, "Boolean", 1, &booleanPrototype, &boolean
     );
     // Array
     //
     systemConstructor(
         &frame, 10,
-        new(&frame) ArrayCreator(objectPrototype),
+        newInit< PrototypeCreator<Object,Array> >(&frame, &frame.locals[0], objectPrototype),
         arrayConstructor, arrayFunction, "Array", 1, &arrayPrototype, &array
     );
     // Error
     //
     systemConstructor(
         &frame, 12,
-        new(&frame) PrototypeCreator<Error,Error>(objectPrototype),
+        newInit< PrototypeCreator<Error,Error> >(&frame, &frame.locals[0], objectPrototype),
         errorConstructor, errorFunction, "Error", 1, &errorPrototype, &error
     );
     // Error.prototype.name
@@ -1236,7 +1237,7 @@ Runtime::Runtime (bool strictMode)
     //
     systemConstructor(
         &frame, 14,
-        new(&frame) PrototypeCreator<Object,Error>(errorPrototype),
+        newInit< PrototypeCreator<Object,Error> >(&frame, &frame.locals[0], errorPrototype),
         typeErrorConstructor, typeErrorFunction, "TypeError", 1, &typeErrorPrototype, &typeError
     );
     // TypeError.prototype.name
@@ -1411,7 +1412,7 @@ Object * objectCreate (StackFrame * caller, TaggedValue parent)
     if (isValueTagObject(parent.tag))
         return parent.raw.oval->createDescendant(caller);
     else if (parent.tag == VT_NULL)
-        return new (caller) Object(NULL);
+        return newInit<Object>(caller, NULL);
     else {
         throwTypeError(caller, "Object prototype may only be an Object or null");
         return NULL;
@@ -1426,12 +1427,12 @@ TaggedValue newFunction (StackFrame * caller, Env * env, const StringPrim * name
         func = new(&frame) Function(JS_GET_RUNTIME(&frame)->functionPrototype));
     func->init(&frame, env, code, code, name, length);
 
-    frame.locals[1] = makeObjectValue(new(&frame) Object(JS_GET_RUNTIME(&frame)->objectPrototype));
-    frame.locals[1].raw.oval->defineOwnProperty(
+    Object * prototype = newInit<Object>(&frame, &frame.locals[1], JS_GET_RUNTIME(&frame)->objectPrototype);
+    prototype->defineOwnProperty(
         &frame, JS_GET_RUNTIME(caller)->permStrConstructor, PROP_WRITEABLE | PROP_CONFIGURABLE, frame.locals[0]
     );
 
-    func->definePrototype(&frame, frame.locals[1].raw.oval, PROP_WRITEABLE);
+    func->definePrototype(&frame, prototype, PROP_WRITEABLE);
 
     return frame.locals[0];
 }
@@ -1651,9 +1652,9 @@ Object * toObject (StackFrame * caller, TaggedValue v)
         case VT_NULL:
             throwTypeError(caller, "Cannot be converted to an object");
 
-        case VT_BOOLEAN:    return new (caller) Boolean(JS_GET_RUNTIME(caller)->booleanPrototype, v);
-        case VT_NUMBER:     return new (caller) Number(JS_GET_RUNTIME(caller)->numberPrototype, v);
-        case VT_STRINGPRIM: return new (caller) String(JS_GET_RUNTIME(caller)->stringPrototype, v);
+        case VT_BOOLEAN:    return newInit2<Boolean>(caller, JS_GET_RUNTIME(caller)->booleanPrototype, v);
+        case VT_NUMBER:     return newInit2<Number>(caller, JS_GET_RUNTIME(caller)->numberPrototype, v);
+        case VT_STRINGPRIM: return newInit2<String>(caller, JS_GET_RUNTIME(caller)->stringPrototype, v);
         default:
             assert(isValueTagObject(v.tag));
             return v.raw.oval;

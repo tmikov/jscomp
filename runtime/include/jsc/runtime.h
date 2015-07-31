@@ -210,6 +210,8 @@ struct Object : public Memory
         this->propList.init();
     }
 
+    inline void init (StackFrame *) {}
+
     virtual Object * createDescendant (StackFrame * caller);
 
     virtual bool mark (IMark * marker, unsigned markBit) const;
@@ -272,11 +274,9 @@ struct PrototypeCreator : public BASE
 {
     PrototypeCreator (Object * parent): BASE(parent) {}
 
-    virtual Object * createDescendant (StackFrame * caller)
-    {
-        return new (caller) TOCREATE(this);
-    }
+    virtual Object * createDescendant (StackFrame * caller);
 };
+
 
 struct PropertyAccessor : public Memory
 {
@@ -376,15 +376,6 @@ struct Array : public ArrayBase
     static TaggedValue lengthSetter (StackFrame * caller, Env * env, unsigned argc, const TaggedValue * argv);
 };
 
-struct ArrayCreator : public Object
-{
-    ArrayCreator (Object * parent) :
-        Object(parent)
-    {}
-
-    virtual Object * createDescendant (StackFrame * caller);
-};
-
 struct Arguments : public ArrayBase
 {
     Arguments (Object * parent):
@@ -446,6 +437,15 @@ struct Function : public Object
 
     virtual TaggedValue call (StackFrame * caller, unsigned argc, const TaggedValue * argv);
     virtual TaggedValue callCons (StackFrame * caller, unsigned argc, const TaggedValue * argv);
+};
+
+struct FunctionCreator : public Function
+{
+    FunctionCreator (Object * parent) :
+        Function(parent)
+    {}
+
+    virtual Object * createDescendant (StackFrame * caller);
 };
 
 struct BoundFunction : public Function
@@ -799,6 +799,7 @@ inline Runtime * getRuntime (StackFrame * frame) { return g_runtime; }
 
 #define JS_IS_STRICT_MODE(frame) (JS_GET_RUNTIME(frame)->strictMode != false)
 
+TaggedValue emptyFunc (StackFrame * caller, Env *, unsigned, const TaggedValue *);
 TaggedValue objectFunction (StackFrame * caller, Env *, unsigned, const TaggedValue *);
 TaggedValue objectConstructor (StackFrame * caller, Env *, unsigned, const TaggedValue *);
 TaggedValue functionFunction (StackFrame * caller, Env *, unsigned, const TaggedValue *);
@@ -991,4 +992,43 @@ inline TaggedValue Object::getParentValue () const
 {
     return this->parent ? makeObjectValue(this->parent) : JS_NULL_VALUE;
 }
+
+template<class T>
+inline T * newInit (StackFrame * caller, TaggedValue * holder, Object * parent)
+{
+    T * obj = new (caller) T(parent);
+    *holder = makeObjectValue(obj);
+    obj->init(caller);
+    return obj;
+}
+
+template<class T>
+inline T * newInit (StackFrame * caller, Object * parent)
+{
+    StackFrameN<0,1,0> frame(caller, NULL, __FILE__ "newInit()", __LINE__);
+    return newInit<T>(&frame, &frame.locals[0], parent);
+}
+
+template<class T, class P1>
+inline T * newInit2 (StackFrame * caller, TaggedValue * holder, Object * parent, P1 p1)
+{
+    T * obj = new (caller) T(parent, p1);
+    *holder = makeObjectValue(obj);
+    obj->init(caller);
+    return obj;
+}
+
+template<class T, class P1>
+inline T * newInit2 (StackFrame * caller, Object * parent, P1 p1)
+{
+    StackFrameN<0,1,0> frame(caller, NULL, __FILE__ "newInit2()", __LINE__);
+    return newInit2<T>(&frame, &frame.locals[0], parent, p1);
+}
+
+template<class BASE, class TOCREATE>
+Object * PrototypeCreator<BASE,TOCREATE>::createDescendant (StackFrame * caller)
+{
+    return newInit<TOCREATE>(caller, this);
 };
+
+}
