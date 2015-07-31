@@ -426,15 +426,8 @@ bool ArrayBase::deleteComputed (StackFrame * caller, TaggedValue propName)
 
 void Array::init (StackFrame * caller)
 {
-    StackFrameN<0,3,0> frame(caller, NULL, __FILE__ ":Array::init", __LINE__);
-    Runtime * r = JS_GET_RUNTIME(&frame);
-    frame.locals[0] = newFunction(&frame, NULL, r->permStrLength, 0, lengthGetter);
-    frame.locals[1] = newFunction(&frame, NULL, r->permStrLength, 1, lengthSetter);
-    frame.locals[2] = makeMemoryValue(
-        VT_MEMORY, new(&frame) PropertyAccessor(frame.locals[0].raw.fval, frame.locals[1].raw.fval)
-    );
-
-    defineOwnProperty(&frame, r->permStrLength, PROP_WRITEABLE|PROP_GET_SET, frame.locals[2]);
+    Runtime * r = JS_GET_RUNTIME(caller);
+    defineOwnProperty(caller, r->permStrLength, PROP_WRITEABLE|PROP_GET_SET, r->arrayLengthAccessor);
 }
 
 Array * Array::findArrayInstance (StackFrame * caller, TaggedValue thisp)
@@ -1103,7 +1096,7 @@ Runtime::Runtime (bool strictMode)
     parseDiagEnvironment();
 
     // Note: we need to be extra careful to store allocated values where the FC can trace them.
-    StackFrameN<0, 1, 0> frame(NULL, NULL, __FILE__ ":Runtime::Runtime()", __LINE__);
+    StackFrameN<0, 2, 0> frame(NULL, NULL, __FILE__ ":Runtime::Runtime()", __LINE__);
 
     // Perm strings
     permStrEmpty = internString(&frame, true, "");
@@ -1167,6 +1160,15 @@ Runtime::Runtime (bool strictMode)
 
         ((PropertyAccessor *)strictThrowerAccessor.raw.mval)->get = strictThrowerFunction;
         ((PropertyAccessor *)strictThrowerAccessor.raw.mval)->set = strictThrowerFunction;
+    }
+
+    // arrayLengthAccessor
+    {
+        frame.locals[0] = newFunction(&frame, NULL, permStrLength, 0, Array::lengthGetter);
+        frame.locals[1] = newFunction(&frame, NULL, permStrLength, 1, Array::lengthSetter);
+        env->vars[17] = arrayLengthAccessor = makeMemoryValue(
+            VT_MEMORY, new(&frame) PropertyAccessor(frame.locals[0].raw.fval, frame.locals[1].raw.fval)
+        );
     }
 
     // Object
@@ -1242,7 +1244,7 @@ Runtime::Runtime (bool strictMode)
         &frame, permStrName, PROP_NORMAL, makeStringValue(internString(&frame, true, "TypeError"))
     );
 
-    // Next free is env[17]
+    // Next free is env[18]
 }
 
 void Runtime::systemConstructor (

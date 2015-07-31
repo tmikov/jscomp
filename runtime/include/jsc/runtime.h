@@ -680,6 +680,7 @@ struct Runtime
     bool strictMode;
 
     TaggedValue strictThrowerAccessor;
+    TaggedValue arrayLengthAccessor;
 
     Object * objectPrototype;
     Function * functionPrototype;
