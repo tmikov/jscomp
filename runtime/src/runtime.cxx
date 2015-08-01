@@ -350,7 +350,7 @@ TaggedValue ArrayBase::getComputed (StackFrame * caller, TaggedValue propName)
         // index-like properties exist in the object, so we must check them first
         Object * propObj;
         if (Property * p = getProperty(frame.locals[0].raw.sval, &propObj))
-            return getPropertyValue(caller, p);
+            return getPropertyValue(&frame, p);
     }
 
     if (isIndexString(frame.locals[0].raw.sval->getStr(), &index))
@@ -380,7 +380,7 @@ void ArrayBase::putComputed (StackFrame * caller, TaggedValue propName, TaggedVa
         // index-like properties exist in the object, so we must check them first
         Object * propObj;
         if (Property * p = getProperty(frame.locals[0].raw.sval, &propObj))
-            if (updatePropertyValue(caller, propObj, p, v))
+            if (updatePropertyValue(&frame, propObj, p, v))
                 return;
     }
 
