@@ -565,9 +565,25 @@ struct Box : public Object
     virtual TaggedValue defaultValue (StackFrame * caller, ValueTag preferredType);
 };
 
-typedef Box String;
 typedef Box Number;
 typedef Box Boolean;
+
+struct String : public Box
+{
+    String (Object * parent, TaggedValue value = JS_UNDEFINED_VALUE) :
+        Box(parent, value)
+    {}
+
+    const StringPrim * getStrPrim () const
+    {
+        return this->value.raw.sval;
+    }
+
+    virtual bool hasComputed (StackFrame * caller, TaggedValue propName);
+    virtual TaggedValue getComputed (StackFrame * caller, TaggedValue propName);
+    virtual void putComputed (StackFrame * caller, TaggedValue propName, TaggedValue v);
+    virtual bool deleteComputed (StackFrame * caller, TaggedValue propName);
+};
 
 struct Error : public Object
 {

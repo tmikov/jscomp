@@ -840,6 +840,114 @@ TaggedValue Box::defaultValue (StackFrame *, ValueTag)
     return this->value;
 }
 
+bool String::hasComputed (StackFrame * caller, TaggedValue propName)
+{
+    uint32_t index;
+    // Fast path
+    if (!(this->flags & OF_INDEX_PROPERTIES) && isValidArrayIndexNumber(propName, &index))
+        return index < getStrPrim()->charLength;
+
+    StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":String::hasComputed()", __LINE__);
+    frame.locals[0] = toString(&frame, propName);
+
+    if (this->flags & OF_INDEX_PROPERTIES) {
+        // index-like properties exist in the object, so we must check them first
+        if (hasProperty(frame.locals[0].raw.sval))
+            return true;
+    }
+
+    if (isIndexString(frame.locals[0].raw.sval->getStr(), &index))
+        return index < getStrPrim()->charLength;
+
+    return this->hasProperty(frame.locals[0].raw.sval);
+}
+
+TaggedValue String::getComputed (StackFrame * caller, TaggedValue propName)
+{
+    uint32_t index;
+    // Fast path
+    if (!(this->flags & OF_INDEX_PROPERTIES) && isValidArrayIndexNumber(propName, &index))
+        return getStrPrim()->charAt(caller, index);
+
+    StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":String::getComputed()", __LINE__);
+    frame.locals[0] = toString(&frame, propName);
+
+    if (this->flags & OF_INDEX_PROPERTIES) {
+        // index-like properties exist in the object, so we must check them first
+        Object * propObj;
+        if (Property * p = getProperty(frame.locals[0].raw.sval, &propObj))
+            return getPropertyValue(&frame, p);
+    }
+
+    if (isIndexString(frame.locals[0].raw.sval->getStr(), &index))
+        return getStrPrim()->charAt(&frame, index);
+
+    return this->get(&frame, frame.locals[0].raw.sval);
+}
+
+void String::putComputed (StackFrame * caller, TaggedValue propName, TaggedValue v)
+{
+    if (JS_UNLIKELY(this->flags & OF_NOWRITE)) { // Let the base implementation handle the error
+        Object::putComputed(caller, propName, v);
+        return;
+    }
+
+    uint32_t index;
+    // Fast path
+    if (!(this->flags & OF_INDEX_PROPERTIES) && isValidArrayIndexNumber(propName, &index)) {
+        if (JS_IS_STRICT_MODE(caller))
+            throwTypeError(caller, "Cannot modify property [%lu]", (unsigned long)index);
+        return;
+    }
+
+    StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":String::putComputed()", __LINE__);
+    frame.locals[0] = toString(&frame, propName);
+
+    if (this->flags & OF_INDEX_PROPERTIES) {
+        // index-like properties exist in the object, so we must check them first
+        Object * propObj;
+        if (Property * p = getProperty(frame.locals[0].raw.sval, &propObj))
+        if (updatePropertyValue(&frame, propObj, p, v))
+            return;
+    }
+
+    if (isIndexString(frame.locals[0].raw.sval->getStr(), &index)) {
+        if (JS_IS_STRICT_MODE(caller))
+            throwTypeError(caller, "Cannot modify property [%lu]", (unsigned long)index);
+        return;
+    }
+
+    this->put(&frame, frame.locals[0].raw.sval, v);
+}
+
+bool String::deleteComputed (StackFrame * caller, TaggedValue propName)
+{
+    StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":String::deleteComputed()", __LINE__);
+
+    if (JS_UNLIKELY(this->flags & OF_INDEX_PROPERTIES)) {
+        // index-like properties exist in the object, so we must check them first
+        frame.locals[0] = toString(&frame, propName);
+        if (hasOwnProperty(frame.locals[0].raw.sval))
+            return deleteProperty(&frame, frame.locals[0].raw.sval);
+    }
+
+    uint32_t index;
+    if (JS_UNLIKELY(!isValidArrayIndexNumber(propName, &index))) {
+        if (JS_LIKELY(frame.locals[0].tag == VT_UNDEFINED)) // if we didn't already convert it to string
+            frame.locals[0] = toString(&frame, propName);
+
+        if (!isIndexString(frame.locals[0].raw.sval->getStr(), &index))
+            return this->deleteProperty(&frame, frame.locals[0].raw.sval);
+    }
+
+    if (JS_LIKELY(index) < getStrPrim()->charLength) {
+        if (JS_IS_STRICT_MODE(&frame))
+            throwTypeError(&frame, "Cannot delete property");
+        return false;
+    }
+    return true;
+}
+
 bool StackFrame::mark (IMark * marker, unsigned markBit) const
 {
     if (!markMemory(marker, markBit, escaped))
@@ -966,7 +1074,13 @@ TaggedValue stringFunction (StackFrame * caller, Env *, unsigned argc, const Tag
 }
 TaggedValue stringConstructor (StackFrame * caller, Env *, unsigned argc, const TaggedValue * argv)
 {
-    ((String *)argv[0].raw.oval)->setValue(stringFunction(caller, NULL, argc, argv));
+    String * str = (String *)argv[0].raw.oval;
+    str->setValue(stringFunction(caller, NULL, argc, argv));
+
+    str->defineOwnProperty(caller, JS_GET_RUNTIME(caller)->permStrLength, PROP_NONE,
+        makeNumberValue(str->getStrPrim()->charLength)
+    );
+
     return JS_UNDEFINED_VALUE;
 }
 
