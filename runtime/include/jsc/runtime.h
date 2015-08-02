@@ -28,6 +28,7 @@ struct Object;
 struct NativeObject;
 struct Function;
 struct StringPrim;
+struct String;
 struct StackFrame;
 struct Runtime;
 
@@ -392,8 +393,10 @@ struct ForInIterator : public Memory
 
     /** The object we are enumerating */
     Object * m_obj;
-    /** If the objeci is an array, type-safe pointer to it */
+    /** If the object is an array, type-safe pointer to it */
     ArrayBase * m_array;
+    /** If the object is a string, type-safe pointer to it */
+    String * m_string;
     /** The property names to be enumerated */
     std::vector<const StringPrim *> m_propNames;
     /* If an array, the next index to be enumerated */

@@ -501,7 +501,11 @@ void ForInIterator::init (StackFrame * caller, Object * obj)
         }
     } while ((obj = obj->parent) != NULL);
 
-    m_array = dynamic_cast<ArrayBase*>(m_obj);
+    if ((m_array = dynamic_cast<ArrayBase*>(m_obj)) != NULL)
+        m_string = NULL;
+    else
+        m_string = dynamic_cast<String*>(m_obj);
+
     m_curIndex = 0;
     m_curName = m_propNames.begin();
 }
@@ -538,6 +542,34 @@ bool ForInIterator::next (StackFrame * caller, TaggedValue * result)
         }
         // The array was consumed
         m_array = NULL;
+    } else if (m_string) {
+        if (JS_LIKELY(!(m_obj->flags & OF_INDEX_PROPERTIES))) {
+            for ( unsigned index; (index = m_curIndex++) < m_string->getStrPrim()->charLength; ) {
+                *result = toString(caller, index);
+                return true;
+            }
+        } else {
+            StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":ForInIterator::next", __LINE__);
+
+            for ( unsigned index; (index = m_curIndex++) < m_string->getStrPrim()->charLength; ) {
+                frame.locals[0] = toString(&frame, index);
+
+                Object * propObj;
+                if (Property * p = m_obj->getProperty(frame.locals[0].raw.sval, &propObj)) {
+                    if (p->flags & PROP_ENUMERABLE) {
+                        *result = frame.locals[0];
+                        return true;
+                    }
+                    // Note that if the property is not enumerable, but it exists, we must skip it
+                }
+                else {
+                    *result = frame.locals[0];
+                    return true;
+                }
+            }
+        }
+        // The string was consumed
+        m_string = NULL;
     }
 
     while (JS_LIKELY(m_curName != m_propNames.end())) {
