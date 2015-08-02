@@ -823,6 +823,8 @@ TaggedValue functionFunction (StackFrame * caller, Env *, unsigned, const Tagged
 TaggedValue functionConstructor (StackFrame * caller, Env *, unsigned, const TaggedValue *);
 TaggedValue stringFunction (StackFrame * caller, Env *, unsigned, const TaggedValue *);
 TaggedValue stringConstructor (StackFrame * caller, Env *, unsigned, const TaggedValue *);
+TaggedValue stringCharCodeAt (StackFrame * caller, Env *, unsigned argc, const TaggedValue * argv);
+TaggedValue stringCharAt (StackFrame * caller, Env *, unsigned argc, const TaggedValue * argv);
 TaggedValue numberFunction (StackFrame * caller, Env *, unsigned, const TaggedValue *);
 TaggedValue numberConstructor (StackFrame * caller, Env *, unsigned, const TaggedValue *);
 TaggedValue booleanFunction (StackFrame * caller, Env *, unsigned, const TaggedValue *);

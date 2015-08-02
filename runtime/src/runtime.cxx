@@ -1108,6 +1108,30 @@ TaggedValue stringCharCodeAt (StackFrame * caller, Env *, unsigned argc, const T
         return sprim->charCodeAt((uint32_t)fpos);
 }
 
+TaggedValue stringCharAt (StackFrame * caller, Env *, unsigned argc, const TaggedValue * argv)
+{
+    StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":stringCharAt", __LINE__);
+    TaggedValue pos = argc > 1 ? argv[1] : JS_UNDEFINED_VALUE;
+
+    if (argv[0].tag == VT_UNDEFINED || argv[0].tag == VT_NULL)
+        throwTypeError(&frame, "'this' is not coercible to string");
+
+    frame.locals[0] = toString(&frame, argv[0]);
+    const StringPrim * sprim = frame.locals[0].raw.sval;
+
+    // We need to convert pos to integer, which is not necessarily fast as we need to support cases
+    // like infinity, etc. So, first we check for the fastest case and if not, go real slow
+    uint32_t upos;
+    if (JS_LIKELY(pos.tag == VT_NUMBER && (upos = (uint32_t)pos.raw.nval) == pos.raw.nval))
+        return sprim->charAt(&frame, upos);
+
+    double fpos = toInteger(&frame, pos);
+    if (JS_UNLIKELY(fpos < 0 || fpos >= sprim->charLength))
+        return makeNumberValue(NAN);
+    else
+        return sprim->charAt(&frame, (uint32_t)fpos);
+}
+
 TaggedValue numberFunction (StackFrame * caller, Env *, unsigned argc, const TaggedValue * argv)
 {
     return makeNumberValue(argc > 1 ? toNumber(caller, argv[1]) : 0);
@@ -1311,6 +1335,7 @@ Runtime::Runtime (bool strictMode)
     );
     // String.prototype.charCodeAt()
     defineMethod(&frame, stringPrototype, "charCodeAt", 1, stringCharCodeAt);
+    defineMethod(&frame, stringPrototype, "charAt", 1, stringCharAt);
 
     // Number
     //
