@@ -89,6 +89,11 @@ function hidden (obj, prop, func)
     defineProperty(obj, prop, {writable: true, configurable: true, value: func});
 }
 
+function isCallable (x)
+{
+    return typeof(x) === "function";
+}
+
 // Object
 //
 function object_protoGetter ()
@@ -404,6 +409,15 @@ hidden(Array.prototype, "join", function array_join (sep)
         R += sep + (elem === void 0 || elem === null ? "" : String(elem));
     }
     return R;
+});
+
+hidden(Array.prototype, "toString", function array_toString()
+{
+    var array = Object(this);
+    var func = array.join;
+    if (!isCallable(func))
+        func = String.prototype.toString;
+    return func.call(array);
 });
 
 // Boolean
