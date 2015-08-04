@@ -327,14 +327,33 @@ private:
     NativeObject (Object * parent, unsigned internalCount);
 };
 
-class ArrayBase : public Object
+class IndexedObject : public Object
 {
     typedef Object super;
+public:
+    IndexedObject (Object * parent) :
+        Object(parent)
+    {}
+
+    virtual bool hasComputed (StackFrame * caller, TaggedValue propName);
+    virtual TaggedValue getComputed (StackFrame * caller, TaggedValue propName);
+    virtual void putComputed (StackFrame * caller, TaggedValue propName, TaggedValue v);
+    virtual bool deleteComputed (StackFrame * caller, TaggedValue propName);
+
+    virtual bool hasIndex (uint32_t index) const = 0;
+    virtual TaggedValue getAtIndex (StackFrame * caller, uint32_t index) const = 0;
+    virtual bool setAtIndex (uint32_t index, TaggedValue value) = 0;
+    virtual bool deleteAtIndex (uint32_t index) = 0;
+};
+
+class ArrayBase : public IndexedObject
+{
+    typedef IndexedObject super;
 public:
     std::vector<TaggedValue> elems;
 
     ArrayBase (Object * parent):
-        Object(parent)
+        IndexedObject(parent)
     {}
 
     virtual bool mark (IMark * marker, unsigned markBit) const;
@@ -359,10 +378,10 @@ public:
     }
     void setElem (unsigned index, TaggedValue v);
 
-    virtual bool hasComputed (StackFrame * caller, TaggedValue propName);
-    virtual TaggedValue getComputed (StackFrame * caller, TaggedValue propName);
-    virtual void putComputed (StackFrame * caller, TaggedValue propName, TaggedValue v);
-    virtual bool deleteComputed (StackFrame * caller, TaggedValue propName);
+    virtual bool hasIndex (uint32_t index) const;
+    virtual TaggedValue getAtIndex (StackFrame * caller, uint32_t index) const;
+    virtual bool setAtIndex (uint32_t index, TaggedValue value);
+    virtual bool deleteAtIndex (uint32_t index);
 };
 
 class Array : public ArrayBase
@@ -581,12 +600,14 @@ public:
 typedef Box Number;
 typedef Box Boolean;
 
-class String : public Box
+class String : public IndexedObject
 {
-    typedef Box super;
+    typedef IndexedObject super;
 public:
+    TaggedValue value;
+
     String (Object * parent, TaggedValue value = JS_UNDEFINED_VALUE) :
-        Box(parent, value)
+        IndexedObject(parent), value(value)
     {}
 
     const StringPrim * getStrPrim () const
@@ -594,10 +615,18 @@ public:
         return this->value.raw.sval;
     }
 
-    virtual bool hasComputed (StackFrame * caller, TaggedValue propName);
-    virtual TaggedValue getComputed (StackFrame * caller, TaggedValue propName);
-    virtual void putComputed (StackFrame * caller, TaggedValue propName, TaggedValue v);
-    virtual bool deleteComputed (StackFrame * caller, TaggedValue propName);
+    void setValue ( TaggedValue value )
+    {
+        this->value = value;
+    }
+
+    bool mark (IMark * marker, unsigned markBit) const;
+    virtual TaggedValue defaultValue (StackFrame * caller, ValueTag preferredType);
+
+    virtual bool hasIndex (uint32_t index) const;
+    virtual TaggedValue getAtIndex (StackFrame * caller, uint32_t index) const;
+    virtual bool setAtIndex (uint32_t index, TaggedValue value);
+    virtual bool deleteAtIndex (uint32_t index);
 };
 
 struct Error : public Object

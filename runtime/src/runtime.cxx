@@ -314,6 +314,113 @@ NativeObject::~NativeObject ()
         (*this->nativeFinalizer)(this);
 }
 
+bool IndexedObject::hasComputed (StackFrame * caller, TaggedValue propName)
+{
+    uint32_t index;
+    // Fast path
+    if (!(this->flags & OF_INDEX_PROPERTIES) && isValidArrayIndexNumber(propName, &index))
+        return hasIndex(index);
+
+    StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":ArrayBase::hasComputed()", __LINE__);
+    frame.locals[0] = toString(&frame, propName);
+
+    if (this->flags & OF_INDEX_PROPERTIES) {
+        // index-like properties exist in the object, so we must check them first
+        if (hasProperty(frame.locals[0].raw.sval))
+            return true;
+    }
+
+    if (isIndexString(frame.locals[0].raw.sval->getStr(), &index))
+        return hasIndex(index);
+
+    return this->hasProperty(frame.locals[0].raw.sval);
+}
+
+TaggedValue IndexedObject::getComputed (StackFrame * caller, TaggedValue propName)
+{
+    uint32_t index;
+    // Fast path
+    if (!(this->flags & OF_INDEX_PROPERTIES) && isValidArrayIndexNumber(propName, &index))
+        return getAtIndex(caller, index);
+
+    StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":ArrayBase::getComputed()", __LINE__);
+    frame.locals[0] = toString(&frame, propName);
+
+    if (this->flags & OF_INDEX_PROPERTIES) {
+        // index-like properties exist in the object, so we must check them first
+        Object * propObj;
+        if (Property * p = getProperty(frame.locals[0].raw.sval, &propObj))
+            return getPropertyValue(&frame, p);
+    }
+
+    if (isIndexString(frame.locals[0].raw.sval->getStr(), &index))
+        return getAtIndex(&frame, index);
+
+    return this->get(&frame, frame.locals[0].raw.sval);
+}
+
+void IndexedObject::putComputed (StackFrame * caller, TaggedValue propName, TaggedValue v)
+{
+    if (JS_UNLIKELY(this->flags & OF_NOWRITE)) { // Let the base implementation handle the error
+        super::putComputed(caller, propName, v);
+        return;
+    }
+
+    uint32_t index;
+    // Fast path
+    if (!(this->flags & OF_INDEX_PROPERTIES) && isValidArrayIndexNumber(propName, &index)) {
+        if (JS_UNLIKELY(!setAtIndex(index, v) && JS_IS_STRICT_MODE(caller)))
+            throwTypeError(caller, "cannot modify property [%lu]", (unsigned long)index);
+        return;
+    }
+
+    StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":ArrayBase::putComputed()", __LINE__);
+    frame.locals[0] = toString(&frame, propName);
+
+    if (this->flags & OF_INDEX_PROPERTIES) {
+        // index-like properties exist in the object, so we must check them first
+        Object * propObj;
+        if (Property * p = getProperty(frame.locals[0].raw.sval, &propObj))
+        if (updatePropertyValue(&frame, propObj, p, v))
+            return;
+    }
+
+    if (isIndexString(frame.locals[0].raw.sval->getStr(), &index)) {
+        if (JS_UNLIKELY(!setAtIndex(index, v) && JS_IS_STRICT_MODE(caller)))
+            throwTypeError(caller, "cannot modify property [%lu]", (unsigned long)index);
+        return;
+    }
+
+    this->put(&frame, frame.locals[0].raw.sval, v);
+}
+
+bool IndexedObject::deleteComputed (StackFrame * caller, TaggedValue propName)
+{
+    StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":ArrayBase::deleteComputed()", __LINE__);
+
+    if (JS_UNLIKELY(this->flags & OF_INDEX_PROPERTIES)) {
+        // index-like properties exist in the object, so we must check them first
+        frame.locals[0] = toString(&frame, propName);
+        if (hasOwnProperty(frame.locals[0].raw.sval))
+            return deleteProperty(&frame, frame.locals[0].raw.sval);
+    }
+
+    uint32_t index;
+    if (JS_UNLIKELY(!isValidArrayIndexNumber(propName, &index))) {
+        if (JS_LIKELY(frame.locals[0].tag == VT_UNDEFINED)) // if we didn't already convert it to string
+            frame.locals[0] = toString(&frame, propName);
+
+        if (!isIndexString(frame.locals[0].raw.sval->getStr(), &index))
+            return this->deleteProperty(&frame, frame.locals[0].raw.sval);
+    }
+
+    bool res = deleteAtIndex(index);
+    if (JS_UNLIKELY(!res && JS_IS_STRICT_MODE(&frame)))
+        throwTypeError(&frame, "Cannot delete property [%lu]", (unsigned long)index);
+
+    return res;
+}
+
 bool ArrayBase::mark (IMark * marker, unsigned markBit) const
 {
     if (!super::mark(marker, markBit))
@@ -336,112 +443,27 @@ void ArrayBase::setElem (unsigned index, TaggedValue v)
     elems[index] = v;
 }
 
-bool ArrayBase::hasComputed (StackFrame * caller, TaggedValue propName)
+bool ArrayBase::hasIndex (uint32_t index) const
 {
-    uint32_t index;
-    // Fast path
-    if (!(this->flags & OF_INDEX_PROPERTIES) && isValidArrayIndexNumber(propName, &index))
-        return hasElem(index);
-
-    StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":ArrayBase::hasComputed()", __LINE__);
-    frame.locals[0] = toString(&frame, propName);
-
-    if (this->flags & OF_INDEX_PROPERTIES) {
-        // index-like properties exist in the object, so we must check them first
-        if (hasProperty(frame.locals[0].raw.sval))
-            return true;
-    }
-
-    if (isIndexString(frame.locals[0].raw.sval->getStr(), &index))
-        return hasElem(index);
-
-    return this->hasProperty(frame.locals[0].raw.sval);
+    return hasElem(index);
 }
-
-TaggedValue ArrayBase::getComputed (StackFrame * caller, TaggedValue propName)
+TaggedValue ArrayBase::getAtIndex (StackFrame *, uint32_t index) const
 {
-    uint32_t index;
-    // Fast path
-    if (!(this->flags & OF_INDEX_PROPERTIES) && isValidArrayIndexNumber(propName, &index))
-        return getElem(index);
-
-    StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":ArrayBase::getComputed()", __LINE__);
-    frame.locals[0] = toString(&frame, propName);
-
-    if (this->flags & OF_INDEX_PROPERTIES) {
-        // index-like properties exist in the object, so we must check them first
-        Object * propObj;
-        if (Property * p = getProperty(frame.locals[0].raw.sval, &propObj))
-            return getPropertyValue(&frame, p);
-    }
-
-    if (isIndexString(frame.locals[0].raw.sval->getStr(), &index))
-        return getElem(index);
-
-    return this->get(&frame, frame.locals[0].raw.sval);
+    return getElem(index);
 }
-
-void ArrayBase::putComputed (StackFrame * caller, TaggedValue propName, TaggedValue v)
+bool ArrayBase::setAtIndex (uint32_t index, TaggedValue value)
 {
-    if (JS_UNLIKELY(this->flags & OF_NOWRITE)) { // Let the base implementation handle the error
-        super::putComputed(caller, propName, v);
-        return;
-    }
-
-    uint32_t index;
-    // Fast path
-    if (!(this->flags & OF_INDEX_PROPERTIES) && isValidArrayIndexNumber(propName, &index)) {
-        setElem(index, v);
-        return;
-    }
-
-    StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":ArrayBase::putComputed()", __LINE__);
-    frame.locals[0] = toString(&frame, propName);
-
-    if (this->flags & OF_INDEX_PROPERTIES) {
-        // index-like properties exist in the object, so we must check them first
-        Object * propObj;
-        if (Property * p = getProperty(frame.locals[0].raw.sval, &propObj))
-            if (updatePropertyValue(&frame, propObj, p, v))
-                return;
-    }
-
-    if (isIndexString(frame.locals[0].raw.sval->getStr(), &index)) {
-        setElem(index, v);
-        return;
-    }
-
-    this->put(&frame, frame.locals[0].raw.sval, v);
+    setElem(index, value);
+    return true;
 }
-
-bool ArrayBase::deleteComputed (StackFrame * caller, TaggedValue propName)
+bool ArrayBase::deleteAtIndex (uint32_t index)
 {
-    StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":ArrayBase::deleteComputed()", __LINE__);
-
-    if (JS_UNLIKELY(this->flags & OF_INDEX_PROPERTIES)) {
-        // index-like properties exist in the object, so we must check them first
-        frame.locals[0] = toString(&frame, propName);
-        if (hasOwnProperty(frame.locals[0].raw.sval))
-            return deleteProperty(&frame, frame.locals[0].raw.sval);
-    }
-
-    uint32_t index;
-    if (JS_UNLIKELY(!isValidArrayIndexNumber(propName, &index))) {
-        if (JS_LIKELY(frame.locals[0].tag == VT_UNDEFINED)) // if we didn't already convert it to string
-            frame.locals[0] = toString(&frame, propName);
-
-        if (!isIndexString(frame.locals[0].raw.sval->getStr(), &index))
-            return this->deleteProperty(&frame, frame.locals[0].raw.sval);
-    }
-
     if (JS_LIKELY(index) < this->elems.size()) {
         TaggedValue * pe = &this->elems[index];
         if (JS_LIKELY(pe->tag != VT_ARRAY_HOLE)) {
             if (JS_LIKELY(!(this->flags & OF_NOCONFIG))) {
                 *pe = TaggedValue{VT_ARRAY_HOLE};
             } else {
-                if (JS_IS_STRICT_MODE(&frame))
-                    throwTypeError(&frame, "Cannot delete property");
                 return false;
             }
         }
@@ -894,112 +916,34 @@ TaggedValue Box::defaultValue (StackFrame *, ValueTag)
     return this->value;
 }
 
-bool String::hasComputed (StackFrame * caller, TaggedValue propName)
+bool String::mark (IMark * marker, unsigned markBit) const
 {
-    uint32_t index;
-    // Fast path
-    if (!(this->flags & OF_INDEX_PROPERTIES) && isValidArrayIndexNumber(propName, &index))
-        return index < getStrPrim()->charLength;
-
-    StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":String::hasComputed()", __LINE__);
-    frame.locals[0] = toString(&frame, propName);
-
-    if (this->flags & OF_INDEX_PROPERTIES) {
-        // index-like properties exist in the object, so we must check them first
-        if (hasProperty(frame.locals[0].raw.sval))
-            return true;
-    }
-
-    if (isIndexString(frame.locals[0].raw.sval->getStr(), &index))
-        return index < getStrPrim()->charLength;
-
-    return this->hasProperty(frame.locals[0].raw.sval);
+    return super::mark(marker, markBit) && markValue(marker, markBit, this->value);
 }
 
-TaggedValue String::getComputed (StackFrame * caller, TaggedValue propName)
+TaggedValue String::defaultValue (StackFrame *, ValueTag)
 {
-    uint32_t index;
-    // Fast path
-    if (!(this->flags & OF_INDEX_PROPERTIES) && isValidArrayIndexNumber(propName, &index))
-        return getStrPrim()->charAt(caller, index);
-
-    StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":String::getComputed()", __LINE__);
-    frame.locals[0] = toString(&frame, propName);
-
-    if (this->flags & OF_INDEX_PROPERTIES) {
-        // index-like properties exist in the object, so we must check them first
-        Object * propObj;
-        if (Property * p = getProperty(frame.locals[0].raw.sval, &propObj))
-            return getPropertyValue(&frame, p);
-    }
-
-    if (isIndexString(frame.locals[0].raw.sval->getStr(), &index))
-        return getStrPrim()->charAt(&frame, index);
-
-    return this->get(&frame, frame.locals[0].raw.sval);
+    return this->value;
 }
 
-void String::putComputed (StackFrame * caller, TaggedValue propName, TaggedValue v)
+bool String::hasIndex (uint32_t index) const
 {
-    if (JS_UNLIKELY(this->flags & OF_NOWRITE)) { // Let the base implementation handle the error
-        super::putComputed(caller, propName, v);
-        return;
-    }
-
-    uint32_t index;
-    // Fast path
-    if (!(this->flags & OF_INDEX_PROPERTIES) && isValidArrayIndexNumber(propName, &index)) {
-        if (JS_IS_STRICT_MODE(caller))
-            throwTypeError(caller, "Cannot modify property [%lu]", (unsigned long)index);
-        return;
-    }
-
-    StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":String::putComputed()", __LINE__);
-    frame.locals[0] = toString(&frame, propName);
-
-    if (this->flags & OF_INDEX_PROPERTIES) {
-        // index-like properties exist in the object, so we must check them first
-        Object * propObj;
-        if (Property * p = getProperty(frame.locals[0].raw.sval, &propObj))
-        if (updatePropertyValue(&frame, propObj, p, v))
-            return;
-    }
-
-    if (isIndexString(frame.locals[0].raw.sval->getStr(), &index)) {
-        if (JS_IS_STRICT_MODE(caller))
-            throwTypeError(caller, "Cannot modify property [%lu]", (unsigned long)index);
-        return;
-    }
-
-    this->put(&frame, frame.locals[0].raw.sval, v);
+    return index < getStrPrim()->charLength;
 }
 
-bool String::deleteComputed (StackFrame * caller, TaggedValue propName)
+TaggedValue String::getAtIndex (StackFrame * caller, uint32_t index) const
 {
-    StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":String::deleteComputed()", __LINE__);
+    return getStrPrim()->charAt(caller, index);
+}
 
-    if (JS_UNLIKELY(this->flags & OF_INDEX_PROPERTIES)) {
-        // index-like properties exist in the object, so we must check them first
-        frame.locals[0] = toString(&frame, propName);
-        if (hasOwnProperty(frame.locals[0].raw.sval))
-            return deleteProperty(&frame, frame.locals[0].raw.sval);
-    }
+bool String::setAtIndex (uint32_t index, TaggedValue value)
+{
+    return false;
+}
 
-    uint32_t index;
-    if (JS_UNLIKELY(!isValidArrayIndexNumber(propName, &index))) {
-        if (JS_LIKELY(frame.locals[0].tag == VT_UNDEFINED)) // if we didn't already convert it to string
-            frame.locals[0] = toString(&frame, propName);
-
-        if (!isIndexString(frame.locals[0].raw.sval->getStr(), &index))
-            return this->deleteProperty(&frame, frame.locals[0].raw.sval);
-    }
-
-    if (JS_LIKELY(index) < getStrPrim()->charLength) {
-        if (JS_IS_STRICT_MODE(&frame))
-            throwTypeError(&frame, "Cannot delete property");
-        return false;
-    }
-    return true;
+bool String::deleteAtIndex (uint32_t index)
+{
+    return false;
 }
 
 bool StackFrame::mark (IMark * marker, unsigned markBit) const
