@@ -316,7 +316,7 @@ NativeObject::~NativeObject ()
 
 bool ArrayBase::mark (IMark * marker, unsigned markBit) const
 {
-    if (!Object::mark(marker, markBit))
+    if (!super::mark(marker, markBit))
         return false;
     for (const auto & value : elems)
         if (!markValue(marker, markBit, value))
@@ -384,7 +384,7 @@ TaggedValue ArrayBase::getComputed (StackFrame * caller, TaggedValue propName)
 void ArrayBase::putComputed (StackFrame * caller, TaggedValue propName, TaggedValue v)
 {
     if (JS_UNLIKELY(this->flags & OF_NOWRITE)) { // Let the base implementation handle the error
-        Object::putComputed(caller, propName, v);
+        super::putComputed(caller, propName, v);
         return;
     }
 
@@ -451,7 +451,7 @@ bool ArrayBase::deleteComputed (StackFrame * caller, TaggedValue propName)
 
 void Array::init (StackFrame * caller)
 {
-    ArrayBase::init(caller);
+    super::init(caller);
     Runtime * r = JS_GET_RUNTIME(caller);
     defineOwnProperty(caller, r->permStrLength, PROP_WRITEABLE|PROP_GET_SET, r->arrayLengthAccessor);
 }
@@ -491,7 +491,7 @@ TaggedValue Array::lengthSetter (StackFrame * caller, Env *, unsigned argc, cons
 
 void Arguments::init (StackFrame * caller, int argc, const TaggedValue * argv)
 {
-    ArrayBase::init(caller);
+    super::init(caller);
     elems.assign(argv, argv+argc);
     defineOwnProperty(caller, JS_GET_RUNTIME(caller)->permStrLength, PROP_WRITEABLE|PROP_CONFIGURABLE,
                       makeNumberValue(argc));
@@ -620,7 +620,7 @@ bool ForInIterator::mark (IMark * marker, unsigned markBit) const
 
 void Function::init (StackFrame * caller, Env * env, CodePtr code, CodePtr consCode, const StringPrim * name, unsigned length)
 {
-    Object::init(caller);
+    super::init(caller);
 
     Runtime * r = JS_GET_RUNTIME(caller);
 
@@ -645,7 +645,7 @@ void Function::init (StackFrame * caller, Env * env, CodePtr code, CodePtr consC
 
 bool Function::mark (IMark * marker, unsigned markBit) const
 {
-    return Object::mark(marker, markBit) && markMemory(marker, markBit, env);
+    return super::mark(marker, markBit) && markMemory(marker, markBit, env);
 }
 
 void Function::definePrototype (StackFrame * caller, Object * prototype, unsigned propFlags)
@@ -684,7 +684,7 @@ Object * FunctionCreator::createDescendant (StackFrame * caller)
 
 bool BoundFunction::mark (IMark * marker, unsigned markBit) const
 {
-    if (!Function::mark(marker, markBit))
+    if (!super::mark(marker, markBit))
         return false;
     if (!markMemory(marker, markBit, this->target))
         return false;
@@ -886,7 +886,7 @@ unsigned StringPrim::lengthInUTF16Units (const unsigned char * from, const unsig
 
 bool Box::mark (IMark * marker, unsigned markBit) const
 {
-    return Object::mark(marker, markBit) && markValue(marker, markBit, this->value);
+    return super::mark(marker, markBit) && markValue(marker, markBit, this->value);
 }
 
 TaggedValue Box::defaultValue (StackFrame *, ValueTag)
@@ -942,7 +942,7 @@ TaggedValue String::getComputed (StackFrame * caller, TaggedValue propName)
 void String::putComputed (StackFrame * caller, TaggedValue propName, TaggedValue v)
 {
     if (JS_UNLIKELY(this->flags & OF_NOWRITE)) { // Let the base implementation handle the error
-        Object::putComputed(caller, propName, v);
+        super::putComputed(caller, propName, v);
         return;
     }
 

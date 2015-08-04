@@ -327,8 +327,10 @@ private:
     NativeObject (Object * parent, unsigned internalCount);
 };
 
-struct ArrayBase : public Object
+class ArrayBase : public Object
 {
+    typedef Object super;
+public:
     std::vector<TaggedValue> elems;
 
     ArrayBase (Object * parent):
@@ -363,8 +365,10 @@ struct ArrayBase : public Object
     virtual bool deleteComputed (StackFrame * caller, TaggedValue propName);
 };
 
-struct Array : public ArrayBase
+class Array : public ArrayBase
 {
+    typedef ArrayBase super;
+public:
     Array (Object * parent):
         ArrayBase(parent)
     {}
@@ -376,8 +380,10 @@ struct Array : public ArrayBase
     static TaggedValue lengthSetter (StackFrame * caller, Env * env, unsigned argc, const TaggedValue * argv);
 };
 
-struct Arguments : public ArrayBase
+class Arguments : public ArrayBase
 {
+    typedef ArrayBase super;
+public:
     Arguments (Object * parent):
         ArrayBase(parent)
     {}
@@ -418,8 +424,10 @@ private:
 
 typedef TaggedValue (* CodePtr) (StackFrame * caller, Env * env, unsigned argc, const TaggedValue * args);
 
-struct Function : public Object
+class Function : public Object
 {
+    typedef Object super;
+public:
     Env * env;
     unsigned length; //< number of argumenrs
     CodePtr code;
@@ -450,8 +458,10 @@ struct FunctionCreator : public Function
     virtual Object * createDescendant (StackFrame * caller);
 };
 
-struct BoundFunction : public Function
+class BoundFunction : public Function
 {
+    typedef Function super;
+public:
     Function * const target;
     unsigned const boundCount;
     std::vector<TaggedValue> boundArgs;
@@ -549,8 +559,10 @@ struct less_StringPrim {
     }
 };
 
-struct Box : public Object
+class Box : public Object
 {
+    typedef Object super;
+public:
     TaggedValue value;
 
     Box (Object * parent, TaggedValue value = JS_UNDEFINED_VALUE) :
@@ -569,8 +581,10 @@ struct Box : public Object
 typedef Box Number;
 typedef Box Boolean;
 
-struct String : public Box
+class String : public Box
 {
+    typedef Box super;
+public:
     String (Object * parent, TaggedValue value = JS_UNDEFINED_VALUE) :
         Box(parent, value)
     {}
