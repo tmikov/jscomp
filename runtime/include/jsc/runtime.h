@@ -566,6 +566,13 @@ struct StringPrim : public Memory
         return (const char *)this->_str;
     }
 
+    /**
+     * Find the position of a character from a valid index.
+     *
+     * @param index
+     * @param secondSurrogate set to true if the position is the second surrogate of the pair
+     */
+    const unsigned char * charPos (uint32_t index, bool * secondSurrogate) const;
     TaggedValue charCodeAt (uint32_t index) const;
     TaggedValue charAt (StackFrame * caller, uint32_t index) const;
 

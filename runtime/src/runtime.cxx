@@ -797,10 +797,9 @@ StringPrim * StringPrim::make (StackFrame * caller, const char * str, unsigned l
     return make(caller, str, length, lengthInUTF16Units((const unsigned char *)str, (const unsigned char *)str + length));
 }
 
-TaggedValue StringPrim::charCodeAt (uint32_t index) const
+const unsigned char * StringPrim::charPos (uint32_t index, bool * secondSurrogate) const
 {
-    if (JS_UNLIKELY(index >= this->charLength))
-        return makeNumberValue(NAN);
+    assert(index < this->charLength);
 
     unsigned lindex, cpLen;
     const unsigned char * lpos;
@@ -829,21 +828,38 @@ TaggedValue StringPrim::charCodeAt (uint32_t index) const
             this->lastPos = lpos - this->_str;
             this->lastIndex = lindex;
 
-            // Decode the character
-            uint32_t cp = utf8DecodeFast(lpos);
-            assert(cp > 0xFFFF);
-            return makeNumberValue((cp & 0x3FF) + 0xDC00);
+            *secondSurrogate = true;
+            return lpos;
         }
 
         this->lastPos = lpos - this->_str;
         this->lastIndex = lindex;
     }
 
+    *secondSurrogate = false;
+    return lpos;
+}
+
+TaggedValue StringPrim::charCodeAt (uint32_t index) const
+{
+    if (JS_UNLIKELY(index >= this->charLength))
+        return makeNumberValue(NAN);
+
+    bool secondSurrogate;
+    const unsigned char * lpos = charPos(index, &secondSurrogate);
+
     uint32_t cp = utf8DecodeFast(lpos);
-    if (JS_LIKELY(cp <= 0xFFFF))
-        return makeNumberValue(cp);
-    else // first part of the surrogate pair (hugh surrogate)
-        return makeNumberValue((((cp - 0x10000) >> 10) & 0x3FF) + 0xD800);
+
+    if (JS_LIKELY(!secondSurrogate)) {
+        if (JS_LIKELY(cp <= 0xFFFF))
+            return makeNumberValue(cp);
+        else // first part of the surrogate pair (high surrogate)
+            return makeNumberValue((((cp - 0x10000) >> 10) & 0x3FF) + 0xD800);
+    } else {
+        // synthesize the second surrogate
+        assert(cp > 0xFFFF);
+        return makeNumberValue((cp & 0x3FF) + 0xDC00);
+    }
 }
 
 TaggedValue StringPrim::charAt (StackFrame * caller, uint32_t index) const
@@ -851,46 +867,23 @@ TaggedValue StringPrim::charAt (StackFrame * caller, uint32_t index) const
     if (JS_UNLIKELY(index >= this->charLength))
         return JS_UNDEFINED_VALUE;
 
-    unsigned lindex, cpLen;
-    const unsigned char * lpos;
+    bool secondSurrogate;
+    const unsigned char * lpos = charPos(index, &secondSurrogate);
 
-    lpos = this->_str + this->lastPos;
-    lindex = this->lastIndex;
+    if (JS_LIKELY(!secondSurrogate)) {
+        unsigned char ch0 = *lpos;
+        unsigned cpLen = utf8CodePointLength(ch0);
 
-    if (index == lindex) {
-        // nothing
-    } else {
-        if (index < lindex) {
-            lpos = this->_str;
-            lindex = 0;
-        }
-        cpLen = 0;
-        while (lindex < index) {
-            cpLen = utf8CodePointLength(*lpos);
-            lpos += cpLen;
-            lindex += (cpLen >> 2) + 1; // same as cpLen < 4 ? 1 : 2
-        }
-
-        if (index < lindex) { // Did we skip over index? That means we hit the second part of a surrogate pair?
-            this->lastPos = lpos - cpLen - this->_str;
-            this->lastIndex = lindex - ((cpLen >> 2) + 1);
+        if (cpLen > 3) // First part of a surrogate pair?
             return makeStringValue(JS_GET_RUNTIME(caller)->permStrUnicodeReplacementChar);
-        }
 
-        this->lastPos = lpos - this->_str;
-        this->lastIndex = lindex;
-    }
+        if (cpLen == 1) // A good old ASCII character?
+            return makeStringValue(JS_GET_RUNTIME(caller)->asciiChars[ch0]);
 
-    unsigned char ch0 = *lpos;
-    cpLen = utf8CodePointLength(ch0);
-
-    if (cpLen > 3) // First part of a surrogate pair?
+        return makeStringValue(StringPrim::make(caller, (const char *)lpos, cpLen, 1));
+    } else {
         return makeStringValue(JS_GET_RUNTIME(caller)->permStrUnicodeReplacementChar);
-
-    if (cpLen == 1) // A good old ASCII character?
-        return makeStringValue(JS_GET_RUNTIME(caller)->asciiChars[ch0]);
-
-    return makeStringValue(StringPrim::make(caller, (const char *)lpos, cpLen, 1));
+    }
 }
 
 unsigned StringPrim::lengthInUTF16Units (const unsigned char * from, const unsigned char * to)
