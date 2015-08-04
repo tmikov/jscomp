@@ -386,6 +386,26 @@ hidden(Array.prototype, "slice", function array_slice(start, end)
     return A;
 });
 
+hidden(Array.prototype, "join", function array_join (sep)
+{
+    var O = Object(this);
+    var len = O.length >>> 0; // toUint32()
+    if (!len)
+        return "";
+
+    sep = (sep === void 0) ? "," : String(sep);
+
+    var R, elem;
+
+    elem = O[0];
+    R = elem === void 0 || elem === null ? "" : String(elem);
+    for ( var k = 1; k < len; ++k ) {
+        elem = O[k];
+        R += sep + (elem === void 0 || elem === null ? "" : String(elem));
+    }
+    return R;
+});
+
 // Boolean
 //
 hidden(Boolean.prototype, "toString", function boolean_tostring()
