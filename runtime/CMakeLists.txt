@@ -11,6 +11,6 @@ include_directories(include)
 
 set(SOURCE_FILES
     src/runtime.cxx src/gc.cxx include/jsc/runtime.h src/operators.cpp
-    include/jsc/utf.h src/utf.cxx include/jsc/common.h
+    include/jsc/utf.h src/utf.cxx include/jsc/common.h include/jsc/jsimpl.h
 )
 add_library(jsruntime ${SOURCE_FILES} )
