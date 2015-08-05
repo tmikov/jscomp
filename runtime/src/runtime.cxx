@@ -887,6 +887,66 @@ TaggedValue StringPrim::charAt (StackFrame * caller, uint32_t index) const
     }
 }
 
+TaggedValue StringPrim::substring (StackFrame * caller, uint32_t from, uint32_t to) const
+{
+    // clamp "to"
+    if (JS_UNLIKELY(to > this->charLength))
+        to = this->charLength;
+
+    // check for an empty string
+    if (JS_UNLIKELY(from >= to))
+        return makeStringValue(JS_GET_RUNTIME(caller)->permStrEmpty);
+
+    // only a single character requested?
+    if (JS_UNLIKELY(to == from + 1))
+        return charAt(caller, from);
+
+    // The whole string?
+    if (JS_UNLIKELY(from == 0 && to == this->charLength))
+        return makeStringValue(this);
+
+    bool secondSurrogate;
+    const unsigned char * fromPos = charPos(from, &secondSurrogate);
+    unsigned fromAdj;
+    unsigned cpLen = utf8CodePointLength(*fromPos);
+
+    if (JS_UNLIKELY(secondSurrogate)) { // If we hit the second part of a synthesized secondSurrogate pair, skip whole the utf-8 character
+        fromPos += cpLen;
+        fromAdj = 3; // we will have to prepent UNICODE_REPLACEMENT_CHARACTER
+    } else {
+        fromAdj = 0;
+    }
+
+    // Note that "toPos" starts as being inclusive, but after the check for secondSurrogate we adjust it to be exclusive again
+    const unsigned char * toPos = charPos(to - 1, &secondSurrogate);
+    unsigned toAdj;
+    cpLen = utf8CodePointLength(*toPos);
+
+    if (JS_UNLIKELY(!secondSurrogate && cpLen > 3)) { // We hit the first part of a surrogate pair
+        toAdj = 3;  // we will have to append UNICODE_REPLACEMENT_CHARACTER
+    } else {
+        toPos += cpLen; // adjust toPos to be exclusive again
+        toAdj = 0;
+    }
+
+    unsigned length = (toPos - fromPos) + fromAdj + toAdj;
+
+    StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":StringPrim::substring()", __LINE__);
+    StringPrim * str;
+    frame.locals[0] = makeStringValue(str = StringPrim::makeEmpty(&frame, length));
+
+    if (fromAdj)
+        utf8Encode(str->_str, UNICODE_REPLACEMENT_CHARACTER);
+    memcpy(str->_str + fromAdj, fromPos, toPos - fromPos);
+    if (toAdj)
+        utf8Encode(str->_str + length - toAdj, UNICODE_REPLACEMENT_CHARACTER);
+
+    str->init(to - from);
+
+    return makeStringValue(str);
+}
+
+
 unsigned StringPrim::lengthInUTF16Units (const unsigned char * from, const unsigned char * to)
 {
     unsigned length = 0;
@@ -1124,6 +1184,87 @@ TaggedValue stringCharAt (StackFrame * caller, Env *, unsigned argc, const Tagge
         return sprim->charAt(&frame, (uint32_t)fpos);
 }
 
+TaggedValue stringSlice (StackFrame * caller, Env *, unsigned argc, const TaggedValue * argv)
+{
+    StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":stringSlice()", __LINE__);
+    TaggedValue start = argc > 1 ? argv[1] : JS_UNDEFINED_VALUE;
+    TaggedValue end = argc > 2 ? argv[2] : JS_UNDEFINED_VALUE;
+
+    if (argv[0].tag == VT_UNDEFINED || argv[0].tag == VT_NULL)
+        throwTypeError(&frame, "'this' is not coercible to string");
+
+    // Convert 'this' to string
+    frame.locals[0] = toString(&frame, argv[0]);
+    const StringPrim * sprim = frame.locals[0].raw.sval;
+
+    // We need to convert start and end to integer, which is not necessarily fast as we need to support cases
+    // like infinity, etc. So, first we check for the fastest case and if not, go real slow
+    int32_t ilen; // length of sprim, if it fits in int32_t
+    int32_t intStart, intEnd;
+    if (JS_LIKELY(IS_FAST_INT32(start, intStart) &&  // is "start" an int32_t value?
+                  (ilen = sprim->charLength) >= 0))  // is the string length an int32_t value?
+    {
+        if (IS_FAST_INT32(end, intEnd)) {
+            // nothing
+        } else if (end.tag == VT_UNDEFINED) {
+            intEnd = ilen;
+        } else {
+            goto slowPath;
+        }
+
+        // Correct intStart
+        if (intStart < 0) {
+            intStart += ilen;
+            if (JS_UNLIKELY(intStart < 0))
+                intStart = 0;
+        }
+        // We don't need to do the following since StringPrim::substring() already does the clamping
+        //else if (intStart > ilen) {
+        //    intStart = ilen;
+        //}
+
+        // Correct intEnd
+        if (intEnd < 0) {
+            intEnd += ilen;
+            if (JS_UNLIKELY(intEnd < 0))
+                intEnd = 0;
+        }
+        // We don't need to do the following since StringPrim::substring() already does the clamping
+        //else if (intEnd > ilen) {
+        //    intEnd = ilen;
+        //}
+
+        // We don't need to do the following since StringPrim::substring() already checks
+        //if (JS_UNLIKELY(intEnd <= intStart))
+        //    return makeStringValue(JS_GET_RUNTIME(&frame)->permStrEmpty);
+
+        return sprim->substring(&frame, (uint32_t)intStart, (uint32_t)intEnd);
+    }
+
+slowPath:
+    double len = sprim->charLength;
+    double from = toInteger(&frame, start);
+    double to = end.tag != VT_UNDEFINED ? toInteger(&frame, end) : len;
+
+    if (from < 0) {
+        from += len;
+        if (JS_UNLIKELY(from < 0))
+            from = 0;
+    } else if (JS_UNLIKELY(from > len)) {
+        from = len;
+    }
+
+    if (to < 0) {
+        to += len;
+        if (JS_UNLIKELY(to < 0))
+            to = 0;
+    } else if (JS_UNLIKELY(to > len)) {
+        to = len;
+    }
+
+    return sprim->substring(&frame, (uint32_t)from, (uint32_t)to);
+}
+
 TaggedValue numberFunction (StackFrame * caller, Env *, unsigned argc, const TaggedValue * argv)
 {
     return makeNumberValue(argc > 1 ? toNumber(caller, argv[1]) : 0);
@@ -1339,6 +1480,7 @@ Runtime::Runtime (bool strictMode)
     // String.prototype.charCodeAt()
     defineMethod(&frame, stringPrototype, "charCodeAt", 1, stringCharCodeAt);
     defineMethod(&frame, stringPrototype, "charAt", 1, stringCharAt);
+    defineMethod(&frame, stringPrototype, "slice", 2, stringSlice);
 
     // Number
     //

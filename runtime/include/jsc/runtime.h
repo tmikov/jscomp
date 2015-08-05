@@ -578,6 +578,13 @@ struct StringPrim : public Memory
     const unsigned char * charPos (uint32_t index, bool * secondSurrogate) const;
     TaggedValue charCodeAt (uint32_t index) const;
     TaggedValue charAt (StackFrame * caller, uint32_t index) const;
+    /**
+     * Extract a substring.
+     *
+     * @param from - start utf16 index. It is clamped at charLength
+     * @param to - end (exclusive) utf16 index. It is clamped at charLength
+     */
+    TaggedValue substring (StackFrame * caller, uint32_t from, uint32_t to) const;
 
     static unsigned lengthInUTF16Units (const unsigned char * from, const unsigned char * to);
 };
@@ -879,6 +886,7 @@ TaggedValue stringFunction (StackFrame * caller, Env *, unsigned, const TaggedVa
 TaggedValue stringConstructor (StackFrame * caller, Env *, unsigned, const TaggedValue *);
 TaggedValue stringCharCodeAt (StackFrame * caller, Env *, unsigned argc, const TaggedValue * argv);
 TaggedValue stringCharAt (StackFrame * caller, Env *, unsigned argc, const TaggedValue * argv);
+TaggedValue stringSlice (StackFrame * caller, Env *, unsigned argc, const TaggedValue * argv);
 TaggedValue numberFunction (StackFrame * caller, Env *, unsigned, const TaggedValue *);
 TaggedValue numberConstructor (StackFrame * caller, Env *, unsigned, const TaggedValue *);
 TaggedValue booleanFunction (StackFrame * caller, Env *, unsigned, const TaggedValue *);
