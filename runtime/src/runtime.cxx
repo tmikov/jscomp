@@ -1265,6 +1265,73 @@ slowPath:
     return sprim->substring(&frame, (uint32_t)from, (uint32_t)to);
 }
 
+TaggedValue stringSubstring (StackFrame * caller, Env *, unsigned argc, const TaggedValue * argv)
+{
+    StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":stringSlice()", __LINE__);
+    TaggedValue start = argc > 1 ? argv[1] : JS_UNDEFINED_VALUE;
+    TaggedValue end = argc > 2 ? argv[2] : JS_UNDEFINED_VALUE;
+
+    if (argv[0].tag == VT_UNDEFINED || argv[0].tag == VT_NULL)
+        throwTypeError(&frame, "'this' is not coercible to string");
+
+    // Convert 'this' to string
+    frame.locals[0] = toString(&frame, argv[0]);
+    const StringPrim * sprim = frame.locals[0].raw.sval;
+
+    // We need to convert start and end to integer, which is not necessarily fast as we need to support cases
+    // like infinity, etc. So, first we check for the fastest case and if not, go real slow
+    int32_t ilen; // length of sprim, if it fits in int32_t
+    int32_t intStart, intEnd;
+    if (JS_LIKELY(IS_FAST_INT32(start, intStart) &&  // is "start" an int32_t value?
+                  (ilen = sprim->charLength) >= 0))  // is the string length an int32_t value?
+    {
+        if (IS_FAST_INT32(end, intEnd)) {
+            // nothing
+        } else if (end.tag == VT_UNDEFINED) {
+            intEnd = ilen;
+        } else {
+            goto slowPath;
+        }
+
+        // Correct intStart
+        if (JS_UNLIKELY(intStart < 0))
+            intStart = 0;
+        else if (JS_UNLIKELY(intStart > ilen))
+            intStart = ilen;
+
+        // Correct intEnd
+        if (JS_UNLIKELY(intEnd < 0))
+            intEnd = 0;
+        else if (JS_UNLIKELY(intEnd > ilen))
+            intEnd = ilen;
+
+        if (JS_UNLIKELY(intStart > intEnd))
+            std::swap(intStart, intEnd);
+
+        return sprim->substring(&frame, (uint32_t)intStart, (uint32_t)intEnd);
+    }
+
+slowPath:
+    double len = sprim->charLength;
+    double from = toInteger(&frame, start);
+    double to = end.tag != VT_UNDEFINED ? toInteger(&frame, end) : len;
+
+    if (JS_UNLIKELY(from < 0))
+        from = 0;
+    else if (JS_UNLIKELY(from > len))
+        from = len;
+
+    if (JS_UNLIKELY(to < 0))
+        to = 0;
+    else if (JS_UNLIKELY(to > len))
+        to = len;
+
+    if (JS_UNLIKELY(from > to))
+        std::swap(from, to);
+
+    return sprim->substring(&frame, (uint32_t)from, (uint32_t)to);
+}
+
 TaggedValue numberFunction (StackFrame * caller, Env *, unsigned argc, const TaggedValue * argv)
 {
     return makeNumberValue(argc > 1 ? toNumber(caller, argv[1]) : 0);
@@ -1481,6 +1548,7 @@ Runtime::Runtime (bool strictMode)
     defineMethod(&frame, stringPrototype, "charCodeAt", 1, stringCharCodeAt);
     defineMethod(&frame, stringPrototype, "charAt", 1, stringCharAt);
     defineMethod(&frame, stringPrototype, "slice", 2, stringSlice);
+    defineMethod(&frame, stringPrototype, "substring", 2, stringSubstring);
 
     // Number
     //
