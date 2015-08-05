@@ -1090,7 +1090,7 @@ TaggedValue stringCharCodeAt (StackFrame * caller, Env *, unsigned argc, const T
     // We need to convert pos to integer, which is not necessarily fast as we need to support cases
     // like infinity, etc. So, first we check for the fastest case and if not, go real slow
     uint32_t upos;
-    if (JS_LIKELY(pos.tag == VT_NUMBER && (upos = (uint32_t)pos.raw.nval) == pos.raw.nval))
+    if (JS_LIKELY(IS_FAST_UINT32(pos, upos)))
         return sprim->charCodeAt(upos);
 
     double fpos = toInteger(&frame, pos);
@@ -1114,7 +1114,7 @@ TaggedValue stringCharAt (StackFrame * caller, Env *, unsigned argc, const Tagge
     // We need to convert pos to integer, which is not necessarily fast as we need to support cases
     // like infinity, etc. So, first we check for the fastest case and if not, go real slow
     uint32_t upos;
-    if (JS_LIKELY(pos.tag == VT_NUMBER && (upos = (uint32_t)pos.raw.nval) == pos.raw.nval))
+    if (JS_LIKELY(IS_FAST_UINT32(pos, upos)))
         return sprim->charAt(&frame, upos);
 
     double fpos = toInteger(&frame, pos);
