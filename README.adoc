@@ -143,3 +143,4 @@ listed below) is licensed under the Apache License v2.0. See LICENSE in the proj
 Components with different licenses:
 
 * Acorn is licensed under the terms of its license in +acorn/LICENSE+.
+* pcre2 is licensed under the terms of its license in +runtime/deps/pcre2/LICENSE+.
