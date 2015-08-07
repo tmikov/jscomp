@@ -15,10 +15,10 @@ clean:
 
 runtime-debug:
 	mkdir -p runtime/debug
-	cd runtime/debug && cmake -DCMAKE_BUILD_TYPE=Debug .. && make -j2
+	cd runtime/debug && cmake -DCMAKE_BUILD_TYPE=Debug ../.. && make -j2
 
 runtime-release:
 	mkdir -p runtime/release
-	cd runtime/release && cmake -DCMAKE_BUILD_TYPE=Release .. && make -j2
+	cd runtime/release && cmake -DCMAKE_BUILD_TYPE=Release ../.. && make -j2
 
 runtime: runtime-debug runtime-release
