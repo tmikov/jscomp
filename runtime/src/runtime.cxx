@@ -286,6 +286,11 @@ NativeObject * NativeObject::make (StackFrame * caller, Object * parent, unsigne
     return res;
 }
 
+Object * NativeObject::createDescendant (StackFrame * caller)
+{
+    return NativeObject::make(caller, this, this->internalCount);
+}
+
 NativeObject::~NativeObject ()
 {
     if (this->nativeFinalizer)

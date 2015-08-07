@@ -302,6 +302,7 @@ struct NativeObject : public Object
 
     static NativeObject * make (StackFrame * caller, Object * parent, unsigned internalPropCount);
 
+    virtual Object * createDescendant (StackFrame * caller);
     virtual ~NativeObject ();
 
     void setNativeFinalizer (NativeFinalizerFn finalizer)
