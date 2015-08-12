@@ -286,6 +286,11 @@ NativeObject * NativeObject::make (StackFrame * caller, Object * parent, unsigne
     return res;
 }
 
+NativeObject * NativeObject::make (StackFrame * caller, unsigned internalPropCount)
+{
+    return make(caller, JS_GET_RUNTIME(caller)->objectPrototype, internalPropCount);
+}
+
 Object * NativeObject::createDescendant (StackFrame * caller)
 {
     return NativeObject::make(caller, this, this->internalCount);

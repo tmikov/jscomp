@@ -301,6 +301,7 @@ struct NativeObject : public Object
     uintptr_t internalProps[1];
 
     static NativeObject * make (StackFrame * caller, Object * parent, unsigned internalPropCount);
+    static NativeObject * make (StackFrame * caller, unsigned internalPropCount);
 
     virtual Object * createDescendant (StackFrame * caller);
     virtual ~NativeObject ();
