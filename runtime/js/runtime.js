@@ -25,3 +25,8 @@ function SyntaxError (message)
 {
     return Error.call(this !== void 0 ? this : Object.create(SyntaxError.prototype), message);
 }
+
+function InternalError (message)
+{
+    return Error.call(this !== void 0 ? this : Object.create(InternalError.prototype), message);
+}

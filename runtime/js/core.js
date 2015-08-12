@@ -224,6 +224,11 @@ hidden(TypeError.prototype, "name", "TypeError");
 SyntaxError.prototype = Object.create(Error.prototype);
 hidden(SyntaxError.prototype, "name", "SyntaxError");
 
+// InternalError
+//
+InternalError.prototype = Object.create(Error.prototype);
+hidden(InternalError.prototype, "name", "InternalError");
+
 // Array
 //
 function isArrayBase (arg)
