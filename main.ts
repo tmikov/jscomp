@@ -28,6 +28,7 @@ function printSyntax (): void
 "   --runtime-dir dir      set directory of runtime files\n"+
 "   -I dir                 additional include directories for the C/C++ compiler\n"+
 "   -L dir                 additional library directories for the C/C++ compiler\n"+
+"   -l lib                 additional library to link to\n"+
 "   --build-dir dir        directory for keeping state for faster builds (default '.jsbuild/')\n"+
 "\n"+
 "Environment variables\n"+
@@ -96,6 +97,8 @@ function main (argv: string[]): void
                         options.includeDirs.push(needArgument("-I"));
                     else if (startsWith(arg, "-L"))
                         options.libDirs.push(needArgument("-L"));
+                    else if (startsWith(arg, "-l"))
+                        options.libs.push(needArgument("-l"));
                     else if (startsWith(arg, "--build-dir"))
                         options.buildDir = needArgument("--build-dir");
                     else if (startsWith(arg, "-M"))
@@ -118,10 +121,8 @@ function main (argv: string[]): void
     // Default values for options
     if (!runtimeDir)
         runtimeDir = "runtime";
-    if (!options.runtimeIncDir)
-        options.runtimeIncDir = path.join(runtimeDir, "include");
-    if (!options.runtimeLibDir)
-        options.runtimeLibDir = path.join(runtimeDir, options.debug ? "debug" : "release");
+    options.includeDirs.push(path.join(runtimeDir, "include"));
+    options.libDirs.push(path.join(runtimeDir, options.debug ? "debug" : "release"));
     options.moduleDirs = [path.join(runtimeDir, "js/modules")].concat(options.moduleDirs);
 
     if (!fname) {

@@ -36,10 +36,9 @@ export class Options
     outputName: string = null;
     verbose = false;
     moduleDirs: string[] = [];
-    runtimeIncDir: string = null;
-    runtimeLibDir: string = null;
     includeDirs: string[] = [];
     libDirs: string[] = [];
+    libs: string[] = ["jsruntime"];
     buildDir: string = ".jsbuild";
 }
 
@@ -3516,8 +3515,6 @@ export function compile (
 
             var args: string[] = [];
 
-            if (m_options.runtimeIncDir)
-                args.push("-I" + m_options.runtimeIncDir);
             m_options.includeDirs.forEach((d) => args.push("-I"+d));
 
             args.push("-xc++", "--std=c++11");
@@ -3535,10 +3532,8 @@ export function compile (
             if (m_options.compileOnly) {
                 args.push("-c");
             } else {
-                if (m_options.runtimeLibDir)
-                    args.push("-L"+m_options.runtimeLibDir);
                 m_options.libDirs.forEach((d) => args.push("-L"+d));
-                args.push("-ljsruntime");
+                m_options.libs.forEach((d) => args.push("-l"+d));
             }
             args.push("-o", outName);
             args.push("-");
