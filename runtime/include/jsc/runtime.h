@@ -800,7 +800,7 @@ private:
     void parseDiagEnvironment();
 
     void systemConstructor (
-        StackFrame * caller, unsigned envIndex, Object * prototype, CodePtr code, CodePtr consCode,
+        StackFrame * caller, unsigned envIndex, Object * prototype, CodePtr consCode, CodePtr code,
         const char * name, unsigned length,
         Object ** outPrototype, Function ** outConstructor
     );
