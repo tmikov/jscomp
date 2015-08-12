@@ -1210,8 +1210,13 @@ TaggedValue arrayConstructor (StackFrame * caller, Env * env, unsigned argc, con
 TaggedValue errorFunction (StackFrame * caller, Env *, unsigned argc, const TaggedValue * argv)
 {
     StackFrameN<0,2,0> frame(caller, NULL, __FILE__ ":errorFunction" , __LINE__);
+    TaggedValue thisp = argv[0];
 
-    newInit<Error>(&frame, &frame.locals[0], JS_GET_RUNTIME(&frame)->errorPrototype);
+    if (isValueTagObject(thisp.tag))
+        frame.locals[0] = thisp;
+    else
+        frame.locals[0] = makeObjectValue(JS_GET_RUNTIME(&frame)->errorPrototype->createDescendant(&frame));
+
     frame.locals[1] = argc > 1 ? argv[1] : JS_UNDEFINED_VALUE;
     errorConstructor(&frame, NULL, 2, &frame.locals[0]);
 
@@ -1234,7 +1239,13 @@ TaggedValue errorConstructor (StackFrame * caller, Env *, unsigned argc, const T
 TaggedValue typeErrorFunction (StackFrame * caller, Env *, unsigned argc, const TaggedValue * argv)
 {
     StackFrameN<0,2,0> frame(caller, NULL, __FILE__ ":typeErrorFunction" , __LINE__);
-    frame.locals[0] = makeObjectValue(JS_GET_RUNTIME(&frame)->typeErrorPrototype->createDescendant(&frame));
+    TaggedValue thisp = argv[0];
+
+    if (isValueTagObject(thisp.tag))
+        frame.locals[0] = thisp;
+    else
+        frame.locals[0] = makeObjectValue(JS_GET_RUNTIME(&frame)->typeErrorPrototype->createDescendant(&frame));
+
     frame.locals[1] = argc > 1 ? argv[1] : JS_UNDEFINED_VALUE;
     errorConstructor(&frame, NULL, 2, &frame.locals[0]);
 
