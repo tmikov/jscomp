@@ -878,7 +878,7 @@ TaggedValue StringPrim::charAt (StackFrame * caller, uint32_t index) const
         if (cpLen > 3) // First part of a surrogate pair?
             return makeStringValue(JS_GET_RUNTIME(caller)->permStrUnicodeReplacementChar);
 
-        if (cpLen == 1) // A good old ASCII character?
+        if (cpLen == 1/*&& ch0 < Runtime::CACHED_CHARS*/) // A good old ASCII character?
             return makeStringValue(JS_GET_RUNTIME(caller)->asciiChars[ch0]);
 
         return makeStringValue(StringPrim::make(caller, (const char *)lpos, cpLen, 1));
@@ -943,6 +943,36 @@ TaggedValue StringPrim::substring (StackFrame * caller, uint32_t from, uint32_t 
 
     str->init(to - from);
 
+    return makeStringValue(str);
+}
+
+TaggedValue StringPrim::byteSubstring (StackFrame * caller, uint32_t from, uint32_t to) const
+{
+    // clamp "to"
+    if (JS_UNLIKELY(to > this->byteLength))
+        to = this->byteLength;
+
+    // check for an empty string
+    if (JS_UNLIKELY(from >= to))
+        return makeStringValue(JS_GET_RUNTIME(caller)->permStrEmpty);
+
+    // The whole string?
+    if (JS_UNLIKELY(from == 0 && to == this->charLength))
+        return makeStringValue(this);
+
+    const unsigned char * fromPos = this->_str + from;
+
+    // only a single character requested?
+    if (JS_UNLIKELY(to == from + 1 && *fromPos < Runtime::CACHED_CHARS))
+        return makeStringValue(JS_GET_RUNTIME(caller)->asciiChars[*fromPos]);
+
+    unsigned length = to - from;
+
+    StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":StringPrim::byteSubstring()", __LINE__);
+    StringPrim * str;
+    frame.locals[0] = makeStringValue(str = StringPrim::makeEmpty(&frame, length));
+    memcpy(str->_str, fromPos, length);
+    str->init();
     return makeStringValue(str);
 }
 

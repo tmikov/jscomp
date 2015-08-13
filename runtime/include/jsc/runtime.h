@@ -586,6 +586,14 @@ struct StringPrim : public Memory
      */
     TaggedValue substring (StackFrame * caller, uint32_t from, uint32_t to) const;
 
+    /**
+     * Extract a substring using byte offset.
+     *
+     * @param from - start offset in bytes. Clamped at byteLength
+     * @param to - end offset in bytes
+     */
+    TaggedValue byteSubstring (StackFrame * caller, uint32_t from, uint32_t to) const;
+
     static unsigned lengthInUTF16Units (const unsigned char * from, const unsigned char * to);
 };
 
