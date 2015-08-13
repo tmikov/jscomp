@@ -841,6 +841,39 @@ const unsigned char * StringPrim::charPos (uint32_t index, bool * secondSurrogat
     return lpos;
 }
 
+uint32_t StringPrim::byteOffsetToUTF16Index (unsigned offset) const
+{
+    if (offset >= this->byteLength)
+        return this->charLength;
+
+    unsigned lindex, cpLen;
+    const unsigned char * lpos;
+    const unsigned char * pos;
+
+    lpos = this->_str + this->lastPos;
+    pos = this->_str + offset;
+    lindex = this->lastIndex;
+
+    if (pos == lpos) {
+        // nothing
+    } else {
+        if (pos < lpos) {
+            lpos = this->_str;
+            lindex = 0;
+        }
+        while (lpos < pos) {
+            cpLen = utf8CodePointLength(*lpos);
+            lpos += cpLen;
+            lindex += (cpLen >> 2) + 1; // same as cpLen < 4 ? 1 : 2
+        }
+
+        this->lastPos = lpos - this->_str;
+        this->lastIndex = lindex;
+    }
+
+    return lindex;
+}
+
 TaggedValue StringPrim::charCodeAt (uint32_t index) const
 {
     if (JS_UNLIKELY(index >= this->charLength))

@@ -576,6 +576,12 @@ struct StringPrim : public Memory
      * @param secondSurrogate set to true if the position is the second surrogate of the pair
      */
     const unsigned char * charPos (uint32_t index, bool * secondSurrogate) const;
+
+    /**
+     * Find the UTF16 index of a character from its byte offset.
+     */
+    uint32_t byteOffsetToUTF16Index (unsigned offset) const;
+
     TaggedValue charCodeAt (uint32_t index) const;
     TaggedValue charAt (StackFrame * caller, uint32_t index) const;
     /**
