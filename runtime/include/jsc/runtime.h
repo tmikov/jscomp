@@ -324,11 +324,7 @@ struct NativeObject : public Object
     }
 
 private:
-    NativeObject (Object * parent, unsigned internalCount) :
-        Object(parent),
-        internalCount(internalCount),
-        nativeFinalizer(NULL)
-    {}
+    NativeObject (Object * parent, unsigned internalCount);
 };
 
 struct ArrayBase : public Object

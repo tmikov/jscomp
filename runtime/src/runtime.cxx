@@ -279,6 +279,10 @@ bool PropertyAccessor::mark (IMark * marker, unsigned markBit) const
 NativeObject * NativeObject::make (StackFrame * caller, Object * parent, unsigned internalPropCount)
 {
     StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":NativeObject::make()", __LINE__);
+
+    if (internalPropCount < 1)
+        internalPropCount = 1;
+
     NativeObject * res = new(&frame,OFFSETOF(NativeObject,internalProps) + sizeof(uintptr_t)*internalPropCount)
             NativeObject(parent, internalPropCount);
     frame.locals[0] = makeObjectValue(res);
@@ -289,6 +293,14 @@ NativeObject * NativeObject::make (StackFrame * caller, Object * parent, unsigne
 NativeObject * NativeObject::make (StackFrame * caller, unsigned internalPropCount)
 {
     return make(caller, JS_GET_RUNTIME(caller)->objectPrototype, internalPropCount);
+}
+
+NativeObject::NativeObject (Object * parent, unsigned internalCount) :
+    Object(parent),
+    internalCount(internalCount),
+    nativeFinalizer(NULL)
+{
+   memset(this->internalProps, 0, sizeof(this->internalProps[0])*internalCount);
 }
 
 Object * NativeObject::createDescendant (StackFrame * caller)
