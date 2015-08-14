@@ -3598,14 +3598,16 @@ export function compile (
             if (m_options.debug)
                 args.push("-DJS_DEBUG");
 
-            if (m_options.compileOnly) {
+            if (m_options.compileOnly)
                 args.push("-c");
-            } else {
+
+            args.push("-");
+
+            if (!m_options.compileOnly) {
                 m_options.libDirs.forEach((d) => args.push("-L"+d));
                 m_options.libs.forEach((d) => args.push("-l"+d));
             }
             args.push("-o", outName);
-            args.push("-");
 
             if (m_options.verbose)
                 console.log(cc, args.join(" "));
