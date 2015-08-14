@@ -1,13 +1,31 @@
 cmake_minimum_required(VERSION 2.8)
 project(jscomp)
 
+include(CheckCXXSourceCompiles)
+
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
+
+CHECK_CXX_SOURCE_COMPILES("
+#include <map>
+int main (int, char **) {
+  std::map<int,int> m;
+  m.emplace(1,2);
+  return 0;
+}
+" HAVE_CXX11_EMPLACE
+)
 
 if (CMAKE_BUILD_TYPE MATCHES .*Deb.*)
     add_definitions(-DJS_DEBUG)
 endif()
 
-include_directories(include)
+configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/jsc/config.h.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/include/jsc/config.h"
+)
+
+include_directories("${CMAKE_CURRENT_SOURCE_DIR}/include")
+include_directories("${CMAKE_CURRENT_BINARY_DIR}/include")
 
 set(SOURCE_FILES
     src/runtime.cxx src/gc.cxx include/jsc/runtime.h src/operators.cpp

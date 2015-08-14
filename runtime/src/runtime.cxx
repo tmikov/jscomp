@@ -4,11 +4,13 @@
 
 #include "jsc/runtime.h"
 #include "jsc/jsimpl.h"
+#include "jsc/config.h"
 
 #include <assert.h>
 #include <stdarg.h>
 #include <errno.h>
 #include <set>
+#include <tuple>
 
 // Need our own definition to avoid warnings when using it on C++ objects
 #define OFFSETOF(type, field)  ((char*)&(((type*)0)->field) - ((char*)0) )
@@ -86,9 +88,15 @@ Object * Object::defineOwnProperty (StackFrame * caller, const StringPrim * name
         if (this->flags & OF_NOCONFIG)
             throwTypeError(caller, "Cannot define property '%s'", name->getStr());
 
+#ifdef HAVE_CXX11_EMPLACE
         Property * prop = &props.emplace(
             std::piecewise_construct, std::make_tuple(name->getStr()), std::make_tuple(name, flags, value)
         ).first->second;
+#else
+        Property * prop = &props.insert(
+            std::make_pair(name->getStr(), Property(name, flags, value))
+        ).first->second;
+#endif
         this->propList.insertBefore(prop);
 
         // If index-like properties have been defined in this object, array accesses need to check them first
@@ -174,10 +182,16 @@ void Object::put (StackFrame * caller, const StringPrim * name, TaggedValue v)
             if (JS_UNLIKELY(!name->isInterned()))
                 name = JS_GET_RUNTIME(caller)->internString(name);
 
+#ifdef HAVE_CXX11_EMPLACE
             Property * prop = &this->props.emplace(
                 std::piecewise_construct, std::make_tuple(name->getStr()),
                 std::make_tuple(name, PROP_WRITEABLE|PROP_ENUMERABLE|PROP_CONFIGURABLE, v)
             ).first->second;
+#else
+            Property * prop = &this->props.insert(
+                std::make_pair(name->getStr(), Property(name, PROP_WRITEABLE|PROP_ENUMERABLE|PROP_CONFIGURABLE, v))
+            ).first->second;
+#endif
             this->propList.insertBefore(prop);
             return;
         }
