@@ -11,3 +11,6 @@ node_modules/
 # Mac OS things
 .DS_Store
 *.dSYM/
+
+/.idea/workspace.xml
+/.idea/tasks.xml

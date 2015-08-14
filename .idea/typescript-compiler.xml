@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="TypeScriptCompiler">
+    <option name="isCompilerEnabled" value="true" />
+    <option name="typeScriptCompilerParams" value="--module commonjs --target ES5 --noImplicitAny --noEmitOnError" />
+  </component>
+</project>

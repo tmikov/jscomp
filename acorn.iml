@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<module type="JAVA_MODULE" version="4">
+  <component name="NewModuleRootManager" inherit-compiler-output="true">
+    <exclude-output />
+    <content url="file://$MODULE_DIR$/acorn">
+      <sourceFolder url="file://$MODULE_DIR$/acorn/src" isTestSource="false" />
+      <excludeFolder url="file://$MODULE_DIR$/acorn/bin" />
+      <excludeFolder url="file://$MODULE_DIR$/acorn/dist" />
+      <excludeFolder url="file://$MODULE_DIR$/acorn/node_modules" />
+    </content>
+    <orderEntry type="inheritedJdk" />
+    <orderEntry type="sourceFolder" forTests="false" />
+  </component>
+</module>

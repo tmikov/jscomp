@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="ProjectModuleManager">
+    <modules>
+      <module fileurl="file://$PROJECT_DIR$/acorn.iml" filepath="$PROJECT_DIR$/acorn.iml" />
+      <module fileurl="file://$PROJECT_DIR$/jscomp.iml" filepath="$PROJECT_DIR$/jscomp.iml" />
+    </modules>
+  </component>
+</project>
