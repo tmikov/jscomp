@@ -4,6 +4,7 @@ project(jscomp)
 include(CheckCXXSourceCompiles)
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-invalid-offsetof")
 
 CHECK_CXX_SOURCE_COMPILES("
 #include <map>
