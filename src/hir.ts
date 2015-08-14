@@ -39,7 +39,7 @@ export class SpecialConstantClass
     toString(): string { return `#${this.name}`; }
 }
 
-export type RValue = MemValue | string | boolean | number | Regex | SpecialConstantClass;
+export type RValue = MemValue | string | boolean | number | SpecialConstantClass;
 
 export class Param extends MemValue
 {
@@ -152,7 +152,7 @@ export function isImmediate (v: RValue): boolean
         case "number":
             return true;
         case "object":
-            return <any>v instanceof SpecialConstantClass || <any>v instanceof Regex;
+            return <any>v instanceof SpecialConstantClass;
     }
     return false;
 }

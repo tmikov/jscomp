@@ -679,12 +679,14 @@ interface Runtime
     moduleRequire: Variable;
     defineModule: Variable;
     _defineAccessor: Variable;
+    regExp: Variable;
 }
 
 class SpecialVars
 {
     require: Variable = null;
     _defineAccessor: Variable = null;
+    regExp: Variable = null;
 }
 
 class AsmBinding {
@@ -1891,16 +1893,57 @@ function compileSource (
 
     function compileLiteral (scope: Scope, literal: ESTree.Literal, need: boolean): hir.RValue
     {
+        if (literal.regex)
+            return compileRegexLiteral(scope, <ESTree.RegexLiteral>literal, need);
+
         if (need) {
-            // Most literal values we just pass through, but regex and null need special handling
-            if (literal.regex) {
-                var regex = (<ESTree.RegexLiteral>literal).regex;
-                return new hir.Regex(regex.pattern, regex.flags);
-            } else
-                return hir.wrapImmediate(literal.value);
+            return hir.wrapImmediate(literal.value);
         } else {
             return null;
         }
+    }
+
+    function compileRegexLiteral (scope: Scope, regexLit: ESTree.RegexLiteral, need: boolean): hir.RValue
+    {
+        if (!m_specVars.regExp) {
+            error(location(regexLit), "RegExp not initialized yet");
+            return hir.nullValue;
+        }
+
+        var regex = regexLit.regex;
+
+        // Note: it has probably already been validated by the parser, but validate it again
+        // ourselves as parsers don't do it consistently
+        try {
+            new RegExp(regex.pattern, regex.flags);
+        } catch (e) {
+            error(location(regexLit), e.message || "invalid RegExp");
+            return hir.nullValue;
+        }
+
+        if (!need)
+            return null;
+
+        var ctx = scope.ctx;
+
+        // Create an anonymous variable in the global scope
+        var re = m_scope.newAnonymousVariable("$re");
+        re.declared = true;
+
+        var labCreated: hir.Label = ctx.builder.newLabel();
+        var labNotCreated: hir.Label = ctx.builder.newLabel();
+
+        ctx.builder.genIfTrue(re.hvar, labCreated, labNotCreated);
+
+        ctx.builder.genLabel(labNotCreated);
+        re.setAssigned(ctx);
+        m_specVars.regExp.setAccessed(true, ctx);
+        ctx.builder.genCall(re.hvar, m_specVars.regExp.hvar, [hir.undefinedValue, regex.pattern, regex.flags]);
+        ctx.builder.genGoto(labCreated);
+
+        ctx.builder.genLabel(labCreated);
+        re.setAccessed(true, ctx);
+        return re.hvar;
     }
 
     function compileThisExpression (scope: Scope, thisExp: ESTree.ThisExpression, need: boolean): hir.RValue
@@ -3362,7 +3405,8 @@ export function compile (
             ctx: runtimeCtx,
             moduleRequire: modScope.lookup("moduleRequire"),
             defineModule: modScope.lookup("defineModule"),
-            _defineAccessor: coreScope.lookup("_defineAccessor")
+            _defineAccessor: coreScope.lookup("_defineAccessor"),
+            regExp: null
         };
         assert(r.moduleRequire);
         assert(r.defineModule);
@@ -3370,7 +3414,31 @@ export function compile (
         if (!r.moduleRequire || !r.defineModule || !r._defineAccessor)
             error(null, "internal symbols missing from runtime");
 
+        if (!importRegExp(r))
+            return null;
+
         return r;
+    }
+
+    function importRegExp (runtime: Runtime): boolean
+    {
+        var regexpM = m_modules.resolve("", "RegExp");
+        if (!compileResolvedModules(runtime))
+            return false;
+        var modvar = runtime.ctx.scope.newVariable("RegExp");
+        modvar.declared = true;
+        modvar.setAssigned(runtime.ctx);
+        callModuleRequire(runtime, regexpM, modvar.hvar);
+
+        // Save the constructor into an anonymous variable so we can access it reliably
+        var re = runtime.ctx.scope.newAnonymousVariable("$RegExp");
+        re.declared = true;
+        re.setAssigned(runtime.ctx);
+        modvar.setAccessed(true, runtime.ctx);
+        runtime.ctx.builder.genAssign(re.hvar, modvar.hvar);
+
+        runtime.regExp = re;
+        return true;
     }
 
     /**
@@ -3400,6 +3468,7 @@ export function compile (
         var specVars = new SpecialVars();
         specVars.require = require;
         specVars._defineAccessor = runtime._defineAccessor;
+        specVars.regExp = runtime.regExp;
 
         var tmp = ctx.allocTemp();
         modp.setAccessed(true, ctx);
