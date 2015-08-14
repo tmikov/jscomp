@@ -67,7 +67,6 @@ it without a huge performance penalty, but since we don't use +with+ at all, our
 ** +Object.setPrototypeOf()+ and +\_\_proto__+ : the plan is not to support prototype modification.
   This is not a judgement, but if you really need that you should use a different JavaScript
   implementation.
-** Regular expressions: coming soon
 
 * Differing from the spec:
 
@@ -79,6 +78,11 @@ code shouldn't be relying on its absence.
 to +arguments+ do not propagate back to the actual arguments. There is also no +caller/callee+,
 properties. We can implement all of that (non-strict mode stuff), but it is not high on
 our current list of priorities.
+** Regular expressions: implemented using PCRE2. PCRE2 has some incompatibilities with JavaScript
+regexes, specifically the treatment of unicode whitespace. It is also too flexible for its own
+good - lots of options can be changed from within the pattern itself - which is naturally not
+compatible with with JavaScript. The implementation should be considered experimental
+and should not be used with "untrusted" regular expressions.
 
 * The object system is implemented, but some of the built-in constructors and many methods
 are not available. The plan is to implement as mush as possible in JavaScript.
