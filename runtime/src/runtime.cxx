@@ -814,7 +814,10 @@ StringPrim * StringPrim::make (StackFrame * caller, const char * str, unsigned l
 
 const unsigned char * StringPrim::charPos (uint32_t index, bool * secondSurrogate) const
 {
-    assert(index < this->charLength);
+    if (JS_UNLIKELY(index >= this->charLength)) {
+        *secondSurrogate = false;
+        return this->_str + this->byteLength;
+    }
 
     unsigned lindex, cpLen;
     const unsigned char * lpos;
