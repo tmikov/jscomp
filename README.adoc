@@ -158,3 +158,4 @@ Components with different licenses:
 * is-array is licensed under the terms of
    +runtime/js/modules/buffer/node_modules/is-array/Readme.md+
 * JSON-js (from https://github.com/douglascrockford/JSON-js) is in the public domain.
+* Node code is licensed under the terms of its license in "runtime/js/nodelib/LICENSE+.
