@@ -54,8 +54,8 @@ function RegExp (pattern, flags)
     __asmh__({},
         "static void regexp_finalizer (js::NativeObject * obj)\n" +
         "{\n" +
-        "  pcre2_code * re = (pcre2_code *)obj->getInternal(0);\n" +
-        "  pcre2_match_data * match = (pcre2_match_data *)obj->getInternal(1);\n" +
+        "  pcre2_code * re = (pcre2_code *)obj->getInternalUnsafe(0);\n" +
+        "  pcre2_match_data * match = (pcre2_match_data *)obj->getInternalUnsafe(1);\n" +
         "  if (match) pcre2_match_data_free(match);\n" +
         "  if (re) pcre2_code_free(re);\n" +
         "}"
@@ -109,11 +109,11 @@ function RegExp (pattern, flags)
         "&errorCode, &errorOffset, NULL" +
         ");\n" +
         "if (re) {\n" +
-        "  obj->setInternal(0, (uintptr_t)re);\n" +
+        "  obj->setInternalUnsafe(0, (uintptr_t)re);\n" +
         "  %[errorCode] = js::makeNumberValue(0);\n" +
         "  pcre2_match_data * match = pcre2_match_data_create_from_pattern(re, NULL);\n" +
         "  if (!match) js::throwOutOfMemory(%[%frame]);\n" +
-        "  obj->setInternal(1, (uintptr_t)match);\n" +
+        "  obj->setInternalUnsafe(1, (uintptr_t)match);\n" +
         "} else {\n" +
         "  %[errorCode] = js::makeNumberValue(errorCode);\n" +
         "}"
@@ -160,7 +160,7 @@ function getSubstringByNumber (obj, str, num)
 {
     return __asm__({},["result"],[["this",obj], ["str", str], ["num", num >>> 0]],[],
         "js::NativeObject * obj = (js::NativeObject *)%[this].raw.oval;\n" +
-        "pcre2_match_data * match = (pcre2_match_data *)obj->getInternal(1);\n" +
+        "pcre2_match_data * match = (pcre2_match_data *)obj->getInternalUnsafe(1);\n" +
         "PCRE2_SIZE * ptr = pcre2_get_ovector_pointer(match);\n" +
         "ptr += (unsigned)%[num].raw.nval * 2;\n" +
         "if (ptr[0] == PCRE2_UNSET || ptr[1] == PCRE2_UNSET)\n" +
@@ -174,7 +174,7 @@ function getSubstringIndexByNumber (obj, str, num, which)
 {
     return __asm__({},["result"],[["this",obj], ["str", str], ["num", num >>> 0], ["which", which >>> 0]],[],
         "js::NativeObject * obj = (js::NativeObject *)%[this].raw.oval;\n" +
-        "pcre2_match_data * match = (pcre2_match_data *)obj->getInternal(1);\n" +
+        "pcre2_match_data * match = (pcre2_match_data *)obj->getInternalUnsafe(1);\n" +
         "PCRE2_SIZE * ptr = pcre2_get_ovector_pointer(match);\n" +
         "ptr += (unsigned)%[num].raw.nval * 2 + (unsigned)%[which].raw.nval;\n" +
         "if (*ptr == PCRE2_UNSET)\n" +
@@ -200,8 +200,8 @@ function domatch (obj, str)
         [["this",obj], ["str", str], ["startIndex", obj.lastIndex >>> 0], ["count", count]], [],
 
         "js::NativeObject * obj = (js::NativeObject *)%[this].raw.oval;\n" +
-        "pcre2_code * re = (pcre2_code *)obj->getInternal(0);\n" +
-        "pcre2_match_data * match = (pcre2_match_data *)obj->getInternal(1);\n" +
+        "pcre2_code * re = (pcre2_code *)obj->getInternalUnsafe(0);\n" +
+        "pcre2_match_data * match = (pcre2_match_data *)obj->getInternalUnsafe(1);\n" +
         "PCRE2_SIZE startoffset = 0;\n" +
         "if (%[startIndex].raw.nval) {\n" +
         "  bool secondSurrogate;" +
