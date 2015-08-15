@@ -35,6 +35,26 @@ struct String;
 struct StackFrame;
 struct Runtime;
 
+enum InternalClass
+{
+    ICLS_MEMORY      =  0,
+    ICLS_STRING_PRIM =  1,
+    ICLS_UNDEFINED   =  2,
+    ICLS_NULL        =  3,
+    ICLS_OBJECT      =  4,
+    ICLS_ARGUMENTS   =  5,
+    ICLS_ARRAY       =  6,
+    ICLS_FUNCTION    =  7,
+    ICLS_BOOLEAN     =  8,
+    ICLS_NUMBER      =  9,
+    ICLS_STRING      = 10,
+    ICLS_ERROR       = 11,
+    ICLS_REGEXP      = 12,
+    ICLS_DATE        = 13,
+    ICLS_JSON        = 14,
+    ICLS_MATH        = 15,
+};
+
 union RawValue
 {
     double nval;
@@ -104,6 +124,7 @@ struct Memory
         header = (uintptr_t)next | (header & FLAGS_MASK);
     }
 
+    virtual InternalClass getInternalClass () const;
     virtual bool mark (IMark * marker, unsigned markBit) const = 0;
 
     virtual void finalizer ();
@@ -217,6 +238,7 @@ struct Object : public Memory
 
     inline void init (StackFrame *) {}
 
+    virtual InternalClass getInternalClass () const;
     virtual Object * createDescendant (StackFrame * caller);
 
     virtual bool mark (IMark * marker, unsigned markBit) const;
@@ -299,6 +321,7 @@ typedef void (*NativeFinalizerFn)(NativeObject*);
 
 struct NativeObject : public Object
 {
+    InternalClass icls;
     NativeFinalizerFn nativeFinalizer;
     unsigned const internalCount;
     uintptr_t internalProps[1];
@@ -306,8 +329,14 @@ struct NativeObject : public Object
     static NativeObject * make (StackFrame * caller, Object * parent, unsigned internalPropCount);
     static NativeObject * make (StackFrame * caller, unsigned internalPropCount);
 
+    virtual InternalClass getInternalClass () const;
     virtual Object * createDescendant (StackFrame * caller);
     virtual ~NativeObject ();
+
+    void setInternalClass (InternalClass icls)
+    {
+        this->icls = icls;
+    }
 
     void setNativeFinalizer (NativeFinalizerFn finalizer)
     {
@@ -406,6 +435,7 @@ public:
     {}
 
     void init (StackFrame * caller);
+    virtual InternalClass getInternalClass () const;
 
     static Array * findArrayInstance (StackFrame * caller, TaggedValue thisp);
     static TaggedValue lengthGetter (StackFrame * caller, Env * env, unsigned argc, const TaggedValue * argv);
@@ -421,6 +451,7 @@ public:
     {}
 
     void init (StackFrame * caller, int argc, const TaggedValue * argv);
+    virtual InternalClass getInternalClass () const;
 };
 
 struct ForInIterator : public Memory
@@ -470,6 +501,7 @@ public:
     {}
     void init (StackFrame * caller, Env * env, CodePtr code, CodePtr consCode, const StringPrim * name, unsigned length);
 
+    virtual InternalClass getInternalClass () const;
     virtual bool mark (IMark * marker, unsigned markBit) const;
 
     /** Define the 'prototype' property */
@@ -561,6 +593,7 @@ struct StringPrim : public Memory
     }
 
     //public:
+    virtual InternalClass getInternalClass () const;
     virtual bool mark (IMark * marker, unsigned markBit) const;
 
     static StringPrim * makeEmpty (StackFrame * caller, unsigned length);
@@ -638,8 +671,24 @@ public:
     virtual TaggedValue defaultValue (StackFrame * caller, ValueTag preferredType);
 };
 
-typedef Box Number;
-typedef Box Boolean;
+class Number : public Box
+{
+public:
+    Number (Object * parent, TaggedValue value = JS_UNDEFINED_VALUE) :
+        Box(parent, value)
+    {}
+    virtual InternalClass getInternalClass () const;
+};
+
+class Boolean : public Box
+{
+public:
+    Boolean (Object * parent, TaggedValue value = JS_UNDEFINED_VALUE) :
+        Box(parent, value)
+    {}
+
+    virtual InternalClass getInternalClass () const;
+};
 
 class String : public IndexedObject
 {
@@ -661,6 +710,7 @@ public:
         this->value = value;
     }
 
+    virtual InternalClass getInternalClass () const;
     virtual bool mark (IMark * marker, unsigned markBit) const;
     virtual TaggedValue defaultValue (StackFrame * caller, ValueTag preferredType);
 
@@ -675,6 +725,7 @@ struct Error : public Object
     Error (Object * parent):
         Object(parent)
     {}
+    virtual InternalClass getInternalClass () const;
 };
 
 struct StackFrame
@@ -1021,6 +1072,8 @@ inline bool isValidArrayIndexNumber (TaggedValue val, uint32_t * index)
 }
 
 bool isIndexString (const char * str, uint32_t * index);
+
+InternalClass getInternalClass (TaggedValue v);
 
 void put (StackFrame * caller, TaggedValue obj, const StringPrim * propName, TaggedValue val);
 void putComputed (StackFrame * caller, TaggedValue obj, TaggedValue propName, TaggedValue val);

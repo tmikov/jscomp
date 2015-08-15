@@ -20,6 +20,11 @@ namespace js
 
 Runtime * g_runtime = NULL;
 
+InternalClass Memory::getInternalClass () const
+{
+    return ICLS_MEMORY;
+}
+
 void Memory::finalizer ()
 { }
 
@@ -53,6 +58,11 @@ TaggedValue * Env::var (unsigned level, unsigned index)
     while (level-- != 0)
         penv = penv->parent;
     return &penv->vars[index];
+}
+
+InternalClass Object::getInternalClass () const
+{
+    return ICLS_OBJECT;
 }
 
 Object * Object::createDescendant (StackFrame * caller)
@@ -312,10 +322,16 @@ NativeObject * NativeObject::make (StackFrame * caller, unsigned internalPropCou
 
 NativeObject::NativeObject (Object * parent, unsigned internalCount) :
     Object(parent),
-    internalCount(internalCount),
-    nativeFinalizer(NULL)
+    icls(ICLS_OBJECT),
+    nativeFinalizer(NULL),
+    internalCount(internalCount)
 {
    memset(this->internalProps, 0, sizeof(this->internalProps[0])*internalCount);
+}
+
+InternalClass NativeObject::getInternalClass () const
+{
+    return this->icls;
 }
 
 Object * NativeObject::createDescendant (StackFrame * caller)
@@ -493,6 +509,11 @@ void Array::init (StackFrame * caller)
     defineOwnProperty(caller, r->permStrLength, PROP_WRITEABLE|PROP_GET_SET, r->arrayLengthAccessor);
 }
 
+InternalClass Array::getInternalClass () const
+{
+    return ICLS_ARRAY;
+}
+
 Array * Array::findArrayInstance (StackFrame * caller, TaggedValue thisp)
 {
     Object * arrayProto = JS_GET_RUNTIME(caller)->arrayPrototype;
@@ -532,6 +553,11 @@ void Arguments::init (StackFrame * caller, int argc, const TaggedValue * argv)
     elems.assign(argv, argv+argc);
     defineOwnProperty(caller, JS_GET_RUNTIME(caller)->permStrLength, PROP_WRITEABLE|PROP_CONFIGURABLE,
                       makeNumberValue(argc));
+}
+
+InternalClass Arguments::getInternalClass () const
+{
+    return ICLS_ARGUMENTS;
 }
 
 void ForInIterator::make (StackFrame * caller, TaggedValue * result, Object * obj)
@@ -680,6 +706,11 @@ void Function::init (StackFrame * caller, Env * env, CodePtr code, CodePtr consC
     }
 }
 
+InternalClass Function::getInternalClass () const
+{
+    return ICLS_FUNCTION;
+}
+
 bool Function::mark (IMark * marker, unsigned markBit) const
 {
     return super::mark(marker, markBit) && markMemory(marker, markBit, env);
@@ -787,6 +818,11 @@ Object * BoundPrototype::createDescendant (StackFrame * caller)
         return frame.locals[0].raw.oval->createDescendant(&frame);
     else
         return JS_GET_RUNTIME(&frame)->objectPrototype->createDescendant(&frame);
+}
+
+InternalClass StringPrim::getInternalClass () const
+{
+    return ICLS_STRING_PRIM;
 }
 
 bool StringPrim::mark (IMark * marker, unsigned markBit) const
@@ -1050,6 +1086,21 @@ TaggedValue Box::defaultValue (StackFrame *, ValueTag)
     return this->value;
 }
 
+InternalClass Number::getInternalClass () const
+{
+    return ICLS_NUMBER;
+}
+
+InternalClass Boolean::getInternalClass () const
+{
+    return ICLS_BOOLEAN;
+}
+
+InternalClass String::getInternalClass () const
+{
+    return ICLS_STRING;
+}
+
 bool String::mark (IMark * marker, unsigned markBit) const
 {
     return super::mark(marker, markBit) && markValue(marker, markBit, this->value);
@@ -1078,6 +1129,11 @@ bool String::setAtIndex (uint32_t index, TaggedValue value)
 bool String::deleteAtIndex (uint32_t index)
 {
     return false;
+}
+
+InternalClass Error::getInternalClass () const
+{
+    return ICLS_ERROR;
 }
 
 bool StackFrame::mark (IMark * marker, unsigned markBit) const
@@ -2011,6 +2067,21 @@ bool isIndexString (const char * str, uint32_t * res)
         }
     }
     return false;
+}
+
+InternalClass getInternalClass (TaggedValue a)
+{
+    switch (a.tag) {
+        case VT_UNDEFINED: return ICLS_UNDEFINED;
+        case VT_NULL:      return ICLS_NULL;
+        case VT_BOOLEAN:   return ICLS_BOOLEAN;
+        case VT_NUMBER:    return ICLS_NUMBER;
+        case VT_STRINGPRIM:return ICLS_STRING_PRIM;
+        case VT_OBJECT:    return a.raw.oval->getInternalClass();
+        default:
+            assert(false);
+            return ICLS_UNDEFINED;
+    }
 }
 
 void put (StackFrame * caller, TaggedValue obj, const StringPrim * propName, TaggedValue val)
