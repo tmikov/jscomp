@@ -182,8 +182,9 @@ static void collect (StackFrame * caller)
         runtime->tail = lastMarked;
     }
 
+    runtime->gcThreshold = std::max(runtime->gcThreshold, runtime->allocatedSize * 2);
+
     if (runtime->diagFlags & Runtime::DIAG_HEAP_GC) {
-        runtime->gcThreshold = std::max(runtime->gcThreshold, runtime->allocatedSize * 2);
         fprintf(
             stderr, "Freed %zu bytes. Threshold=%zu Allocated=%zu\n", startAllocatedSize - runtime->allocatedSize,
             runtime->gcThreshold, runtime->allocatedSize
