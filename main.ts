@@ -123,7 +123,7 @@ function main (argv: string[]): void
         runtimeDir = "runtime";
     options.includeDirs.push(path.join(runtimeDir, "include"));
     options.libDirs.push(path.join(runtimeDir, options.debug ? "debug" : "release"));
-    options.moduleDirs = [path.join(runtimeDir, "js/modules")].concat(options.moduleDirs);
+    options.moduleDirs = [path.join(runtimeDir, "js/modules"), path.join(runtimeDir, "js/nodelib")].concat(options.moduleDirs);
 
     if (!fname) {
         console.error("error: no filename specified");
