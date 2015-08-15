@@ -11,6 +11,24 @@ import stream = require("stream");
 import StringMap = require("../lib/StringMap");
 import bmh = require("../lib/bmh");
 
+export interface SourceLocation
+{
+    fileName: string;
+    line: number;
+    column: number;
+}
+
+export function setSourceLocation (loc: SourceLocation, fileName: string, line: number, column: number): void
+{
+    loc.fileName = fileName;
+    loc.line = line;
+    loc.column = column;
+}
+export function hasSourceLocation (loc: SourceLocation): boolean
+{
+    return loc.fileName !== null;
+}
+
 export class MemValue
 {
     constructor(public id: number) {}
@@ -495,6 +513,10 @@ class PutOp extends Instruction {
 }
 
 class CallOp extends Instruction {
+    public fileName: string = null;
+    public line: number = 0;
+    public column: number = 0;
+
     constructor(
         op: OpCode, public dest: LValue, public fref: FunctionBuilder, public closure: RValue, public args: ArgSlot[]
     )
@@ -828,6 +850,10 @@ export class FunctionBuilder
     public runtimeVar: string = null;
     public isBuiltIn = false;
 
+    public fileName: string = null;
+    public line: number = 0;
+    public column: number = 0;
+
     // The nesting level of this function's environment
     private envLevel: number;
 
@@ -1122,7 +1148,7 @@ export class FunctionBuilder
         this.getBB().push(new PutOp(obj, propName, src));
     }
 
-    private _genCall(op: OpCode, dest: LValue, closure: RValue, args: RValue[]): void
+    private _genCall(op: OpCode, dest: LValue, closure: RValue, args: RValue[]): CallOp
     {
         if (dest === null)
             dest = nullReg;
@@ -1135,13 +1161,15 @@ export class FunctionBuilder
             bb.push(new AssignOp(slots[i], args[i]));
         }
 
-        this.getBB().push(new CallOp(op, dest, null, closure, slots));
+        var res: CallOp;
+        this.getBB().push(res = new CallOp(op, dest, null, closure, slots));
+        return res;
     }
-    genCall(dest: LValue, closure: RValue, args: RValue[]): void
+    genCall(dest: LValue, closure: RValue, args: RValue[]): CallOp
     {
         return this._genCall(OpCode.CALLIND, dest, closure, args);
     }
-    genCallCons(dest: LValue, closure: RValue, args: RValue[]): void
+    genCallCons(dest: LValue, closure: RValue, args: RValue[]): CallOp
     {
         return this._genCall(OpCode.CALLCONS, dest, closure, args);
     }
@@ -1767,10 +1795,10 @@ export class FunctionBuilder
         );
     }
 
-    private outCallerLine(): void
+    private outCallerLine(loc: SourceLocation): void
     {
         if (this.module.debugMode)
-            this.gen("  frame.setLine(__LINE__+1);\n");
+            this.gen("  frame.setLine(%d);\n", loc.line);
     }
 
     private generateInst(inst: Instruction): void
@@ -1778,7 +1806,7 @@ export class FunctionBuilder
         switch (inst.op) {
             case OpCode.CLOSURE:
                 var closureop = <ClosureOp>inst;
-                this.outCallerLine();
+                //this.outCallerLine();
                 this.gen("  %sjs::newFunction(&frame, %s, %s, %d, %s);\n",
                     this.strDest(closureop.dest),
                     this.strEnvAccess(closureop.funcRef.lowestEnvAccessed),
@@ -1805,7 +1833,7 @@ export class FunctionBuilder
             case OpCode.CALL:
                 // TODO: self tail-recursion optimization
                 var callop = <CallOp>inst;
-                this.outCallerLine();
+                this.outCallerLine(callop);
                 this.gen("  %s%s(&frame, %s, %d, &%s);\n",
                     this.strDest(callop.dest),
                     this.module.strFunc(callop.fref),
@@ -1816,7 +1844,7 @@ export class FunctionBuilder
                 break;
             case OpCode.CALLIND:
                 var callop = <CallOp>inst;
-                this.outCallerLine();
+                this.outCallerLine(callop);
                 this.gen("  %sjs::call(&frame, %s, %d, &%s);\n",
                     this.strDest(callop.dest),
                     this.strRValue(callop.closure),
@@ -1826,7 +1854,7 @@ export class FunctionBuilder
                 break;
             case OpCode.CALLCONS:
                 var callop = <CallOp>inst;
-                this.outCallerLine();
+                this.outCallerLine(callop);
                 this.gen("  %sjs::callCons(&frame, %s, %d, &%s);\n",
                     this.strDest(callop.dest),
                     this.strRValue(callop.closure),
@@ -1993,9 +2021,18 @@ export class FunctionBuilder
         gen("\n// %s\nstatic js::TaggedValue %s (js::StackFrame * caller, js::Env * env, unsigned argc, const js::TaggedValue * argv)\n{\n",
             this.name || "<unnamed>", this.module.strFunc(this)
         );
-        gen("  js::StackFrameN<%d,%d,%d> frame(caller, env, __FILE__ \":%s\", __LINE__);\n",
+
+        var sourceFile: string = "NULL";
+        var sourceLine: number = 0;
+
+        if (hasSourceLocation(this)) {
+            sourceFile = '"'+ escapeCString(this.fileName + ":" + (this.name || "<unnamed>"), false) + '"';
+            sourceLine = this.line;
+        }
+
+        gen("  js::StackFrameN<%d,%d,%d> frame(caller, env, %s, %d);\n",
             this.envSize, this.locals.length, this.paramSlotsCount,
-            this.name || "<unnamed>"
+            sourceFile, sourceLine
         );
         for ( var i = 0; i < this.tryRecordCount; ++i )
             this.gen("  js::TryRecord tryRec%d;\n", i );

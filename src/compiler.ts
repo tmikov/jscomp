@@ -775,6 +775,12 @@ function compileSource (
         }
     }
 
+    function setSourceLocation (target: hir.SourceLocation, node: ESTree.Node): void
+    {
+        var loc = location(node);
+        hir.setSourceLocation(target, loc.source, loc.start.line, loc.start.column);
+    }
+
     function parse (fileName: string): ESTree.Program
     {
         var options: acorn.Options = {
@@ -820,6 +826,8 @@ function compileSource (
     {
         var funcCtx = new FunctionContext(parentScope && parentScope.ctx, parentScope, funcRef.name, funcRef);
         var funcScope = funcCtx.scope;
+
+        setSourceLocation(funcCtx.builder, ast);
 
         // Declare the parameters
         // Create a HIR param+var binding for each of them
@@ -1938,7 +1946,8 @@ function compileSource (
         ctx.builder.genLabel(labNotCreated);
         re.setAssigned(ctx);
         m_specVars.regExp.setAccessed(true, ctx);
-        ctx.builder.genCall(re.hvar, m_specVars.regExp.hvar, [hir.undefinedValue, regex.pattern, regex.flags]);
+        var t = ctx.builder.genCall(re.hvar, m_specVars.regExp.hvar, [hir.undefinedValue, regex.pattern, regex.flags]);
+        setSourceLocation(t, regexLit);
         ctx.builder.genGoto(labCreated);
 
         ctx.builder.genLabel(labCreated);
@@ -3170,7 +3179,8 @@ function compileSource (
         if (need)
             dest = ctx.allocTemp();
 
-        ctx.builder.genCall(dest, closure, args);
+        var t = ctx.builder.genCall(dest, closure, args);
+        setSourceLocation(t, e);
         return dest;
     }
 
@@ -3202,7 +3212,8 @@ function compileSource (
             ctx.releaseTemp(args[i]);
 
         var res = ctx.allocTemp();
-        ctx.builder.genCallCons(res, closure, args);
+        var t = ctx.builder.genCallCons(res, closure, args);
+        setSourceLocation(t, e);
 
         var undLab = ctx.builder.newLabel();
         var notUndLab = ctx.builder.newLabel();
