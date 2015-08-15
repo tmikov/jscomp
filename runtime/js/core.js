@@ -434,3 +434,33 @@ hidden(Boolean.prototype, "toString", function boolean_tostring()
         throw TypeError("Boolean.prototype.toString called with a non-boolean");
     return b ? "true" : "false";
 });
+
+// String
+//
+hidden(String.prototype, "indexOf", function string_indexOf (searchString, position)
+{
+    if (this === null || this === undefined)
+        throw TypeError("'this' is not coercible to String");
+    var S = String(this);
+    var searchStr = String(searchString);
+    var numPos = +position;
+    var start;
+
+    if (numPos < 0)
+        start = 0;
+    else if (numPos >= S.length)
+        return -1;
+    else
+        start = numPos >>> 0;
+
+    return __asm__({},["result"],[["S", S], ["searchStr", searchStr], ["start", start]],[],
+        "const js::StringPrim * haystack = %[S].raw.sval;\n" +
+        "bool secondSurr;\n" +
+        "const unsigned char * startPos = haystack->charPos((uint32_t)%[start].raw.nval, &secondSurr);\n" +
+        "const unsigned char * pos = (const unsigned char *)::strstr((const char *)startPos, (const char*)%[searchStr].raw.sval->_str);\n" +
+        "if (pos)\n" +
+        "  %[result] = js::makeNumberValue(haystack->byteOffsetToUTF16Index(pos - haystack->_str));\n" +
+        "else\n" +
+        "  %[result] = js::makeNumberValue(-1);"
+    );
+});
