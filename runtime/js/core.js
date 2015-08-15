@@ -2,6 +2,13 @@
 // Licensed under the Apache License v2.0. See LICENSE in the project
 // root for complete license information.
 
+function getInternalClass (obj)
+{
+    return __asm__({},["result"],[["obj",obj]],[],
+        "%[result] = js::makeNumberValue(js::getInternalClass(%[obj]));"
+    );
+}
+
 /** This is used only internally by the generated code in object expressions with accessors */
 function _defineAccessor (obj, prop, getter, setter)
 {
@@ -148,12 +155,25 @@ hidden(Object, "create", function object_create (proto, properties)
 
 hidden(Object.prototype, "toString", function object_toString()
 {
-    if (this === void 0)
-        return "[object Undefined]";
-    if (this === null)
-        return "[object Null]";
-    //FIXME: handle other classes
-    return "[object Object]";
+    switch (getInternalClass(this)) {
+        case  0:
+        case  1:
+        case  2: return "[object Undefined]";
+        case  3: return "[object Null]";
+        default:
+        case  4: return "[object Object]";
+        case  5: return "[object Arguments]";
+        case  6: return "[object Array]";
+        case  7: return "[object Function]";
+        case  8: return "[object Boolean]";
+        case  9: return "[object Number]";
+        case 10: return "[object String]";
+        case 11: return "[object Error]";
+        case 12: return "[object RegExp]";
+        case 13: return "[object Date]";
+        case 14: return "[object JSON]";
+        case 15: return "[object Math]";
+    }
 });
 
 hidden(Object.prototype, "toLocaleString", function object_toLocaleString()
