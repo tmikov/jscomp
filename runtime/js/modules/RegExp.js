@@ -142,7 +142,7 @@ Object.defineProperties(RegExp.prototype, {
     multiline: {value: false}
 });
 
-function validateObject (obj)
+function isRegExp (obj)
 {
     // TODO: perform stricter validation, e.g. with symbols?
     if (obj.__proto__ === regexp_prototype) {
@@ -150,10 +150,16 @@ function validateObject (obj)
                 "%[result] = js::makeBooleanValue(js::getInternalClass(%[obj]) == js::ICLS_REGEXP);"
             ))
         {
-            return;
+            return true;
         }
     }
-    throw TypeError("'this' is not a RegExp");
+    return false;
+}
+
+function validateObject (obj)
+{
+    if (!isRegExp(obj))
+        throw TypeError("'this' is not a RegExp");
 }
 
 function getSubstringByNumber (obj, str, num)
