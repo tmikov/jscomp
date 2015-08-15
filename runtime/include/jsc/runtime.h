@@ -838,8 +838,8 @@ struct Runtime
 
     MemoryHead head;
     Memory * tail;
-    unsigned allocatedSize;
-    unsigned gcThreshold;
+    size_t allocatedSize;
+    size_t gcThreshold;
 
     TryRecord * tryRecord = NULL;
     TaggedValue thrownObject = JS_UNDEFINED_VALUE;

@@ -33,7 +33,7 @@ Memory * allocate (size_t size, StackFrame * caller)
 
 #ifdef JS_DEBUG
     if (runtime->diagFlags & Runtime::DIAG_HEAP_ALLOC) {
-        fprintf(stderr, "js::allocate( %u ) = %p\n", (unsigned)size, block);
+        fprintf(stderr, "total=%zu js::allocate( %u ) = %p\n", runtime->allocatedSize, (unsigned)size, block);
         if (runtime->diagFlags & Runtime::DIAG_HEAP_ALLOC_STACK)
             caller->printStackTrace();
     }
@@ -99,9 +99,9 @@ bool Marker::_mark (const Memory * memory)
 static void collect (StackFrame * caller)
 {
     Runtime * runtime = JS_GET_RUNTIME(caller);
-    unsigned startAllocatedSize = runtime->allocatedSize;
+    size_t startAllocatedSize = runtime->allocatedSize;
     if (runtime->diagFlags & Runtime::DIAG_HEAP_GC) {
-        fprintf(stderr, "GC started. Threshold=%u Allocated=%u\n", runtime->gcThreshold, runtime->allocatedSize);
+        fprintf(stderr, "GC started. Threshold=%zu Allocated=%zu\n", runtime->gcThreshold, runtime->allocatedSize);
         if (runtime->diagFlags & Runtime::DIAG_HEAP_GC_VERBOSE)
             caller->printStackTrace();
     }
@@ -185,7 +185,7 @@ static void collect (StackFrame * caller)
     if (runtime->diagFlags & Runtime::DIAG_HEAP_GC) {
         runtime->gcThreshold = std::max(runtime->gcThreshold, runtime->allocatedSize * 2);
         fprintf(
-            stderr, "Freed %u bytes. Threshold=%u Allocated=%u\n", startAllocatedSize - runtime->allocatedSize,
+            stderr, "Freed %zu bytes. Threshold=%zu Allocated=%zu\n", startAllocatedSize - runtime->allocatedSize,
             runtime->gcThreshold, runtime->allocatedSize
         );
 #ifdef JS_DEBUG
