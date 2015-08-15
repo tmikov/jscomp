@@ -551,7 +551,7 @@ struct StringPrim : public Memory
     }
 
     //public:
-    bool mark (IMark * marker, unsigned markBit) const;
+    virtual bool mark (IMark * marker, unsigned markBit) const;
 
     static StringPrim * makeEmpty (StackFrame * caller, unsigned length);
     static StringPrim * make (StackFrame * caller, const char * str, unsigned length, unsigned charLength);
@@ -651,7 +651,7 @@ public:
         this->value = value;
     }
 
-    bool mark (IMark * marker, unsigned markBit) const;
+    virtual bool mark (IMark * marker, unsigned markBit) const;
     virtual TaggedValue defaultValue (StackFrame * caller, ValueTag preferredType);
 
     virtual bool hasIndex (uint32_t index) const;
