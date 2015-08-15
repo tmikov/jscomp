@@ -56,3 +56,4 @@ function print() {
 }
 
 exports.log = print;
+exports.error = print;
