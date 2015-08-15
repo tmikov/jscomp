@@ -557,6 +557,8 @@ class FunctionContext
         var l: hir.Local;
         if (l = hir.isTempLocal(t)) {
             //console.log(`releaseTemp ${l.id}`);
+            //for ( var i = this.tempStack.length - 1; i >= 0; --i )
+            //    assert(this.tempStack[i] !== l, `Re-inserting temp ${l.id}`);
             this.tempStack.push(l);
         }
     }
@@ -3170,7 +3172,7 @@ function compileSource (
             args.push( compileSubExpression(scope, e, true, null, null) );
         });
 
-        for ( var i = args.length - 1; i >= 0; --i )
+        for ( var i = args.length - 1; i >= 1 /*stop at 'thisArg'*/; --i )
             ctx.releaseTemp(args[i]);
         ctx.releaseTemp(thisArg);
         ctx.releaseTemp(closure);
