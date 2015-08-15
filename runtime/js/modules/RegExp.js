@@ -45,6 +45,11 @@ function RegExp (pattern, flags)
     if (!(this instanceof RegExp))
         return new RegExp(pattern, flags);
 
+    // Set the internal class
+    __asm__({},[],[["this", this]],[],
+        "((js::NativeObject *)%[this].raw.oval)->setInternalClass(js::ICLS_REGEXP);"
+    );
+
     // Set the finalizer
     __asmh__({},
         "static void regexp_finalizer (js::NativeObject * obj)\n" +
@@ -141,9 +146,8 @@ function validateObject (obj)
 {
     // TODO: perform stricter validation, e.g. with symbols?
     if (obj.__proto__ === regexp_prototype) {
-        if ( __asm__({},["result"],[["this",obj]],[],
-                "js::NativeObject * obj = (js::NativeObject *)%[this].raw.oval;\n" +
-                "%[result] = js::makeBooleanValue(obj->getInternal(0) != 0);"
+        if ( __asm__({},["result"],[["obj",obj]],[],
+                "%[result] = js::makeBooleanValue(js::getInternalClass(%[obj]) == js::ICLS_REGEXP);"
             ))
         {
             return;
