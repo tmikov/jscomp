@@ -316,16 +316,26 @@ struct NativeObject : public Object
 
     inline uintptr_t getInternal (unsigned index) const
     {
-        assert(index < this->internalCount);
-        return this->internalProps[index];
+        return JS_LIKELY(index < this->internalCount) ? this->internalProps[index] : 0;
     }
 
     inline void setInternal (unsigned index, uintptr_t value)
     {
+        if (JS_LIKELY(index < this->internalCount))
+            this->internalProps[index] = value;
+    }
+
+    inline uintptr_t getInternalUnsafe (unsigned index) const
+    {
+        assert(index < this->internalCount);
+        return this->internalProps[index];
+    }
+
+    inline void setInternalUnsafe (unsigned index, uintptr_t value)
+    {
         assert(index < this->internalCount);
         this->internalProps[index] = value;
     }
-
 private:
     NativeObject (Object * parent, unsigned internalCount);
 };
