@@ -586,10 +586,19 @@ void ForInIterator::init (StackFrame * caller, Object * obj)
         }
     } while ((obj = obj->parent) != NULL);
 
-    if ((m_array = dynamic_cast<ArrayBase*>(m_obj)) != NULL)
-        m_string = NULL;
-    else
-        m_string = dynamic_cast<String*>(m_obj);
+    switch (m_obj->getInternalClass()) {
+        case ICLS_ARRAY:
+        case ICLS_ARGUMENTS:
+            m_array = static_cast<ArrayBase*>(m_obj);
+            break;
+        case ICLS_STRING:
+            m_string = static_cast<String*>(m_obj);
+            break;
+        default:
+            m_array = NULL;
+            m_string = NULL;
+            break;
+    }
 
     m_curIndex = 0;
     m_curName = m_propNames.begin();

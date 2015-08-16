@@ -125,20 +125,6 @@ hidden(Object, "getPrototypeOf", function object_getPrototypeOf(O)
     );
 });
 
-function getUnboxedValue (v)
-{
-    return __asm__({},["result"],[["v", v]],[],
-        "{js::Box * box;\n"+
-        "if (js::isValueTagPrimitive(%[v].tag))\n"+
-        "  %[result] = %[v];\n"+
-        "else if (js::isValueTagObject(%[v].tag) && (box = dynamic_cast<js::Box*>(%[v].raw.oval)))\n"+
-        "  %[result] = box->value;\n"+
-        "else\n"+
-        "  %[result] = JS_UNDEFINED_VALUE;\n"+
-        "}"
-    );
-}
-
 hidden(Object, "defineProperty", defineProperty);
 
 hidden(Object, "defineProperties", defineProperties);
@@ -156,23 +142,23 @@ hidden(Object, "create", function object_create (proto, properties)
 hidden(Object.prototype, "toString", function object_toString()
 {
     switch (getInternalClass(this)) {
-        case  0:
-        case  1:
-        case  2: return "[object Undefined]";
-        case  3: return "[object Null]";
+        case  0: // ICLS_MEMORY
+        case  2: return "[object Undefined]"; // ICLS_UNDEFINED
+        case  3: return "[object Null]";      // ICLS_NULL
         default:
-        case  4: return "[object Object]";
-        case  5: return "[object Arguments]";
-        case  6: return "[object Array]";
-        case  7: return "[object Function]";
-        case  8: return "[object Boolean]";
-        case  9: return "[object Number]";
-        case 10: return "[object String]";
-        case 11: return "[object Error]";
-        case 12: return "[object RegExp]";
-        case 13: return "[object Date]";
-        case 14: return "[object JSON]";
-        case 15: return "[object Math]";
+        case  4: return "[object Object]";    // ICLS_OBJECT
+        case  5: return "[object Arguments]"; // ICLS_ARGUMENTS
+        case  6: return "[object Array]";     // ICLS_ARRAY
+        case  7: return "[object Function]";  // ICLS_FUNCTION
+        case  8: return "[object Boolean]";   // ICLS_BOOLEAN
+        case  9: return "[object Number]";    // ICLS_NUMBER
+        case  1:                              // ICLS_STRING_PRIM
+        case 10: return "[object String]";    // ICLS_STRING
+        case 11: return "[object Error]";     // ICLS_STRING
+        case 12: return "[object RegExp]";    // ICLS_REGEXP
+        case 13: return "[object Date]";      // ICLS_DATE
+        case 14: return "[object JSON]";      // ICLS_JSON
+        case 15: return "[object Math]";      // ICLS_MATH
     }
 });
 
@@ -253,25 +239,25 @@ hidden(InternalError.prototype, "name", "InternalError");
 //
 function isArrayBase (arg)
 {
-    return __asm__({},["result"],[["arg", arg]],[],
-        "%[result] = js::makeBooleanValue(js::isValueTagObject(%[arg].tag) && dynamic_cast<js::ArrayBase*>(%[arg].raw.oval));"
-    );
+    switch (getInternalClass(arg)) {
+        case 5: // ICLS_ARGUMENTS
+        case 6: // ICLS_ARRAY
+            return true;
+        default:
+            return false;
+    }
 }
 function isArrayBaseOfLength (arg, length)
 {
-    return __asm__({},["result"],[["arg", arg], ["length", Number(length)]],[],
-        "js::ArrayBase * ab;\n"+
-        "%[result] = js::makeBooleanValue("+
-            "js::isValueTagObject(%[arg].tag) && (ab = dynamic_cast<js::ArrayBase*>(%[arg].raw.oval)) != NULL && "+
-            "ab->getLength() >= %[length].raw.nval"+
-        ");"
-    );
+    if (isArrayBase(arg))
+        return __asm__({},["result"],[["arg", arg], ["length", Number(length)]],[],
+            "js::ArrayBase * ab = static_cast<js::ArrayBase*>(%[arg].raw.oval);\n"+
+            "%[result] = js::makeBooleanValue(ab->getLength() >= %[length].raw.nval);"
+        );
 }
 function isArray (arg)
 {
-    return __asm__({},["result"],[["arg", arg]],[],
-        "%[result] = js::makeBooleanValue(js::isValueTagObject(%[arg].tag) && dynamic_cast<js::Array*>(%[arg].raw.oval));"
-    );
+    return getInternalClass() === 6; // ICLS_ARRAY
 }
 
 hidden(Array, "isArray", isArray);
@@ -449,8 +435,12 @@ hidden(Array.prototype, "toString", function array_toString()
 //
 hidden(Boolean.prototype, "toString", function boolean_tostring()
 {
-    var b = getUnboxedValue(this);
-    if (typeof b !== "boolean")
+    var b;
+    if (typeof this === "boolean")
+        b = this;
+    else if (getInternalClass(this) === 8) // ICLS_BOOLEAN
+        b = Boolean(this);
+    else
         throw TypeError("Boolean.prototype.toString called with a non-boolean");
     return b ? "true" : "false";
 });

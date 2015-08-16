@@ -1047,11 +1047,13 @@ void throwTypeError (StackFrame * caller, const char * str, ...) JS_NORETURN;
 
 inline Function * isFunction (TaggedValue v)
 {
-    return isValueTagObject(v.tag) ? dynamic_cast<Function *>(v.raw.oval) : NULL;
+    return isValueTagObject(v.tag) && v.raw.oval->getInternalClass() == ICLS_FUNCTION ?
+                static_cast<Function *>(v.raw.oval) : NULL;
 }
 inline Function * isCallable (TaggedValue v)
 {
-    return isValueTagObject(v.tag) ? dynamic_cast<Function *>(v.raw.oval) : NULL;
+    return isValueTagObject(v.tag) && v.raw.oval->getInternalClass() == ICLS_FUNCTION ?
+           static_cast<Function *>(v.raw.oval) : NULL;
 }
 TaggedValue call(StackFrame * caller, TaggedValue value, unsigned argc, const TaggedValue * argv);
 TaggedValue callCons(StackFrame * caller, TaggedValue value, unsigned argc, const TaggedValue * argv);

@@ -141,7 +141,8 @@ static void collect (StackFrame * caller)
 
             // Interned strings need special care. Some of them (permanent ones) may not be freed at all, and
             // the rest need to be removed from the map first
-            if (StringPrim * sprim = dynamic_cast<StringPrim *>(m)) {
+            if (m->getInternalClass() == ICLS_STRING_PRIM) {
+                StringPrim * sprim = static_cast<StringPrim *>(m);
                 if (sprim->stringFlags & StringPrim::F_INTERNED) {
                     if (!(sprim->stringFlags & StringPrim::F_PERMANENT)) {
 #ifdef JS_DEBUG

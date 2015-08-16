@@ -34,7 +34,7 @@ const StringPrim * operator_TYPEOF (StackFrame * caller, TaggedValue a)
         case VT_BOOLEAN:   return JS_GET_RUNTIME(caller)->permStrBoolean;
         case VT_NUMBER:    return JS_GET_RUNTIME(caller)->permStrNumber;
         case VT_STRINGPRIM:return JS_GET_RUNTIME(caller)->permStrString;
-        case VT_OBJECT:    return dynamic_cast<Function*>(a.raw.oval) == NULL ?
+        case VT_OBJECT:    return a.raw.oval->getInternalClass() != ICLS_FUNCTION ?
                                JS_GET_RUNTIME(caller)->permStrObject : JS_GET_RUNTIME(caller)->permStrFunction;
         default:
             assert(false);
