@@ -3321,7 +3321,7 @@ export function compile (
             return;
 
         // Resolve and compile all system modules
-        var sysModNames: string[] = ["process", "console", "RegExp"];
+        var sysModNames: string[] = ["process", "console", "RegExp", "Math"];
         var sysModules: Module[] = new Array<Module>(sysModNames.length);
 
         for ( var i = 0; i < sysModNames.length; ++i )
@@ -3472,6 +3472,8 @@ export function compile (
         var ctx = new FunctionContext(
             parentContext, parentContext.scope, fileName, parentContext.addClosure(fileName)
         );
+        hir.setSourceLocation(ctx.builder, fileName, 1, 0);
+
         var modVar = parentContext.scope.newAnonymousVariable(fileName, ctx.builder.closureVar);
         modVar.funcRef = ctx.builder;
 
