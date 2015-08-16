@@ -3321,7 +3321,7 @@ export function compile (
             return;
 
         // Resolve and compile all system modules
-        var sysModNames: string[] = ["process", "console", "RegExp", "Math"];
+        var sysModNames: string[] = ["process", "console", "RegExp"];
         var sysModules: Module[] = new Array<Module>(sysModNames.length);
 
         for ( var i = 0; i < sysModNames.length; ++i )

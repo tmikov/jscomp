@@ -35,3 +35,5 @@ function RangeError (message)
 {
     return Error.call(this !== void 0 ? this : Object.create(RangeError.prototype), message);
 }
+
+var Math;

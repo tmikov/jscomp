@@ -2,6 +2,13 @@
 // Licensed under the Apache License v2.0. See LICENSE in the project
 // root for complete license information.
 
+function createNative (propCount)
+{
+    return __asm__({},["result"],[["propCount",propCount >>> 0]],[],
+        "%[result] = js::makeObjectValue(js::NativeObject::make(%[%frame], (unsigned)%[propCount].raw.nval));"
+    );
+}
+
 var ICLS_MEMORY      =  0;
 var ICLS_STRING_PRIM =  1;
 var ICLS_UNDEFINED   =  2;
@@ -23,6 +30,13 @@ function getInternalClass (obj)
 {
     return __asm__({},["result"],[["obj",obj]],[],
         "%[result] = js::makeNumberValue(js::getInternalClass(%[obj]));"
+    );
+}
+
+function setInternalClass (obj, value)
+{
+    __asm__({},[],[["this", obj], ["value", value|0]],[],
+        "((js::NativeObject *)%[this].raw.oval)->setInternalClass((js::InternalClass)%[value].raw.nval);"
     );
 }
 
