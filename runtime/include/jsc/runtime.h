@@ -32,6 +32,7 @@ struct NativeObject;
 struct Function;
 struct StringPrim;
 struct String;
+class ForInIterator;
 struct StackFrame;
 struct Runtime;
 
@@ -240,6 +241,7 @@ struct Object : public Memory
 
     virtual InternalClass getInternalClass () const;
     virtual Object * createDescendant (StackFrame * caller);
+    virtual ForInIterator * makeIterator (StackFrame * caller);
 
     virtual bool mark (IMark * marker, unsigned markBit) const;
 
@@ -377,11 +379,14 @@ public:
         Object(parent)
     {}
 
+    virtual ForInIterator * makeIterator (StackFrame * caller);
+
     virtual bool hasComputed (StackFrame * caller, TaggedValue propName);
     virtual TaggedValue getComputed (StackFrame * caller, TaggedValue propName);
     virtual void putComputed (StackFrame * caller, TaggedValue propName, TaggedValue v);
     virtual bool deleteComputed (StackFrame * caller, TaggedValue propName);
 
+    virtual uint32_t getIndexedLength () const = 0;
     virtual bool hasIndex (uint32_t index) const = 0;
     virtual TaggedValue getAtIndex (StackFrame * caller, uint32_t index) const = 0;
     virtual bool setAtIndex (uint32_t index, TaggedValue value) = 0;
@@ -400,7 +405,7 @@ public:
 
     virtual bool mark (IMark * marker, unsigned markBit) const;
 
-    unsigned getLength () const { return elems.size(); }
+    uint32_t getLength () const { return elems.size(); }
 
     void setLength (unsigned newLen);
 
@@ -420,6 +425,7 @@ public:
     }
     void setElem (unsigned index, TaggedValue v);
 
+    virtual uint32_t getIndexedLength () const;
     virtual bool hasIndex (uint32_t index) const;
     virtual TaggedValue getAtIndex (StackFrame * caller, uint32_t index) const;
     virtual bool setAtIndex (uint32_t index, TaggedValue value);
@@ -454,35 +460,42 @@ public:
     virtual InternalClass getInternalClass () const;
 };
 
-struct ForInIterator : public Memory
+class ForInIterator : public Memory
 {
+    typedef Memory super;
+public:
     typedef std::vector<const StringPrim *>::const_iterator NameIterator;
 
     /** The object we are enumerating */
     Object * m_obj;
-    /** If the object is an array, type-safe pointer to it */
-    ArrayBase * m_array;
-    /** If the object is a string, type-safe pointer to it */
-    String * m_string;
     /** The property names to be enumerated */
     std::vector<const StringPrim *> m_propNames;
-    /* If an array, the next index to be enumerated */
-    unsigned m_curIndex;
     /* The next property to be enumerated */
     NameIterator m_curName;
 
-    static void make (StackFrame * caller, TaggedValue * result, Object * obj);
-
-    virtual bool mark (IMark * marker, unsigned markBit) const;
-    bool next (StackFrame * caller, TaggedValue * result);
-
-private:
     ForInIterator ():
-        m_obj(NULL),
-        m_array(NULL)
+        m_obj(NULL)
     {}
 
-    void init (StackFrame * caller, Object * obj);
+    virtual bool mark (IMark * marker, unsigned markBit) const;
+    void initWithObject (StackFrame * caller, Object * obj);
+    virtual bool next (StackFrame * caller, TaggedValue * result);
+};
+
+class ForInIndexedIterator : public ForInIterator
+{
+    typedef ForInIterator super;
+public:
+    IndexedObject * m_indexed;
+    uint32_t m_length;
+    uint32_t m_curIndex;
+
+    ForInIndexedIterator ():
+        m_indexed(NULL)
+    {}
+
+    void initWithIndexed (StackFrame * caller, IndexedObject * obj);
+    virtual bool next (StackFrame * caller, TaggedValue * result);
 };
 
 typedef TaggedValue (* CodePtr) (StackFrame * caller, Env * env, unsigned argc, const TaggedValue * args);
@@ -714,6 +727,7 @@ public:
     virtual bool mark (IMark * marker, unsigned markBit) const;
     virtual TaggedValue defaultValue (StackFrame * caller, ValueTag preferredType);
 
+    virtual uint32_t getIndexedLength () const;
     virtual bool hasIndex (uint32_t index) const;
     virtual TaggedValue getAtIndex (StackFrame * caller, uint32_t index) const;
     virtual bool setAtIndex (uint32_t index, TaggedValue value);
@@ -1016,6 +1030,11 @@ inline TaggedValue makeMemoryValue (ValueTag tag, Memory * m)
 inline TaggedValue makePropertyAccessorValue (PropertyAccessor * pr)
 {
     return makeMemoryValue(VT_MEMORY, pr);
+}
+
+inline TaggedValue makeForInIteratorValue (ForInIterator * it)
+{
+    return makeMemoryValue(VT_MEMORY, it);
 }
 
 inline TaggedValue makeObjectValue (Object * o)

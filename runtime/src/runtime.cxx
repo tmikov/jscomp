@@ -70,6 +70,15 @@ Object * Object::createDescendant (StackFrame * caller)
     return newInit<Object>(caller, this);
 }
 
+ForInIterator * Object::makeIterator (StackFrame * caller)
+{
+    StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":Object::makeIterator()", __LINE__);
+    ForInIterator * it;
+    frame.locals[0] = makeMemoryValue(VT_MEMORY, it = new(&frame) ForInIterator());
+    it->initWithObject(&frame, this);
+    return it;
+}
+
 bool Object::mark (IMark * marker, unsigned markBit) const
 {
     if (!markMemory(marker, markBit, parent))
@@ -345,6 +354,15 @@ NativeObject::~NativeObject ()
         (*this->nativeFinalizer)(this);
 }
 
+ForInIterator * IndexedObject::makeIterator (StackFrame * caller)
+{
+    StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":IndexedObject::makeIterator()", __LINE__);
+    ForInIndexedIterator * it;
+    frame.locals[0] = makeMemoryValue(VT_MEMORY, it = new(&frame) ForInIndexedIterator());
+    it->initWithIndexed(&frame, this);
+    return it;
+}
+
 bool IndexedObject::hasComputed (StackFrame * caller, TaggedValue propName)
 {
     uint32_t index;
@@ -474,6 +492,10 @@ void ArrayBase::setElem (unsigned index, TaggedValue v)
     elems[index] = v;
 }
 
+uint32_t ArrayBase::getIndexedLength () const
+{
+    return getLength();
+}
 bool ArrayBase::hasIndex (uint32_t index) const
 {
     return hasElem(index);
@@ -560,15 +582,18 @@ InternalClass Arguments::getInternalClass () const
     return ICLS_ARGUMENTS;
 }
 
-void ForInIterator::make (StackFrame * caller, TaggedValue * result, Object * obj)
+bool ForInIterator::mark (IMark * marker, unsigned markBit) const
 {
-    StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":ForInIterator::make()", __LINE__);
-    ForInIterator * iter;
-    frame.locals[0] = *result = makeMemoryValue(VT_MEMORY, iter = new (&frame) ForInIterator());
-    iter->init(caller, obj);
+    if (!markMemory(marker, markBit, m_obj))
+        return false;
+    // We could only mark the names that haven't been enumerated yet, but why??
+    for ( const auto & it : m_propNames )
+        if (!markMemory(marker, markBit, it))
+            return false;
+    return true;
 }
 
-void ForInIterator::init (StackFrame * caller, Object * obj)
+void ForInIterator::initWithObject (StackFrame * caller, Object * obj)
 {
     m_obj = obj;
     std::set<const StringPrim *, less_StringPrim> used;
@@ -586,86 +611,11 @@ void ForInIterator::init (StackFrame * caller, Object * obj)
         }
     } while ((obj = obj->parent) != NULL);
 
-    switch (m_obj->getInternalClass()) {
-        case ICLS_ARRAY:
-        case ICLS_ARGUMENTS:
-            m_array = static_cast<ArrayBase*>(m_obj);
-            break;
-        case ICLS_STRING:
-            m_string = static_cast<String*>(m_obj);
-            break;
-        default:
-            m_array = NULL;
-            m_string = NULL;
-            break;
-    }
-
-    m_curIndex = 0;
     m_curName = m_propNames.begin();
 }
 
 bool ForInIterator::next (StackFrame * caller, TaggedValue * result)
 {
-    if (m_array) {
-        if (JS_LIKELY(!(m_obj->flags & OF_INDEX_PROPERTIES))) {
-            for ( unsigned index; (index = m_curIndex++) < m_array->elems.size(); ) {
-                if (m_array->elems[index].tag != VT_ARRAY_HOLE) {
-                    *result = toString(caller, index);
-                    return true;
-                }
-            }
-        } else {
-            StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":ForInIterator::next", __LINE__);
-
-            for ( unsigned index; (index = m_curIndex++) < m_array->elems.size(); ) {
-                frame.locals[0] = toString(&frame, index);
-
-                Object * propObj;
-                if (Property * p = m_obj->getProperty(frame.locals[0].raw.sval, &propObj)) {
-                    if (p->flags & PROP_ENUMERABLE) {
-                        *result = frame.locals[0];
-                        return true;
-                    }
-                    // Note that if the property is not enumerable, but it exists, we must skip it
-                }
-                else if (m_array->elems[index].tag != VT_ARRAY_HOLE) {
-                    *result = frame.locals[0];
-                    return true;
-                }
-            }
-        }
-        // The array was consumed
-        m_array = NULL;
-    } else if (m_string) {
-        if (JS_LIKELY(!(m_obj->flags & OF_INDEX_PROPERTIES))) {
-            for ( unsigned index; (index = m_curIndex++) < m_string->getStrPrim()->charLength; ) {
-                *result = toString(caller, index);
-                return true;
-            }
-        } else {
-            StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":ForInIterator::next", __LINE__);
-
-            for ( unsigned index; (index = m_curIndex++) < m_string->getStrPrim()->charLength; ) {
-                frame.locals[0] = toString(&frame, index);
-
-                Object * propObj;
-                if (Property * p = m_obj->getProperty(frame.locals[0].raw.sval, &propObj)) {
-                    if (p->flags & PROP_ENUMERABLE) {
-                        *result = frame.locals[0];
-                        return true;
-                    }
-                    // Note that if the property is not enumerable, but it exists, we must skip it
-                }
-                else {
-                    *result = frame.locals[0];
-                    return true;
-                }
-            }
-        }
-        // The string was consumed
-        m_string = NULL;
-    }
-
     while (JS_LIKELY(m_curName != m_propNames.end())) {
         Object * propObj;
         Property * prop = m_obj->getProperty(*m_curName++, &propObj);
@@ -678,16 +628,49 @@ bool ForInIterator::next (StackFrame * caller, TaggedValue * result)
     return false;
 }
 
-
-bool ForInIterator::mark (IMark * marker, unsigned markBit) const
+void ForInIndexedIterator::initWithIndexed (StackFrame * caller, IndexedObject * obj)
 {
-    if (!markMemory(marker, markBit, m_obj))
-        return false;
-    // We could only mark the names that haven't been enumerated yet, but why??
-    for ( const auto & it : m_propNames )
-        if (!markMemory(marker, markBit, it))
-            return false;
-    return true;
+    super::initWithObject(caller, obj);
+    m_indexed = obj;
+    m_length = obj->getIndexedLength();
+    m_curIndex = 0;
+}
+
+bool ForInIndexedIterator::next (StackFrame * caller, TaggedValue * result)
+{
+    if (JS_LIKELY(m_indexed)) {
+        if (JS_LIKELY(!(m_obj->flags & OF_INDEX_PROPERTIES))) {
+            for ( uint32_t index; (index = m_curIndex++) < m_length; ) {
+                if (m_indexed->hasIndex(index)) {
+                    *result = toString(caller, index);
+                    return true;
+                }
+            }
+        } else {
+            StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":ForInIndexedIterator::next", __LINE__);
+
+            for ( uint32_t index; (index = m_curIndex++) < m_length; ) {
+                frame.locals[0] = toString(&frame, index);
+
+                Object * propObj;
+                if (Property * p = m_obj->getProperty(frame.locals[0].raw.sval, &propObj)) {
+                    if (p->flags & PROP_ENUMERABLE) {
+                        *result = frame.locals[0];
+                        return true;
+                    }
+                    // Note that if the property is not enumerable, but it exists, we must skip it
+                }
+                else if (m_indexed->hasIndex(index)) {
+                    *result = frame.locals[0];
+                    return true;
+                }
+            }
+        }
+        // The array was consumed
+        m_indexed = NULL;
+    }
+
+    return super::next(caller, result);
 }
 
 void Function::init (StackFrame * caller, Env * env, CodePtr code, CodePtr consCode, const StringPrim * name, unsigned length)
@@ -1118,6 +1101,11 @@ bool String::mark (IMark * marker, unsigned markBit) const
 TaggedValue String::defaultValue (StackFrame *, ValueTag)
 {
     return this->value;
+}
+
+uint32_t String::getIndexedLength () const
+{
+    return this->getStrPrim()->charLength;
 }
 
 bool String::hasIndex (uint32_t index) const

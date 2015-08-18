@@ -1176,8 +1176,11 @@ export class FunctionBuilder
 
     genMakeForInIterator (dest: LValue, obj: RValue): void
     {
+        //this.genAsm(dest, [dest, frameReg, obj], [
+        //    "js::ForInIterator::make(",1,",&",0,",",2,".raw.oval);"
+        //]);
         this.genAsm(dest, [dest, frameReg, obj], [
-            "js::ForInIterator::make(",1,",&",0,",",2,".raw.oval);"
+            0," = js::makeForInIteratorValue(",2,".raw.oval->makeIterator(",1,"));"
         ]);
     }
     genForInIteratorNext (more: LValue, value: LValue, iter: RValue): void
