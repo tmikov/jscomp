@@ -415,7 +415,7 @@ void IndexedObject::putComputed (StackFrame * caller, TaggedValue propName, Tagg
     uint32_t index;
     // Fast path
     if (!(this->flags & OF_INDEX_PROPERTIES) && isValidArrayIndexNumber(propName, &index)) {
-        if (JS_UNLIKELY(!setAtIndex(index, v) && JS_IS_STRICT_MODE(caller)))
+        if (JS_UNLIKELY(!setAtIndex(caller, index, v) && JS_IS_STRICT_MODE(caller)))
             throwTypeError(caller, "cannot modify property [%lu]", (unsigned long)index);
         return;
     }
@@ -432,7 +432,7 @@ void IndexedObject::putComputed (StackFrame * caller, TaggedValue propName, Tagg
     }
 
     if (isIndexString(frame.locals[0].raw.sval->getStr(), &index)) {
-        if (JS_UNLIKELY(!setAtIndex(index, v) && JS_IS_STRICT_MODE(caller)))
+        if (JS_UNLIKELY(!setAtIndex(caller, index, v) && JS_IS_STRICT_MODE(caller)))
             throwTypeError(caller, "cannot modify property [%lu]", (unsigned long)index);
         return;
     }
@@ -501,7 +501,7 @@ TaggedValue ArrayBase::getAtIndex (StackFrame *, uint32_t index) const
 {
     return getElem(index);
 }
-bool ArrayBase::setAtIndex (uint32_t index, TaggedValue value)
+bool ArrayBase::setAtIndex (StackFrame *,uint32_t index, TaggedValue value)
 {
     setElem(index, value);
     return true;
@@ -1115,7 +1115,7 @@ TaggedValue String::getAtIndex (StackFrame * caller, uint32_t index) const
     return getStrPrim()->charAt(caller, index);
 }
 
-bool String::setAtIndex (uint32_t index, TaggedValue value)
+bool String::setAtIndex (StackFrame *,uint32_t index, TaggedValue value)
 {
     return false;
 }

@@ -393,7 +393,7 @@ public:
     virtual uint32_t getIndexedLength () const = 0;
     virtual bool hasIndex (uint32_t index) const = 0;
     virtual TaggedValue getAtIndex (StackFrame * caller, uint32_t index) const = 0;
-    virtual bool setAtIndex (uint32_t index, TaggedValue value) = 0;
+    virtual bool setAtIndex (StackFrame * caller, uint32_t index, TaggedValue value) = 0;
     virtual bool deleteAtIndex (uint32_t index) = 0;
 };
 
@@ -432,7 +432,7 @@ public:
     virtual uint32_t getIndexedLength () const;
     virtual bool hasIndex (uint32_t index) const;
     virtual TaggedValue getAtIndex (StackFrame * caller, uint32_t index) const;
-    virtual bool setAtIndex (uint32_t index, TaggedValue value);
+    virtual bool setAtIndex (StackFrame * caller, uint32_t index, TaggedValue value);
     virtual bool deleteAtIndex (uint32_t index);
 };
 
@@ -734,7 +734,7 @@ public:
     virtual uint32_t getIndexedLength () const;
     virtual bool hasIndex (uint32_t index) const;
     virtual TaggedValue getAtIndex (StackFrame * caller, uint32_t index) const;
-    virtual bool setAtIndex (uint32_t index, TaggedValue value);
+    virtual bool setAtIndex (StackFrame * caller, uint32_t index, TaggedValue value);
     virtual bool deleteAtIndex (uint32_t index);
 };
 
