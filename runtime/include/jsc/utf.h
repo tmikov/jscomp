@@ -5,7 +5,9 @@
 #ifndef JSCOMP_UTF_H
 #define JSCOMP_UTF_H
 
+#ifndef JSCOMP_COMMON_H
 #include "jsc/common.h"
+#endif
 #include <cstdint>
 
 namespace js {

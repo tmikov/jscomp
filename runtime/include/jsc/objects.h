@@ -2,11 +2,15 @@
 // Licensed under the Apache License v2.0. See LICENSE in the project
 // root for complete license information.
 
-#ifndef JSCOMP_RUNTIME_H
-#define JSCOMP_RUNTIME_H
+#ifndef JSCOMP_OBJECTS_H
+#define JSCOMP_OBJECTS_H
 
+#ifndef JSCOMP_COMMON_H
 #include "jsc/common.h"
+#endif
+#ifndef JSCOMP_UTF_H
 #include "jsc/utf.h"
+#endif
 
 #include <stdlib.h>
 #include <string.h>
@@ -1212,4 +1216,4 @@ Object * PrototypeCreator<BASE,TOCREATE>::createDescendant (StackFrame * caller)
 
 }; // namespace js
 
-#endif //JSCOMP_RUNTIME_H
+#endif //JSCOMP_OBJECTS_H

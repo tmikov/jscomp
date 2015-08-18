@@ -2,7 +2,7 @@
 // Licensed under the Apache License v2.0. See LICENSE in the project
 // root for complete license information.
 
-#include "jsc/runtime.h"
+#include "jsc/jsruntime.h"
 
 static js::TaggedValue fn1 (js::StackFrame * caller, js::Env * env, unsigned argc, const js::TaggedValue * argv)
 {

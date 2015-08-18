@@ -1,4 +1,4 @@
-#include <jsc/runtime.h>
+#include <jsc/jsruntime.h>
 #include <stdio.h>
 
 static const js::StringPrim * s_strings[5];

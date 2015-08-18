@@ -29,7 +29,7 @@ include_directories("${CMAKE_CURRENT_SOURCE_DIR}/include")
 include_directories("${CMAKE_CURRENT_BINARY_DIR}/include")
 
 set(SOURCE_FILES
-    src/runtime.cxx src/gc.cxx include/jsc/runtime.h src/operators.cpp
-    include/jsc/utf.h src/utf.cxx include/jsc/common.h include/jsc/jsimpl.h
-)
+        src/runtime.cxx src/gc.cxx include/jsc/jsruntime.h src/operators.cpp
+        include/jsc/utf.h src/utf.cxx include/jsc/common.h include/jsc/jsimpl.h
+        include/jsc/objects.h)
 add_library(jsruntime ${SOURCE_FILES} )

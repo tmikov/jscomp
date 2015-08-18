@@ -2426,7 +2426,7 @@ int main()
 }`
         );
 
-        out.write(util.format("#include <jsc/runtime.h>\n"));
+        out.write(util.format("#include <jsc/jsruntime.h>\n"));
         // Generate the headers added with __asmh__
         this.asmHeaders.forEach((h: string) => out.write(util.format("%s\n", h)));
         out.write("\n");

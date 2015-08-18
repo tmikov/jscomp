@@ -5,7 +5,9 @@
 #ifndef JSCOMP_JSIMPL_H
 #define JSCOMP_JSIMPL_H
 
-#include "jsc/runtime.h"
+#ifndef JSCOMP_JSRUNTIME_H
+#include "jsc/jsruntime.h"
+#endif
 
 namespace js {
 
