@@ -12,9 +12,6 @@
 #include <set>
 #include <tuple>
 
-// Need our own definition to avoid warnings when using it on C++ objects
-#define OFFSETOF(type, field)  ((char*)&(((type*)0)->field) - ((char*)0) )
-
 namespace js
 {
 

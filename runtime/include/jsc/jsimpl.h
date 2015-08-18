@@ -11,6 +11,9 @@
 
 namespace js {
 
+// Need our own definition to avoid warnings when using it on C++ objects
+#define OFFSETOF(type, field)  ((char*)&(((type*)0)->field) - ((char*)0) )
+
 /**
  * Return true if "value" is representable as uint32_t, and store the uint32_t value in "res"
  */
