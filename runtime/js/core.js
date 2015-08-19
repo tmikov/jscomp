@@ -96,6 +96,15 @@ function hidden (obj, prop, func)
     defineProperty(obj, prop, {writable: true, configurable: true, value: func});
 }
 
+function getter (obj, prop, func)
+{
+    defineProperty(obj, prop, {configurable: true, get: func});
+}
+function accessor (obj, prop, getF, setF)
+{
+    defineProperty(obj, prop, {configurable: true, get: getF, set: setF});
+}
+
 function isCallable (x)
 {
     return typeof(x) === "function";
@@ -115,7 +124,7 @@ function object_protoSetter ()
     throw TypeError("setting of __proto__ is not supported");
 }
 
-defineProperty(Object.prototype, "__proto__", {configurable: true, get: object_protoGetter, set: object_protoSetter});
+accessor(Object.prototype, "__proto__", object_protoGetter, object_protoSetter);
 
 hidden(Object, "getPrototypeOf", function object_getPrototypeOf(O)
 {
