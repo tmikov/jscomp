@@ -2,6 +2,23 @@
 // Licensed under the Apache License v2.0. See LICENSE in the project
 // root for complete license information.
 
+var ICLS_MEMORY      =  0;
+var ICLS_STRING_PRIM =  1;
+var ICLS_UNDEFINED   =  2;
+var ICLS_NULL        =  3;
+var ICLS_OBJECT      =  4;
+var ICLS_ARGUMENTS   =  5;
+var ICLS_ARRAY       =  6;
+var ICLS_FUNCTION    =  7;
+var ICLS_BOOLEAN     =  8;
+var ICLS_NUMBER      =  9;
+var ICLS_STRING      = 10;
+var ICLS_ERROR       = 11;
+var ICLS_REGEXP      = 12;
+var ICLS_DATE        = 13;
+var ICLS_JSON        = 14;
+var ICLS_MATH        = 15;
+
 function getInternalClass (obj)
 {
     return __asm__({},["result"],[["obj",obj]],[],
