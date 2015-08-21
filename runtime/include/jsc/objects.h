@@ -58,6 +58,17 @@ enum InternalClass
     ICLS_DATE        = 13,
     ICLS_JSON        = 14,
     ICLS_MATH        = 15,
+    ICLS_ArrayBuffer = 16,
+    ICLS_DataView    = 17,
+    ICLS_Int8Array   = 18,
+    ICLS_Uint8Array  = 19,
+    ICLS_Uint8ClampedArray  = 20,
+    ICLS_Int16Array   = 21,
+    ICLS_Uint16Array  = 22,
+    ICLS_Int32Array   = 23,
+    ICLS_Uint32Array  = 24,
+    ICLS_Float32Array = 25,
+    ICLS_Float64Array = 26,
 };
 
 union RawValue
@@ -870,6 +881,22 @@ struct Runtime
     Function * error;
     Object * typeErrorPrototype;
     Function * typeError;
+
+    Object * arrayBufferPrototype;
+    Function * arrayBuffer;
+    Object * dataViewPrototype;
+    Function * dataView;
+#define _JS_TA_DECL(name) Object * name ## ArrayPrototype; Function * name ## Array
+    _JS_TA_DECL(int8);
+    _JS_TA_DECL(uint8);
+    _JS_TA_DECL(uint8Clamped);
+    _JS_TA_DECL(int16);
+    _JS_TA_DECL(uint16);
+    _JS_TA_DECL(int32);
+    _JS_TA_DECL(uint32);
+    _JS_TA_DECL(float32);
+    _JS_TA_DECL(float64);
+#undef _JS_TA_DECL
 
     Env * env;
 

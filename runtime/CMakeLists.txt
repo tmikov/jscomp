@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 2.8)
 project(jscomp)
 
 include(CheckCXXSourceCompiles)
+include(CheckIncludeFiles)
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-invalid-offsetof")
@@ -15,6 +16,17 @@ int main (int, char **) {
 }
 " HAVE_CXX11_EMPLACE
 )
+
+CHECK_INCLUDE_FILES("endian.h" HAVE_ENDIAN_H)
+CHECK_INCLUDE_FILES("machine/endian.h" HAVE_MACHINE_ENDIAN_H)
+
+if (${HAVE_ENDIAN_H})
+    set(ENDIAN_H <endian.h>)
+elseif (${HAVE_MACHINE_ENDIAN_H})
+    set(ENDIAN_H <machine/endian.h>)
+else()
+    message(SEND_ERROR "Cannot detect endian.h")
+endif()
 
 if (CMAKE_BUILD_TYPE MATCHES .*Deb.*)
     add_definitions(-DJS_DEBUG)
@@ -31,5 +43,5 @@ include_directories("${CMAKE_CURRENT_BINARY_DIR}/include")
 set(SOURCE_FILES
         src/runtime.cxx src/gc.cxx include/jsc/jsruntime.h src/operators.cpp
         include/jsc/utf.h src/utf.cxx include/jsc/common.h include/jsc/jsimpl.h
-        include/jsc/objects.h)
+        include/jsc/objects.h include/jsc/typedarrays.h src/typedarrays.cxx)
 add_library(jsruntime ${SOURCE_FILES} )

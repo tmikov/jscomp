@@ -1678,7 +1678,7 @@ Runtime::Runtime (bool strictMode)
     }
 
     // Global env
-    env = Env::make(&frame, NULL, 20);
+    env = Env::make(&frame, NULL, 40);
 
     // strictThrowerAccessor: the functions will be initialized later when the object system is up
     env->vars[16] = strictThrowerAccessor = makePropertyAccessorValue(new(&frame) PropertyAccessor(NULL, NULL));
@@ -1789,7 +1789,37 @@ Runtime::Runtime (bool strictMode)
         &frame, permStrName, PROP_NORMAL, makeStringValue(internString(&frame, true, "TypeError"))
     );
 
-    // Next free is env[18]
+    // Typed arrays
+    //
+    systemConstructor(
+        &frame, 18,
+        newInit< PrototypeCreator<Object,ArrayBuffer> >(&frame, &frame.locals[0], objectPrototype),
+        ArrayBuffer::aConstructor, ArrayBuffer::aFunction, "ArrayBuffer", 1, &arrayBufferPrototype, &arrayBuffer
+    );
+    systemConstructor(
+        &frame, 20,
+        newInit< PrototypeCreator<Object,DataView> >(&frame, &frame.locals[0], objectPrototype),
+        DataView::aConstructor, DataView::aFunction, "DataView", 3, &dataViewPrototype, &dataView
+    );
+#define _JS_TA_DEF(index, name, Name) \
+    systemConstructor( \
+        &frame, index, \
+        newInit< PrototypeCreator<Object,js::Name##Array> >(&frame, &frame.locals[0], objectPrototype), \
+        js::Name##Array::aConstructor, js::Name##Array::aFunction, #name "Array", 3, &name##ArrayPrototype, &name##Array \
+    )
+
+    _JS_TA_DEF(22, int8, Int8);
+    _JS_TA_DEF(24, uint8, Uint8);
+    _JS_TA_DEF(26, uint8Clamped, Uint8Clamped);
+    _JS_TA_DEF(28, int16, Int16);
+    _JS_TA_DEF(30, uint16, Uint16);
+    _JS_TA_DEF(32, int32, Int32);
+    _JS_TA_DEF(34, uint32, Uint32);
+    _JS_TA_DEF(36, float32, Float32);
+    _JS_TA_DEF(38, float64, Float64);
+#undef _JS_TA_DEF
+
+    // Next free is env[40]
 }
 
 void Runtime::systemConstructor (

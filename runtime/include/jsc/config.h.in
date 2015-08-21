@@ -1,1 +1,2 @@
 #cmakedefine HAVE_CXX11_EMPLACE
+#define ENDIAN_H ${ENDIAN_H}

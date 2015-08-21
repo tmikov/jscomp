@@ -3398,6 +3398,17 @@ export function compile (
         declareBuiltinConstructor("Array", "js::array", "array");
         declareBuiltinConstructor("Error", "js::error", "error");
         declareBuiltinConstructor("TypeError", "js::typeError", "typeError");
+        declareBuiltinConstructor("ArrayBuffer", "js::ArrayBuffer::a", "arrayBuffer");
+        declareBuiltinConstructor("DataView", "js::DataView::a", "dataView");
+        declareBuiltinConstructor("Int8Array", "js::Int8Array::a", "int8Array");
+        declareBuiltinConstructor("Uint8Array", "js::Uint8Array::a", "uint8Array");
+        declareBuiltinConstructor("Uint8ClampedArray", "js::Uint8ClampedArray::a", "uint8ClampedArray");
+        declareBuiltinConstructor("Int16Array", "js::Int16Array::a", "int16Array");
+        declareBuiltinConstructor("Uint16Array", "js::Uint16Array::a", "uint16Array");
+        declareBuiltinConstructor("Int32Array", "js::Int32Array::a", "int32Array");
+        declareBuiltinConstructor("Uint32Array", "js::Uint32Array::a", "uint32Array");
+        declareBuiltinConstructor("Float32Array", "js::Float32Array::a", "float32Array");
+        declareBuiltinConstructor("Float64Array", "js::Float64Array::a", "float64Array");
 
         runtimeCtx.scope.newConstant("NaN", hir.wrapImmediate(NaN));
         runtimeCtx.scope.newConstant("Infinity", hir.wrapImmediate(Infinity));

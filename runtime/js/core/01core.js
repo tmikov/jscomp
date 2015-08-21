@@ -25,6 +25,17 @@ var ICLS_REGEXP      = 12;
 var ICLS_DATE        = 13;
 var ICLS_JSON        = 14;
 var ICLS_MATH        = 15;
+var ICLS_ArrayBuffer = 16;
+var ICLS_DataView    = 17;
+var ICLS_Int8Array   = 18;
+var ICLS_Uint8Array  = 19;
+var ICLS_Uint8ClampedArray  = 20;
+var ICLS_Int16Array   = 21;
+var ICLS_Uint16Array  = 22;
+var ICLS_Int32Array   = 23;
+var ICLS_Uint32Array  = 24;
+var ICLS_Float32Array = 25;
+var ICLS_Float64Array = 26;
 
 function getInternalClass (obj)
 {
@@ -201,6 +212,17 @@ hidden(Object.prototype, "toString", function object_toString()
         case 13: return "[object Date]";      // ICLS_DATE
         case 14: return "[object JSON]";      // ICLS_JSON
         case 15: return "[object Math]";      // ICLS_MATH
+        case 16: return "[object ArrayBuffer]";  // ICLS_ArrayBuffer
+        case 17: return "[object DataView]";     // ICLS_DataView
+        case 18: return "[object Int8Array]";    // ICLS_Int8Array
+        case 19: return "[object Uint8Array]";   // ICLS_Uint8Array
+        case 20: return "[object Uint8ClampedArray]"; // ICLS_Uint8ClampedArray
+        case 21: return "[object Int16Array]";   // ICLS_Int16Array
+        case 22: return "[object Uint16Array]";  // ICLS_Uint16Array
+        case 23: return "[object Int32Array]";   // ICLS_Int32Array
+        case 24: return "[object Uint32Array]";  // ICLS_Uint32Array
+        case 25: return "[object Float32Array]"; // ICLS_Float32Array
+        case 26: return "[object Float64Array]"; // ICLS_Float64Array
     }
 });
 

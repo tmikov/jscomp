@@ -8,5 +8,8 @@
 #ifndef JSCOMP_OBJECTS_H
 #include "jsc/objects.h"
 #endif
+#ifndef JSCOMP_TYPEDARRAYS_H
+#include "jsc/typedarrays.h"
+#endif
 
 #endif //JSCOMP_JSRUNTIME_H
