@@ -30,3 +30,8 @@ function InternalError (message)
 {
     return Error.call(this !== void 0 ? this : Object.create(InternalError.prototype), message);
 }
+
+function RangeError (message)
+{
+    return Error.call(this !== void 0 ? this : Object.create(RangeError.prototype), message);
+}
