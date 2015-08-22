@@ -65,6 +65,23 @@ unsigned utf8Encode ( unsigned char * dst, uint32_t cp )
     }
 }
 
+unsigned utf8EncodedLength (uint32_t cp)
+{
+    if (cp <= 0x7F)
+        return 1;
+    else if (cp <= 0x7FF)
+        return 2;
+    else if (cp <= 0xFFFF)
+        return 3;
+    else if (cp <= 0x1FFFFF)
+        return 4;
+    else if (cp <= 0x3FFFFFF)
+        return 5;
+    else
+        return 6;
+}
+
+
 unsigned utf8Length (const unsigned char * from, const unsigned char * to)
 {
     unsigned length = 0;

@@ -44,6 +44,7 @@ inline unsigned utf8CodePointLength (unsigned char firstByte)
  * @return the number of characters stored
  */
 unsigned utf8Encode (unsigned char * dst, uint32_t codePoint);
+unsigned utf8EncodedLength (uint32_t codePoint);
 unsigned utf8Length (const unsigned char * from, const unsigned char * to);
 
 /*
