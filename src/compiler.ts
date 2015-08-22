@@ -3407,17 +3407,16 @@ export function compile (
         if (!compileSource(runtimeCtx.scope, runtimeCtx.scope, runtimeFileName, m_reporter, new SpecialVars(), m_modules, m_options))
             return null;
 
-        var coreScope = compileInANestedScope(runtimeCtx, coreFileName);
-        if (!coreScope)
+        var coreScope = new Scope(runtimeCtx, true, runtimeCtx.scope);
+        if (!compileInAScope(coreScope, coreFileName))
             return null;
-        var modScope = compileInANestedScope(runtimeCtx, modFileName);
-        if (!modScope)
+        if (!compileInAScope(coreScope, modFileName))
             return null;
 
         var r: Runtime = {
             ctx: runtimeCtx,
-            moduleRequire: modScope.lookup("moduleRequire"),
-            defineModule: modScope.lookup("defineModule"),
+            moduleRequire: coreScope.lookup("moduleRequire"),
+            defineModule: coreScope.lookup("defineModule"),
             _defineAccessor: coreScope.lookup("_defineAccessor"),
             regExp: null
         };
@@ -3461,10 +3460,20 @@ export function compile (
     function compileInANestedScope (coreCtx: FunctionContext, fileName: string): Scope
     {
         var scope = new Scope(coreCtx, true, coreCtx.scope);
-        definePaths(scope, fileName);
-        if (!compileSource(scope, coreCtx.scope, fileName, m_reporter, new SpecialVars(), m_modules, m_options))
+        if (!compileInAScope(scope, fileName))
             return null;
         return scope;
+    }
+
+    /**
+     * Compile a core file in a pre-defined scope. We want to achieve visibility separation, but
+     * we don't want the physical separation of another environment, etc.
+     */
+    function compileInAScope (scope: Scope, fileName: string): boolean
+    {
+        var coreCtx: FunctionContext = scope.ctx;
+        definePaths(scope, fileName);
+        return compileSource(scope, coreCtx.scope, fileName, m_reporter, new SpecialVars(), m_modules, m_options);
     }
 
     function compileModule (runtime: Runtime, parentContext: FunctionContext, fileName: string): Variable
@@ -3529,11 +3538,16 @@ export function compile (
 
     function defineVar (scope: Scope, name: string, value: hir.RValue): Variable
     {
-        var v = scope.newVariable(name);
+        var v: Variable;
+
+        if (!(v = scope.getVar(name)))
+            v = scope.newVariable(name);
+
         v.declared = true;
         v.setAssigned(scope.ctx);
         scope.ctx.releaseTemp(value);
         scope.ctx.builder.genAssign(v.hvar, value);
+
         return v;
     }
 
