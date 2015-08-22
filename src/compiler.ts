@@ -586,15 +586,18 @@ class FunctionContext
 
 class Module
 {
+    id: string;
     path: string;
     printable: string;
-    notFound: boolean = false;
+    notFound: boolean;
     modVar: Variable = null;
 
-    constructor (path: string)
+    constructor (id: string, path: string)
     {
+        this.id = id;
         this.path = path;
-        this.printable = path;
+        this.printable = id;
+        this.notFound = path === null;
     }
 
 }
@@ -627,44 +630,63 @@ class Modules
         }
     }
 
-    resolve (dirname: string, modname: string): Module
+    private resolvePath (trypath: string): string
     {
-        var trypath: string;
-        var m: Module;
-
-        if (!path.extname(modname))
-            modname += ".js";
-
-        if (startsWith(modname, "./") || startsWith(modname, "../") || path.isAbsolute(modname)) {
-            trypath = path.resolve(dirname, modname);
-            if (m = this.resolved.get(trypath))
-                return m;
-
-            m = new Module(trypath);
-            this.resolved.set(trypath, m);
-            this.queue.push(m);
-            m.notFound = !checkReadAccess(trypath);
-            return m;
+        try {
+            var pkg = JSON.parse(fs.readFileSync(path.join(trypath, "package.json"), "utf-8"));
+            if (pkg["main"])
+                trypath = path.resolve(trypath, pkg["main"]);
+            else
+                trypath = path.join(trypath, "index.js");
+        } catch (e) {
         }
 
-        for (var i = 0; i < this.paths.length; ++i ) {
-            trypath = path.resolve(this.paths[i], modname);
-            if (m = this.resolved.get(trypath))
-                return m;
+        if (!path.extname(trypath))
+            trypath += ".js";
 
-            if (fs.existsSync(trypath)) {
-                m = new Module(trypath);
-                this.resolved.set(trypath, m);
-                this.queue.push(m);
-                m.notFound = !checkReadAccess(trypath);
+        return checkReadAccess(trypath) ? trypath : null;
+    }
+
+    private tryResolve (dirname: string, modname: string): Module
+    {
+        var trypath = path.resolve(dirname, modname);
+        var m: Module;
+
+        if (m = this.resolved.get(trypath))
+            return m;
+
+        var resolved = this.resolvePath(trypath);
+
+        if (resolved) {
+            m = new Module(trypath, resolved);
+            this.resolved.set(trypath, m);
+            this.queue.push(m);
+            return m;
+        } else {
+            return null;
+        }
+    }
+
+    resolve (dirname: string, modname: string): Module
+    {
+        var m: Module;
+
+        if (startsWith(modname, "./") || startsWith(modname, "../") || path.isAbsolute(modname)) {
+            if (m = this.tryResolve(dirname, modname))
                 return m;
+            modname = path.resolve(dirname, modname);
+        } else {
+            if (m = this.tryResolve(path.join(dirname, "node_modules"), modname))
+                return m;
+            for (var i = 0; i < this.paths.length; ++i ) {
+                if (m = this.tryResolve(this.paths[i], modname))
+                    return m;
             }
         }
 
-        trypath = modname;
-        m = new Module(trypath);
-        m.notFound = true;
-        this.resolved.set(trypath, m);
+        // Register it as failed to resolve
+        m = new Module(modname, null);
+        this.resolved.set(modname, m);
         this.queue.push(m);
         return m;
     }
