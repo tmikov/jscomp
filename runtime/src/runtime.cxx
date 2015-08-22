@@ -11,6 +11,7 @@
 #include <errno.h>
 #include <set>
 #include <tuple>
+#include <memory>
 
 namespace js
 {
@@ -1523,6 +1524,74 @@ TaggedValue stringSubstr (StackFrame * caller, Env *, unsigned argc, const Tagge
     return sprim->substring(&frame, (uint32_t)fstart, (uint32_t)(fstart + flength));
 }
 
+TaggedValue stringFromCharCode (StackFrame * caller, Env *, unsigned argc, const TaggedValue * argv)
+{
+    unsigned inputCharCount = argc - 1;
+    uint32_t buf[16];
+    std::unique_ptr<uint32_t[]> heapBuf;
+    uint32_t * pbuf;
+
+    if (JS_UNLIKELY(inputCharCount > 16))
+        heapBuf.reset(pbuf = new uint32_t[inputCharCount]);
+    else
+        pbuf = buf;
+
+    unsigned utf32count = 0;
+    unsigned utf8ByteLen = 0;
+    unsigned utf16count = 0;
+
+    for ( unsigned i = 0; i < inputCharCount; ++i ) {
+        uint16_t ch = (uint16_t)toUint32(caller, argv[i+1]);
+        if (JS_UNLIKELY(ch >= 0xD800 && ch < 0xDC00)) { // first surrogate
+            ++i;
+            if (JS_UNLIKELY(i == inputCharCount)) {
+                pbuf[utf32count++] = UNICODE_REPLACEMENT_CHARACTER;
+                utf8ByteLen += 3; // the length of utf-8 encoded UNICODE_REPLACEMENT_CHARACTER
+                ++utf16count;
+                break;
+            }
+            uint16_t ch2 = (uint16_t)toUint32(caller, argv[i+1]);
+            if (JS_UNLIKELY(!(ch2 >= 0xDC00 && ch2 <= 0xDFFF))) {
+                pbuf[utf32count++] = UNICODE_REPLACEMENT_CHARACTER;
+                utf8ByteLen += 3; // the length of utf-8 encoded UNICODE_REPLACEMENT_CHARACTER
+                ++utf16count;
+                --i;
+            } else {
+                uint32_t t = (((uint32_t)ch - 0xD800) << 10) + 0x10000 + ch2 - 0xDC00;
+                pbuf[utf32count++] = t;
+                utf8ByteLen += utf8EncodedLength(t);
+                utf16count += 2;
+            }
+        } else if (JS_UNLIKELY(ch >= 0xDC00 && ch <= 0xDFFF)) { // invalid second surrogate!
+            pbuf[utf32count++] = UNICODE_REPLACEMENT_CHARACTER;
+            utf8ByteLen += 3; // the length of utf-8 encoded UNICODE_REPLACEMENT_CHARACTER
+            ++utf16count;
+        } else {
+            pbuf[utf32count++] = ch;
+            utf8ByteLen += utf8EncodedLength(ch);
+            ++utf16count;
+        }
+    }
+
+    if (JS_UNLIKELY(utf32count == 0))
+        return makeStringValue(JS_GET_RUNTIME(caller)->permStrEmpty);
+    if (JS_LIKELY(utf32count == 1 && pbuf[0] < Runtime::CACHED_CHARS))
+        return makeStringValue(JS_GET_RUNTIME(caller)->asciiChars[pbuf[0]]);
+
+    StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":stringFromCharCode()", __LINE__);
+    StringPrim * str;
+    frame.locals[0] = makeStringValue(str = StringPrim::makeEmpty(&frame, utf8ByteLen));
+
+    // Encode the values as utf-8
+    unsigned char * dest = str->_str;
+    for ( unsigned i = 0; i < utf32count; ++i )
+        dest += utf8Encode(dest, pbuf[i]);
+
+    str->init(utf16count);
+
+    return frame.locals[0];
+}
+
 TaggedValue numberFunction (StackFrame * caller, Env *, unsigned argc, const TaggedValue * argv)
 {
     return makeNumberValue(argc > 1 ? toNumber(caller, argv[1]) : 0);
@@ -1741,6 +1810,7 @@ Runtime::Runtime (bool strictMode)
     defineMethod(&frame, stringPrototype, "slice", 2, stringSlice);
     defineMethod(&frame, stringPrototype, "substring", 2, stringSubstring);
     defineMethod(&frame, stringPrototype, "substr", 2, stringSubstr);
+    defineMethod(&frame, string,          "fromCharCode", 1, stringFromCharCode);
 
     // Number
     //
