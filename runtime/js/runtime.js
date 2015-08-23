@@ -53,3 +53,4 @@ function RangeError (message)
 }
 
 var Math;
+var RegExp;

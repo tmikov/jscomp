@@ -5,18 +5,6 @@
 __asmh__({}, '#define PCRE2_CODE_UNIT_WIDTH 8');
 __asmh__({}, '#include "jsc/pcre2.h"');
 
-function hidden (obj, prop, func)
-{
-    Object.defineProperty(obj, prop, {writable: true, configurable: true, value: func});
-}
-
-function createNative (propCount)
-{
-    return __asm__({},["result"],[["propCount",propCount >>> 0]],[],
-        "%[result] = js::makeObjectValue(js::NativeObject::make(%[%frame], (unsigned)%[propCount].raw.nval));"
-    );
-}
-
 var PCRE2_CASELESS = __asm__({},["result"],[],[],"%[result] = js::makeNumberValue(PCRE2_CASELESS);");
 var PCRE2_MULTILINE = __asm__({},["result"],[],[],"%[result] = js::makeNumberValue(PCRE2_MULTILINE);");
 var PCRE2_ERROR_NOMATCH = __asm__({},["result"],[],[],"%[result] = js::makeNumberValue(PCRE2_ERROR_NOMATCH);");
@@ -40,7 +28,7 @@ function pcre2_get_error_message (errorCode)
     );
 }
 
-function RegExp (pattern, flags)
+var $RegExp = RegExp = function RegExp (pattern, flags)
 {
     if (!(this instanceof RegExp))
         return new RegExp(pattern, flags);
@@ -264,5 +252,3 @@ hidden(RegExp.prototype, "toString", function regexp_toString()
     validateObject(this);
     return "/" + this.source + "/" + this.flags;
 });
-
-module.exports = RegExp;

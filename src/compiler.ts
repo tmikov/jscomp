@@ -3343,7 +3343,7 @@ export function compile (
             return;
 
         // Resolve and compile all system modules
-        var sysModNames: string[] = ["process", "console", "RegExp"];
+        var sysModNames: string[] = ["process", "console"];
         var sysModules: Module[] = new Array<Module>(sysModNames.length);
 
         for ( var i = 0; i < sysModNames.length; ++i )
@@ -3448,36 +3448,12 @@ export function compile (
             moduleRequire: coreScope.lookup("moduleRequire"),
             defineModule: coreScope.lookup("defineModule"),
             _defineAccessor: coreScope.lookup("_defineAccessor"),
-            regExp: null
+            regExp: coreScope.lookup("$RegExp")
         };
         if (!r.moduleRequire || !r.defineModule || !r._defineAccessor)
             error(null, "internal symbols missing from runtime");
 
-        if (!importRegExp(r))
-            return null;
-
         return r;
-    }
-
-    function importRegExp (runtime: Runtime): boolean
-    {
-        var regexpM = m_modules.resolve("", "RegExp");
-        if (!compileResolvedModules(runtime))
-            return false;
-        var modvar = runtime.ctx.scope.newVariable("RegExp");
-        modvar.declared = true;
-        modvar.setAssigned(runtime.ctx);
-        callModuleRequire(runtime, regexpM, modvar.hvar);
-
-        // Save the constructor into an anonymous variable so we can access it reliably
-        var re = runtime.ctx.scope.newAnonymousVariable("$RegExp");
-        re.declared = true;
-        re.setAssigned(runtime.ctx);
-        modvar.setAccessed(true, runtime.ctx);
-        runtime.ctx.builder.genAssign(re.hvar, modvar.hvar);
-
-        runtime.regExp = re;
-        return true;
     }
 
     /**
