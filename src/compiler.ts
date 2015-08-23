@@ -3373,8 +3373,7 @@ export function compile (
     function compileRuntime (parentContext: FunctionContext): Runtime
     {
         var runtimeFileName = "runtime/js/runtime.js";
-        var coreFileName = "runtime/js/core.js";
-        var modFileName = "runtime/js/module.js";
+        var coreFilesDir = "runtime/js/core/";
 
         var runtimeCtx = new FunctionContext(
             parentContext, parentContext.scope, runtimeFileName, parentContext.builder.newClosure(runtimeFileName)
@@ -3407,10 +3406,8 @@ export function compile (
         if (!compileSource(runtimeCtx.scope, runtimeCtx.scope, runtimeFileName, m_reporter, new SpecialVars(), m_modules, m_options))
             return null;
 
-        var coreScope = new Scope(runtimeCtx, true, runtimeCtx.scope);
-        if (!compileInAScope(coreScope, coreFileName))
-            return null;
-        if (!compileInAScope(coreScope, modFileName))
+        var coreScope = compileCoreFiles(runtimeCtx, coreFilesDir);
+        if (!coreScope)
             return null;
 
         var r: Runtime = {
@@ -3420,9 +3417,6 @@ export function compile (
             _defineAccessor: coreScope.lookup("_defineAccessor"),
             regExp: null
         };
-        assert(r.moduleRequire);
-        assert(r.defineModule);
-        assert(r._defineAccessor);
         if (!r.moduleRequire || !r.defineModule || !r._defineAccessor)
             error(null, "internal symbols missing from runtime");
 
@@ -3463,6 +3457,28 @@ export function compile (
         if (!compileInAScope(scope, fileName))
             return null;
         return scope;
+    }
+
+    function compileCoreFiles (runtimeCtx: FunctionContext, coreFilesDir: string): Scope
+    {
+        var coreScope = new Scope(runtimeCtx, true, runtimeCtx.scope);
+
+        try {
+        var entries: string[] = fs.readdirSync(coreFilesDir);
+        } catch (e) {
+            error(null, `cannot access '${coreFilesDir}'`);
+            return null;
+        }
+
+        entries.sort();
+        for ( var i = 0, e = entries.length; i < e; ++i ) {
+            var entry = entries[i];
+            if (entry[0] !== "." && path.extname(entry) === ".js")
+                if (!compileInAScope(coreScope, path.join(coreFilesDir,entry)))
+                    return null;
+        }
+
+        return coreScope;
     }
 
     /**
