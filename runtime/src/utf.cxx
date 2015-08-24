@@ -94,7 +94,7 @@ unsigned utf8Length (const unsigned char * from, const unsigned char * to)
     return length;
 }
 
-uint32_t utf8Decode (const unsigned char * from)
+uint32_t utf8Decode (const unsigned char * from, bool * error)
 {
     unsigned ch = from[0];
     uint32_t result;
@@ -105,51 +105,55 @@ uint32_t utf8Decode (const unsigned char * from)
     else if (JS_LIKELY((ch & 0xE0) == 0xC0)) {
         uint32_t ch1 = from[1];
         if (JS_UNLIKELY((ch1 & 0xC0) != 0x80))
-            return UNICODE_REPLACEMENT_CHARACTER;
+            goto returnError;
 
         result = ((ch & 0x1F) << 6) | (ch1 & 0x3F);
         if (JS_UNLIKELY(result <= 0x7F))
-            return UNICODE_REPLACEMENT_CHARACTER;
+            goto returnError;
     }
     else if (JS_LIKELY((ch & 0xF0) == 0xE0)) {
         uint32_t ch1 = from[1];
         if (JS_UNLIKELY((ch1 & 0xC0) != 0x80))
-            return UNICODE_REPLACEMENT_CHARACTER;
+            goto returnError;
 
         uint32_t ch2 = from[2];
         if (JS_UNLIKELY((ch2 & 0xC0) != 0x80))
-            return UNICODE_REPLACEMENT_CHARACTER;
+            goto returnError;
 
         result = ((ch & 0x0F) << 12) | ((ch1 & 0x3F) << 6) | (ch2 & 0x3F);
         if (JS_UNLIKELY(result <= 0x7FF))
-            return UNICODE_REPLACEMENT_CHARACTER;
+            goto returnError;
 
         if (JS_UNLIKELY(result >= UNICODE_SURROGATE_LO && result <= UNICODE_SURROGATE_HI))
-            return UNICODE_REPLACEMENT_CHARACTER;
+            goto returnError;
     }
     else if ((ch & 0xF8) == 0xF0) {
         uint32_t ch1 = from[1];
         if (JS_UNLIKELY((ch1 & 0xC0) != 0x80))
-            return UNICODE_REPLACEMENT_CHARACTER;
+            goto returnError;
 
         uint32_t ch2 = from[2];
         if (JS_UNLIKELY((ch2 & 0xC0) != 0x80))
-            return UNICODE_REPLACEMENT_CHARACTER;
+            goto returnError;
 
         uint32_t ch3 = from[3];
         if (JS_UNLIKELY((ch3 & 0xC0) != 0x80))
-            return UNICODE_REPLACEMENT_CHARACTER;
+            goto returnError;
 
         result = ((ch & 0x07) << 18) | ((ch1 & 0x3F) << 12) | ((ch2 & 0x3F) << 6) | (ch3 & 0x3F);
         if (JS_UNLIKELY(result <= 0xFFFF))
-            return UNICODE_REPLACEMENT_CHARACTER;
+            goto returnError;
         if (JS_UNLIKELY(result > UNICODE_MAX_VALUE))
-            return UNICODE_REPLACEMENT_CHARACTER;
+            goto returnError;
     }
     else
-        return UNICODE_REPLACEMENT_CHARACTER;
+        goto returnError;
 
     return result;
+
+returnError:
+    *error = true;
+    return UNICODE_REPLACEMENT_CHARACTER;
 }
 
 uint32_t utf8DecodeFast (const unsigned char * from)

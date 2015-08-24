@@ -54,7 +54,7 @@ unsigned utf8Length (const unsigned char * from, const unsigned char * to);
  *
  * @param from a zero-terminated buffer.
  */
-uint32_t utf8Decode (const unsigned char * from);
+uint32_t utf8Decode (const unsigned char * from, bool * error);
 
 /**
  * Decode from a source which is guaranteed to be valid (thus no checks are necessary)
