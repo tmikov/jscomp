@@ -85,6 +85,37 @@ public:
     }
 };
 
+template <unsigned BITSET_SIZE>
+class BitSet
+{
+    uint32_t m_bits[(BITSET_SIZE+31)/32];
+public:
+    BitSet(const char * initSeq = "")
+    {
+        ::memset(m_bits, 0, sizeof(m_bits));
+        init(initSeq);
+    }
+
+    inline void set (unsigned index)
+    {
+        m_bits[index >> 5] |= (uint32_t)1u << (index & 31);
+    }
+
+    inline bool check (unsigned index) const
+    {
+        if (JS_LIKELY(index < BITSET_SIZE))
+            return (m_bits[index >> 5] & ((uint32_t)1u << (index & 31))) != 0;
+        else
+            return false;
+    }
+
+    inline void init (const char * initSeq)
+    {
+        while (unsigned ch = *initSeq++ & 255u)
+            set(ch);
+    }
+};
+
 }; // namespace js
 
 #endif //JSCOMP_JSIMPL_H
