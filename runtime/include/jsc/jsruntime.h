@@ -12,4 +12,12 @@
 #include "jsc/typedarrays.h"
 #endif
 
+
+namespace js {
+
+void mathInitRandom ();
+double mathRandom ();
+
+};
+
 #endif //JSCOMP_JSRUNTIME_H

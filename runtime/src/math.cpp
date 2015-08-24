@@ -1,0 +1,26 @@
+// Copyright (c) 2015 Tzvetan Mikov.
+// Licensed under the Apache License v2.0. See LICENSE in the project
+// root for complete license information.
+
+#include "jsc/jsruntime.h"
+#include "jsc/config.h"
+
+#include <time.h>
+
+namespace js {
+
+void mathInitRandom ()
+{
+#ifdef HAVE_SRANDOMDEV
+    ::srandomdev();
+#else
+    ::srandom((unsigned)::time(NULL));
+#endif
+}
+
+double mathRandom ()
+{
+    return (double)::random() / ((double)RAND_MAX+1);
+}
+
+}; // namespace js

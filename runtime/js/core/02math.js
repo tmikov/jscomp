@@ -68,3 +68,14 @@ hidden(Math, "pow", function math_pow (x, y)
         "%[res] = js::makeNumberValue(::pow(%[x].raw.nval, %[y].raw.nval));"
     );
 });
+
+// Initialize the random state
+__asm__({},[],[],[],
+    "js::mathInitRandom();"
+);
+hidden(Math, "random", function math_random ()
+{
+    return __asm__({},["res"], [], [],
+        "%[res] = js::makeNumberValue(js::mathRandom());"
+    );
+});

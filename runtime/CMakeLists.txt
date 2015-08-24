@@ -3,6 +3,7 @@ project(jscomp)
 
 include(CheckCXXSourceCompiles)
 include(CheckIncludeFiles)
+include(CheckSymbolExists)
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-invalid-offsetof")
@@ -16,6 +17,8 @@ int main (int, char **) {
 }
 " HAVE_CXX11_EMPLACE
 )
+
+CHECK_SYMBOL_EXISTS(srandomdev "stdlib.h" HAVE_SRANDOMDEV)
 
 CHECK_INCLUDE_FILES("endian.h" HAVE_ENDIAN_H)
 CHECK_INCLUDE_FILES("machine/endian.h" HAVE_MACHINE_ENDIAN_H)
@@ -44,5 +47,6 @@ set(SOURCE_FILES
         src/runtime.cxx src/gc.cxx include/jsc/jsruntime.h src/operators.cpp
         include/jsc/utf.h src/utf.cxx include/jsc/common.h include/jsc/jsimpl.h
         include/jsc/objects.h include/jsc/typedarrays.h src/typedarrays.cxx
+        src/math.cpp
         src/uri.cpp include/jsc/uri.h src/jsimpl.cpp)
 add_library(jsruntime ${SOURCE_FILES} )
