@@ -147,6 +147,11 @@ function accessor (obj, prop, getF, setF)
     defineProperty(obj, prop, {configurable: true, get: getF, set: setF});
 }
 
+function constProp (obj, prop, value)
+{
+    defineProperty(obj, prop, {value: value});
+}
+
 function isCallable (x)
 {
     return typeof(x) === "function";
