@@ -43,5 +43,6 @@ include_directories("${CMAKE_CURRENT_BINARY_DIR}/include")
 set(SOURCE_FILES
         src/runtime.cxx src/gc.cxx include/jsc/jsruntime.h src/operators.cpp
         include/jsc/utf.h src/utf.cxx include/jsc/common.h include/jsc/jsimpl.h
-        include/jsc/objects.h include/jsc/typedarrays.h src/typedarrays.cxx)
+        include/jsc/objects.h include/jsc/typedarrays.h src/typedarrays.cxx
+        src/jsimpl.cpp)
 add_library(jsruntime ${SOURCE_FILES} )
