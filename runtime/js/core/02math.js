@@ -61,3 +61,10 @@ hidden(Math, "min", function math_min (a, b)
     }
     return res;
 });
+
+hidden(Math, "pow", function math_pow (x, y)
+{
+    return __asm__({},["res"], [["x", +x], ["y", +y]], [],
+        "%[res] = js::makeNumberValue(::pow(%[x].raw.nval, %[y].raw.nval));"
+    );
+});

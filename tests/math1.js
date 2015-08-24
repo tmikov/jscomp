@@ -36,3 +36,7 @@ assert.equal(Math.abs(-0),0);
 assert.equal(Math.abs(-Infinity), Infinity);
 assert.equal(Math.abs(-1),1);
 assert.equal(Math.abs(1),1);
+
+assert.equal(Math.pow(2,3), 8);
+assert.equal(Math.pow("aa",0), 1);
+assert.equal(Math.pow(NaN,0), 1);
