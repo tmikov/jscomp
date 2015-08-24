@@ -119,3 +119,4 @@ function URIError (message)
 
 var Math;
 var RegExp;
+var global;
