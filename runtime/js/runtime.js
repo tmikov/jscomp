@@ -52,5 +52,10 @@ function RangeError (message)
     return Error.call(this !== void 0 ? this : Object.create(RangeError.prototype), message);
 }
 
+function URIError (message)
+{
+    return Error.call(this !== void 0 ? this : Object.create(URIError.prototype), message);
+}
+
 var Math;
 var RegExp;

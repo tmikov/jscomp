@@ -304,6 +304,11 @@ hidden(InternalError.prototype, "name", "InternalError");
 RangeError.prototype = Object.create(Error.prototype);
 hidden(RangeError.prototype, "name", "RangeError");
 
+// URIError
+//
+URIError.prototype = Object.create(Error.prototype);
+hidden(URIError.prototype, "name", "URIError");
+
 // Array
 //
 function isArrayBase (arg)
