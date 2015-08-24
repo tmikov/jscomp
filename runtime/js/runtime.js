@@ -34,6 +34,66 @@ function parseInt (string, radix)
     );
 }
 
+function decodeURI (encodedURI)
+{
+    var uriString = String(encodedURI);
+
+    __asmh__({}, '#include "jsc/uri.h"');
+    var res = __asm__({},["res"],[["uriString", uriString]],[],
+        "const js::StringPrim * s = %[uriString].raw.sval;\n" +
+        "const js::StringPrim * res = js::uriDecode(%[%frame], s->_str, s->_str + s->byteLength, &js::uriDecodeSet);\n" +
+        "%[res] = res ? js::makeStringValue(res) : JS_NULL_VALUE;"
+    );
+    if (res === null)
+        throw new URIError("Invalid URI string to decode");
+    return res;
+}
+
+function decodeURIComponent (encodedURI)
+{
+    var uriString = String(encodedURI);
+
+    __asmh__({}, '#include "jsc/uri.h"');
+    var res = __asm__({},["res"],[["uriString", uriString]],[],
+        "const js::StringPrim * s = %[uriString].raw.sval;\n" +
+        "const js::StringPrim * res = js::uriDecode(%[%frame], s->_str, s->_str + s->byteLength, &js::uriEmptySet);\n" +
+        "%[res] = res ? js::makeStringValue(res) : JS_NULL_VALUE;"
+    );
+    if (res === null)
+        throw new URIError("Invalid URI string to decode");
+    return res;
+}
+
+function encodeURI (uri)
+{
+    var uriString = String(uri);
+
+    __asmh__({}, '#include "jsc/uri.h"');
+    var res = __asm__({},["res"],[["uriString", uriString]],[],
+        "const js::StringPrim * s = %[uriString].raw.sval;\n" +
+        "const js::StringPrim * res = js::uriEncode(%[%frame], s->_str, s->_str + s->byteLength, &js::uriEncodeSet);\n" +
+        "%[res] = res ? js::makeStringValue(res) : JS_NULL_VALUE;"
+    );
+    if (res === null)
+        throw new URIError("Invalid URI string to encode");
+    return res;
+}
+
+function encodeURIComponent (uri)
+{
+    var uriString = String(uri);
+
+    __asmh__({}, '#include "jsc/uri.h"');
+    var res = __asm__({},["res"],[["uriString", uriString]],[],
+        "const js::StringPrim * s = %[uriString].raw.sval;\n" +
+        "const js::StringPrim * res = js::uriEncode(%[%frame], s->_str, s->_str + s->byteLength, &js::uriEncodeComponentSet);\n" +
+        "%[res] = res ? js::makeStringValue(res) : JS_NULL_VALUE;"
+    );
+    if (res === null)
+        throw new URIError("Invalid URI string to encode");
+    return res;
+}
+
 // SyntaxError
 //
 // NOTE: Error and TypeError are system-declared but the rest of the errors aren't
