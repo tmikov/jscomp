@@ -116,6 +116,16 @@ public:
     }
 };
 
+inline unsigned char toxdigit (unsigned d)
+{
+    return (unsigned char)(d < 10 ? d + '0' : d + ('A' - 10));
+}
+
+inline unsigned fromxdigit (unsigned char ch)
+{
+    return ch <= '9' ? ch - '0' : (ch | 32) - ('a' - 10u);
+}
+
 }; // namespace js
 
 #endif //JSCOMP_JSIMPL_H
