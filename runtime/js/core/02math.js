@@ -5,6 +5,15 @@
 Math = createNative(0);
 setInternalClass(Math, ICLS_MATH);
 
+constProp(Math, "E",      2.718281828459045);
+constProp(Math, "LN10",   2.302585092994046);
+constProp(Math, "LN2",    0.6931471805599453);
+constProp(Math, "LOG2E",  1.4426950408889634);
+constProp(Math, "LOG10E", 0.4342944819032518);
+constProp(Math, "PI",     3.1415926535897932);
+constProp(Math, "SQRT1_2",0.7071067811865476);
+constProp(Math, "SQRT2",  1.4142135623730951);
+
 hidden(Math, "abs", function math_abs (x)
 {
     x = +x;
