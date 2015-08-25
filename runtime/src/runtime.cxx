@@ -1780,7 +1780,7 @@ public:
 
 TaggedValue arraySort (StackFrame * caller, Env * env, unsigned argc, const TaggedValue * argv)
 {
-    StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":arraySort()", __LINE__);
+    StackFrameN<0,2,0> frame(caller, NULL, __FILE__ ":arraySort()", __LINE__);
     Function * compareFn;
 
     if (argc > 1) {
@@ -1793,17 +1793,46 @@ TaggedValue arraySort (StackFrame * caller, Env * env, unsigned argc, const Tagg
     // obj = toObject(this)
     frame.locals[0] = JS_LIKELY(isValueTagObject(argv[0].tag)) ? *argv : js::makeObjectValue(toObject(&frame, argv[0]));
     Object * obj = frame.locals[0].raw.oval;
+    uint32_t length;
+    IndexedObject * io;
+    ArrayBase * array = NULL;
 
-    if (IndexedObject * io = dynamic_cast<IndexedObject*>(obj))
-        if (!(io->flags & OF_INDEX_PROPERTIES)) {
-            IndexedObjectSortCB cb(io, compareFn);
-            insertionSort(&frame, &cb, io->getIndexedLength());
+    io = dynamic_cast<IndexedObject*>(obj);
+    if (JS_UNLIKELY(!io)) {
+        // Not an indexed object. A very unlikely and very slow case. So, we copy it into an array
+        length = js::toUint32(&frame, js::get(caller, frame.locals[0], JS_GET_RUNTIME(&frame)->permStrLength));
+        if (!length)
             return frame.locals[0];
-        }
 
-    uint32_t length = js::toUint32(&frame, js::get(caller, frame.locals[0], JS_GET_RUNTIME(&frame)->permStrLength));
-    GenericSortCB cb(obj, compareFn);
-    insertionSort(&frame, &cb, length);
+        io = array = newInit<Array>(&frame, &frame.locals[1], JS_GET_RUNTIME(&frame)->arrayPrototype);
+        array->setLength(length);
+        TaggedValue * p = &array->elems[0];
+        for ( uint32_t i = 0; i < length; ++i, ++p ) {
+            TaggedValue ip = makeNumberValue(i);
+            if (obj->hasComputed(&frame, ip))
+                *p = obj->getComputed(&frame, ip);
+        }
+    } else {
+        length = io->getIndexedLength();
+    }
+
+
+    if (!(io->flags & OF_INDEX_PROPERTIES)) {
+        IndexedObjectSortCB cb(io, compareFn);
+        insertionSort(&frame, &cb, io->getIndexedLength());
+    } else {
+        GenericSortCB cb(obj, compareFn);
+        insertionSort(&frame, &cb, length);
+    }
+
+    if (io != obj) { // Copy back the temporary array we created
+        assert(array);
+        const TaggedValue * p = &array->elems[0];
+        for ( uint32_t i = 0; i < length; ++i, ++p ) {
+            if (p->tag != VT_ARRAY_HOLE)
+                obj->putComputed(&frame, makeNumberValue(i), *p);
+        }
+    }
 
     return frame.locals[0];
 }

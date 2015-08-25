@@ -1,5 +1,5 @@
 // Test an object instead of an array
-var N = 1000;
+var N = 10000;
 var a = {};
 a.length = N;
 
