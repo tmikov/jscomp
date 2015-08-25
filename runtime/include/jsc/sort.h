@@ -20,6 +20,16 @@ struct IExchangeSortCB
 void selectionSort (StackFrame * caller, IExchangeSortCB * cb, uint32_t length);
 void insertionSort (StackFrame * caller, IExchangeSortCB * cb, uint32_t length);
 
+template <class CB, class IT>
+void insertionSortAlg (StackFrame * caller, const CB & cb, IT begin, IT end)
+{
+    for ( IT i = begin + 1; i != end; ++i ) {
+        for ( IT j = i; j != begin && cb.less(caller, j, j-1); --j )
+            cb.swap(caller, j, j-1);
+    }
+}
+
+
 }; // namespace js
 
 #endif //JSCOMP_SORT_H
