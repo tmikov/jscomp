@@ -5,6 +5,7 @@
 #include "jsc/jsruntime.h"
 #include "jsc/jsimpl.h"
 #include "jsc/config.h"
+#include "jsc/sort.h"
 
 #include <assert.h>
 #include <stdarg.h>
@@ -1635,6 +1636,178 @@ TaggedValue arrayConstructor (StackFrame * caller, Env * env, unsigned argc, con
     return JS_UNDEFINED_VALUE;
 }
 
+class GenericSortCB : public IExchangeSortCB
+{
+    Object * obj;
+    Function * compareFn;
+public:
+    GenericSortCB (Object * obj, Function * compareFn) :
+        obj(obj), compareFn(compareFn)
+    {}
+
+    virtual void swap (StackFrame * caller, uint32_t a, uint32_t b)
+    {
+        StackFrameN<0,2,0> frame(caller, NULL, __FILE__ ":GenericSortCB::swap()", __LINE__);
+        TaggedValue propA = makeNumberValue(a);
+        TaggedValue propB = makeNumberValue(b);
+
+        if (JS_UNLIKELY(!obj->hasComputed(&frame, propA))) {
+            if (obj->hasComputed(&frame, propB)) {
+                frame.locals[1] = obj->getComputed(&frame, propB);
+                obj->putComputed(&frame, propA, frame.locals[1]);
+                obj->deleteComputed(&frame, propB);
+            }
+            return;
+        } else {
+            if (JS_UNLIKELY(!obj->hasComputed(&frame, propB))) {
+                frame.locals[0] = obj->getComputed(&frame, propA);
+                obj->putComputed(&frame, propB, frame.locals[0]);
+                obj->deleteComputed(&frame, propA);
+                return;
+            }
+        }
+
+        frame.locals[0] = obj->getComputed(&frame, propA);
+        frame.locals[1] = obj->getComputed(&frame, propB);
+        obj->putComputed(&frame, propB, frame.locals[0]);
+        obj->putComputed(&frame, propA, frame.locals[1]);
+    }
+
+    virtual bool less (StackFrame * caller, uint32_t a, uint32_t b)
+    {
+        TaggedValue propA = makeNumberValue(a);
+        TaggedValue propB = makeNumberValue(b);
+
+        if (!obj->hasComputed(caller, propA)) {
+            return false;
+        } else {
+            if (!obj->hasComputed(caller, propB))
+                return true;
+        }
+
+        StackFrameN<0,4,0> frame(caller, NULL, __FILE__ ":GenericSortCB::less()", __LINE__);
+        frame.locals[1] = obj->getComputed(&frame, propA);
+        frame.locals[2] = obj->getComputed(&frame, propB);
+
+        if (frame.locals[1].tag == VT_UNDEFINED) {
+            return false;
+        } else {
+            if (frame.locals[2].tag == VT_UNDEFINED)
+                return true;
+        }
+
+        if (compareFn) {
+            frame.locals[3] = compareFn->call(&frame, 3, &frame.locals[0]);
+            return js::toNumber(&frame, frame.locals[3]) < 0;
+        } else {
+            frame.locals[1] = toString(&frame, frame.locals[1]);
+            frame.locals[2] = toString(&frame, frame.locals[2]);
+
+            return frame.locals[1].raw.sval != frame.locals[2].raw.sval &&
+                   ::strcmp(frame.locals[1].raw.sval->getStr(), frame.locals[2].raw.sval->getStr()) < 0;
+        }
+    }
+};
+
+class IndexedObjectSortCB : public IExchangeSortCB
+{
+    IndexedObject * obj;
+    Function * compareFn;
+public:
+    IndexedObjectSortCB (IndexedObject * obj, Function * compareFn) :
+        obj(obj), compareFn(compareFn)
+    {}
+
+    virtual void swap (StackFrame * caller, uint32_t a, uint32_t b)
+    {
+        StackFrameN<0,2,0> frame(caller, NULL, __FILE__ ":GenericSortCB::swap()", __LINE__);
+
+        if (JS_UNLIKELY(!obj->hasIndex(a))) {
+            if (obj->hasIndex(b)) {
+                frame.locals[1] = obj->getAtIndex(&frame, b);
+                obj->setAtIndex(&frame, a, frame.locals[1]);
+                obj->deleteAtIndex(b);
+            }
+            return;
+        } else {
+            if (JS_UNLIKELY(!obj->hasIndex(b))) {
+                frame.locals[0] = obj->getAtIndex(&frame, a);
+                obj->setAtIndex(&frame, b, frame.locals[0]);
+                obj->deleteAtIndex(a);
+                return;
+            }
+        }
+
+        frame.locals[0] = obj->getAtIndex(&frame, a);
+        frame.locals[1] = obj->getAtIndex(&frame, b);
+        obj->setAtIndex(&frame, b, frame.locals[0]);
+        obj->setAtIndex(&frame, a, frame.locals[1]);
+    }
+
+    virtual bool less (StackFrame * caller, uint32_t a, uint32_t b)
+    {
+        if (!obj->hasIndex(a)) {
+            return false;
+        } else {
+            if (!obj->hasIndex(b))
+                return true;
+        }
+
+        StackFrameN<0,4,0> frame(caller, NULL, __FILE__ ":GenericSortCB::less()", __LINE__);
+        frame.locals[1] = obj->getAtIndex(&frame, a);
+        frame.locals[2] = obj->getAtIndex(&frame, b);
+
+        if (frame.locals[1].tag == VT_UNDEFINED) {
+            return false;
+        } else {
+            if (frame.locals[2].tag == VT_UNDEFINED)
+                return true;
+        }
+
+        if (compareFn) {
+            frame.locals[3] = compareFn->call(&frame, 3, &frame.locals[0]);
+            return js::toNumber(&frame, frame.locals[3]) < 0;
+        } else {
+            frame.locals[1] = toString(&frame, frame.locals[1]);
+            frame.locals[2] = toString(&frame, frame.locals[2]);
+
+            return frame.locals[1].raw.sval != frame.locals[2].raw.sval &&
+                   ::strcmp(frame.locals[1].raw.sval->getStr(), frame.locals[2].raw.sval->getStr()) < 0;
+        }
+    }
+};
+
+
+TaggedValue arraySort (StackFrame * caller, Env * env, unsigned argc, const TaggedValue * argv)
+{
+    StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":arraySort()", __LINE__);
+    Function * compareFn;
+
+    if (argc > 1) {
+        if (!(compareFn = isFunction(argv[1])))
+            throwTypeError(&frame, "'comparefn' is not callable");
+    } else {
+        compareFn = NULL;
+    }
+
+    // obj = toObject(this)
+    frame.locals[0] = JS_LIKELY(isValueTagObject(argv[0].tag)) ? *argv : js::makeObjectValue(toObject(&frame, argv[0]));
+    Object * obj = frame.locals[0].raw.oval;
+
+    if (IndexedObject * io = dynamic_cast<IndexedObject*>(obj))
+        if (!(io->flags & OF_INDEX_PROPERTIES)) {
+            IndexedObjectSortCB cb(io, compareFn);
+            insertionSort(&frame, &cb, io->getIndexedLength());
+            return frame.locals[0];
+        }
+
+    uint32_t length = js::toUint32(&frame, js::get(caller, frame.locals[0], JS_GET_RUNTIME(&frame)->permStrLength));
+    GenericSortCB cb(obj, compareFn);
+    insertionSort(&frame, &cb, length);
+
+    return frame.locals[0];
+}
+
 TaggedValue errorFunction (StackFrame * caller, Env *, unsigned argc, const TaggedValue * argv)
 {
     StackFrameN<0,2,0> frame(caller, NULL, __FILE__ ":errorFunction" , __LINE__);
@@ -1833,6 +2006,7 @@ Runtime::Runtime (bool strictMode)
         newInit< PrototypeCreator<Object,Array> >(&frame, &frame.locals[0], objectPrototype),
         arrayConstructor, arrayFunction, "Array", 1, &arrayPrototype, &array
     );
+    defineMethod(&frame, arrayPrototype, "sort", 1, arraySort);
     // Error
     //
     systemConstructor(
