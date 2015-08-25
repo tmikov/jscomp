@@ -1777,6 +1777,60 @@ public:
     }
 };
 
+class ArraySortCB : public IExchangeSortCB
+{
+    ArrayBase * obj;
+    Function * compareFn;
+public:
+    ArraySortCB (ArrayBase * obj, Function * compareFn) :
+        obj(obj), compareFn(compareFn)
+    {}
+
+    virtual void swap (StackFrame * caller, uint32_t a, uint32_t b)
+    {
+        TaggedValue * pa = &obj->elems[a];
+        TaggedValue * pb = &obj->elems[b];
+
+        TaggedValue tmp = *pa;
+        *pa = *pb;
+        *pb = tmp;
+    }
+
+    virtual bool less (StackFrame * caller, uint32_t a, uint32_t b)
+    {
+        TaggedValue * pa = &obj->elems[a];
+        TaggedValue * pb = &obj->elems[b];
+
+        if (pa->tag == VT_ARRAY_HOLE) {
+            return false;
+        } else {
+            if (pb->tag == VT_ARRAY_HOLE)
+                return true;
+        }
+
+        if (pa->tag == VT_UNDEFINED) {
+            return false;
+        } else {
+            if (pb->tag == VT_UNDEFINED)
+                return true;
+        }
+
+        StackFrameN<0,4,0> frame(caller, NULL, __FILE__ ":ArraySortCB::less()", __LINE__);
+
+        if (compareFn) {
+            frame.locals[1] = *pa;
+            frame.locals[2] = *pb;
+            frame.locals[3] = compareFn->call(&frame, 3, &frame.locals[0]);
+            return js::toNumber(&frame, frame.locals[3]) < 0;
+        } else {
+            frame.locals[1] = toString(&frame, *pa);
+            frame.locals[2] = toString(&frame, *pb);
+
+            return frame.locals[1].raw.sval != frame.locals[2].raw.sval &&
+                   ::strcmp(frame.locals[1].raw.sval->getStr(), frame.locals[2].raw.sval->getStr()) < 0;
+        }
+    }
+};
 
 TaggedValue arraySort (StackFrame * caller, Env * env, unsigned argc, const TaggedValue * argv)
 {
@@ -1814,12 +1868,18 @@ TaggedValue arraySort (StackFrame * caller, Env * env, unsigned argc, const Tagg
         }
     } else {
         length = io->getIndexedLength();
+        array = dynamic_cast<Array *>(io);
     }
 
 
     if (!(io->flags & OF_INDEX_PROPERTIES)) {
-        IndexedObjectSortCB cb(io, compareFn);
-        insertionSort(&frame, &cb, io->getIndexedLength());
+        if (array) {
+            ArraySortCB cb(array, compareFn);
+            insertionSort(&frame, &cb, length);
+        } else {
+            IndexedObjectSortCB cb(io, compareFn);
+            insertionSort(&frame, &cb, length);
+        }
     } else {
         GenericSortCB cb(obj, compareFn);
         insertionSort(&frame, &cb, length);
