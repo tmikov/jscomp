@@ -33,8 +33,11 @@ void insertionSort (StackFrame * caller, IExchangeSortCB * cb, uint32_t begin, u
     }
 }
 
+#define INSERTION_THRESHOLD 8
+
 static void doQuickSort (StackFrame * caller, IExchangeSortCB * cb, uint32_t l, uint32_t r)
 {
+tail_recursion:
     uint32_t i = l, j = r + 1;
     // The pivot is at [l]
     for(;;) {
@@ -53,16 +56,34 @@ static void doQuickSort (StackFrame * caller, IExchangeSortCB * cb, uint32_t l, 
     if (j != l)
         cb->swap(caller, l, j);
 
-    if (j > l+1)
-        doQuickSort(caller, cb, l, j-1);
-    if (r > j+1)
-        doQuickSort(caller, cb, j+1, r);
+    // To limit the stack size, recurse for the smaller partition and do tail-recursion for the bigger one
+    uint32_t sl = j - l;
+    uint32_t sr = r - j;
+    if (sl <= sr) {
+        if (sl > INSERTION_THRESHOLD)
+            doQuickSort(caller, cb, l, j-1);
+        if (sr > INSERTION_THRESHOLD) {
+            //doQuickSort(caller, cb, j+1, r);
+            l = j+1;
+            goto tail_recursion;
+        }
+
+    } else {
+        if (sr > INSERTION_THRESHOLD)
+            doQuickSort(caller, cb, j+1, r);
+        if (sl > INSERTION_THRESHOLD) {
+            //doQuickSort(caller, cb, l, j-1);
+            r = j-1;
+            goto tail_recursion;
+        }
+    }
 }
 
 void quickSort (StackFrame * caller, IExchangeSortCB * cb, uint32_t begin, uint32_t end)
 {
-   if (end - begin > 1)
+   if (end - begin > INSERTION_THRESHOLD)
        doQuickSort(caller, cb, begin, end-1);
+   insertionSort(caller, cb, begin, end);
 }
 
 }; // namespace js
