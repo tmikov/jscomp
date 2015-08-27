@@ -1636,6 +1636,9 @@ TaggedValue arrayConstructor (StackFrame * caller, Env * env, unsigned argc, con
     return JS_UNDEFINED_VALUE;
 }
 
+static unsigned cmpCount;
+static unsigned swapCount;
+
 class GenericSortCB : public IExchangeSortCB
 {
     Object * obj;
@@ -1647,6 +1650,7 @@ public:
 
     virtual void swap (StackFrame * caller, uint32_t a, uint32_t b)
     {
+        ++swapCount;
         StackFrameN<0,2,0> frame(caller, NULL, __FILE__ ":GenericSortCB::swap()", __LINE__);
         TaggedValue propA = makeNumberValue(a);
         TaggedValue propB = makeNumberValue(b);
@@ -1675,6 +1679,7 @@ public:
 
     virtual bool less (StackFrame * caller, uint32_t a, uint32_t b)
     {
+        ++cmpCount;
         TaggedValue propA = makeNumberValue(a);
         TaggedValue propB = makeNumberValue(b);
 
@@ -1720,6 +1725,7 @@ public:
 
     virtual void swap (StackFrame * caller, uint32_t a, uint32_t b)
     {
+        ++swapCount;
         StackFrameN<0,2,0> frame(caller, NULL, __FILE__ ":GenericSortCB::swap()", __LINE__);
 
         if (JS_UNLIKELY(!obj->hasIndex(a))) {
@@ -1746,6 +1752,7 @@ public:
 
     virtual bool less (StackFrame * caller, uint32_t a, uint32_t b)
     {
+        ++cmpCount;
         if (!obj->hasIndex(a)) {
             return false;
         } else {
@@ -1788,6 +1795,7 @@ public:
 
     virtual void swap (StackFrame * caller, uint32_t a, uint32_t b)
     {
+        ++swapCount;
         TaggedValue * pa = &obj->elems[a];
         TaggedValue * pb = &obj->elems[b];
 
@@ -1798,6 +1806,7 @@ public:
 
     virtual bool less (StackFrame * caller, uint32_t a, uint32_t b)
     {
+        ++cmpCount;
         TaggedValue * pa = &obj->elems[a];
         TaggedValue * pb = &obj->elems[b];
 
@@ -1843,6 +1852,7 @@ public:
 
     void swap (StackFrame * caller, TaggedValue * pa, TaggedValue * pb) const
     {
+        ++swapCount;
         TaggedValue tmp = *pa;
         *pa = *pb;
         *pb = tmp;
@@ -1850,6 +1860,7 @@ public:
 
     bool less (StackFrame * caller, TaggedValue * pa, TaggedValue * pb) const
     {
+        ++cmpCount;
         if (pa->tag == VT_ARRAY_HOLE) {
             return false;
         } else {
@@ -1900,6 +1911,8 @@ TaggedValue arraySort (StackFrame * caller, Env * env, unsigned argc, const Tagg
     IndexedObject * io;
     ArrayBase * array = NULL;
 
+    cmpCount = swapCount = 0;
+
     io = dynamic_cast<IndexedObject*>(obj);
     if (JS_LIKELY(io != NULL && (io->flags & OF_INDEX_PROPERTIES) == 0)) {
         length = io->getIndexedLength();
@@ -1928,6 +1941,10 @@ TaggedValue arraySort (StackFrame * caller, Env * env, unsigned argc, const Tagg
         IndexedObjectSortCB cb(io, compareFn);
         quickSort(&frame, &cb, 0, length);
     }
+
+    printf("compares: %8u\n"
+           "swaps   : %8u\n"
+           "total   : %8u\n", cmpCount, swapCount, cmpCount + swapCount);
 
     if (io != obj) { // Copy back the temporary array we created
         assert(array);

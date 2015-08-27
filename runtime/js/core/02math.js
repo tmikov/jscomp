@@ -70,9 +70,9 @@ hidden(Math, "pow", function math_pow (x, y)
 });
 
 // Initialize the random state
-__asm__({},[],[],[],
-    "js::mathInitRandom();"
-);
+//__asm__({},[],[],[],
+//    "js::mathInitRandom();"
+//);
 hidden(Math, "random", function math_random ()
 {
     return __asm__({},["res"], [], [],
