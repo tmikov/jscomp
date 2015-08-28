@@ -108,4 +108,43 @@ void quickSort (StackFrame * caller, IExchangeSortCB * cb, uint32_t begin, uint3
        insertionSort(caller, cb, begin, end);
 }
 
+/**
+ * @param base the beginning of the logical array
+ */
+static void heapFixDown (StackFrame * caller, IExchangeSortCB * cb, uint32_t base, uint32_t begin, uint32_t end)
+{
+    uint32_t i = begin;
+    uint32_t j = (i - base)*2 + 1 + base;
+    while (j < end) {
+        // Find the greater of the two children
+        if (j+1 < end && cb->less(caller, j, j+1))
+            ++j;
+        // If the child is greater than us, exchange places
+        if (!cb->less(caller, i, j))
+            break;
+
+        cb->swap(caller, i, j);
+        i = j;
+        j = (j - base)*2 + 1 + base;
+    }
+}
+
+static void heapify (StackFrame * caller, IExchangeSortCB * cb, uint32_t begin, uint32_t end)
+{
+    uint32_t start = (end - begin - 2)/2 + begin;
+    do
+        heapFixDown(caller, cb, begin, start, end);
+    while (start-- != begin);
+}
+
+void heapSort (StackFrame * caller, IExchangeSortCB * cb, uint32_t begin, uint32_t end)
+{
+    heapify(caller, cb, begin, end);
+    while (end - begin > 1) {
+        --end;
+        cb->swap(caller, begin, end);
+        heapFixDown(caller, cb, begin, begin, end);
+    }
+}
+
 }; // namespace js

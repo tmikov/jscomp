@@ -20,6 +20,7 @@ struct IExchangeSortCB
 void selectionSort (StackFrame * caller, IExchangeSortCB * cb, uint32_t begin, uint32_t end);
 void insertionSort (StackFrame * caller, IExchangeSortCB * cb, uint32_t begin, uint32_t end);
 void quickSort (StackFrame * caller, IExchangeSortCB * cb, uint32_t begin, uint32_t end);
+void heapSort (StackFrame * caller, IExchangeSortCB * cb, uint32_t begin, uint32_t end);
 
 template <class CB, class IT>
 void insertionSortAlg (StackFrame * caller, const CB & cb, IT begin, IT end)
