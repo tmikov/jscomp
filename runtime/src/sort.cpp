@@ -34,7 +34,7 @@ void insertionSort (StackFrame * caller, IExchangeSortCB * cb, uint32_t begin, u
 }
 
 // Must be at lest 3, for "median of three" to work
-#define INSERTION_THRESHOLD 8
+#define INSERTION_THRESHOLD 6
 
 static void doQuickSort (StackFrame * caller, IExchangeSortCB * cb, int limit, uint32_t l, uint32_t r)
 {
