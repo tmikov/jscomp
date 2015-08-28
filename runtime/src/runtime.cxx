@@ -1924,14 +1924,14 @@ TaggedValue arraySort (StackFrame * caller, Env * env, unsigned argc, const Tagg
     if (!(io->flags & OF_INDEX_PROPERTIES)) {
         if (array) {
             ArraySortCB cb(array, compareFn);
-            heapSort(&frame, &cb, 0, length);
+            quickSort(&frame, &cb, 0, length);
         } else {
             IndexedObjectSortCB cb(io, compareFn);
-            heapSort(&frame, &cb, 0, length);
+            quickSort(&frame, &cb, 0, length);
         }
     } else {
         GenericSortCB cb(obj, compareFn);
-        heapSort(&frame, &cb, 0, length);
+        quickSort(&frame, &cb, 0, length);
     }
 
     if (io != obj) { // Copy back the temporary array we created

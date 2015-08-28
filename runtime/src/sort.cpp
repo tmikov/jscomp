@@ -36,9 +36,15 @@ void insertionSort (StackFrame * caller, IExchangeSortCB * cb, uint32_t begin, u
 // Must be at lest 3, for "median of three" to work
 #define INSERTION_THRESHOLD 8
 
-static void doQuickSort (StackFrame * caller, IExchangeSortCB * cb, uint32_t l, uint32_t r)
+static void doQuickSort (StackFrame * caller, IExchangeSortCB * cb, int limit, uint32_t l, uint32_t r)
 {
 tail_recursion:
+    if (limit <= 0) {
+        // Bail to heap sort
+        heapSort(caller, cb, l, r+1);
+        return;
+    }
+
     // Median-of-three
     // Place the middle element at [l+1]
     cb->swap(caller, l+1, l + ((r - l)>>1));
@@ -74,12 +80,13 @@ tail_recursion:
     uint32_t sr = r - j;
     if (sl <= sr) {
         if (sl > INSERTION_THRESHOLD)
-            doQuickSort(caller, cb, l, j-1);
+            doQuickSort(caller, cb, limit-1, l, j-1);
         else
             insertionSort(caller, cb, l, j);
 
         if (sr > INSERTION_THRESHOLD) {
             l = j+1;
+            --limit;
             goto tail_recursion;
         } else {
             insertionSort(caller, cb, j+1, r+1);
@@ -87,12 +94,13 @@ tail_recursion:
 
     } else {
         if (sr > INSERTION_THRESHOLD)
-            doQuickSort(caller, cb, j+1, r);
+            doQuickSort(caller, cb, limit-1, j+1, r);
         else
             insertionSort(caller, cb, j+1, r+1);
 
         if (sl > INSERTION_THRESHOLD) {
             r = j-1;
+            --limit;
             goto tail_recursion;
         } else {
             insertionSort(caller, cb, l, j);
@@ -100,10 +108,24 @@ tail_recursion:
     }
 }
 
+static inline int log2of (uint32_t v)
+{
+    if (v <= 1)
+        return 1;
+    --v;
+    int res = 0;
+    if (v & 0xFFFF0000) { res += 16; v >>= 16; };
+    if (v & 0xFF00)     { res += 8; v >>= 8; };
+    if (v & 0xF0)       { res += 4; v >>= 4; };
+    if (v & 0x0C)       { res += 2; v >>= 2; };
+    if (v & 0x02)       { res += 1; v >>= 1; };
+    return res + 1;
+}
+
 void quickSort (StackFrame * caller, IExchangeSortCB * cb, uint32_t begin, uint32_t end)
 {
    if (end - begin > INSERTION_THRESHOLD)
-       doQuickSort(caller, cb, begin, end-1);
+       doQuickSort(caller, cb, log2of(end - begin)*2, begin, end-1);
    else
        insertionSort(caller, cb, begin, end);
 }
@@ -113,9 +135,14 @@ void quickSort (StackFrame * caller, IExchangeSortCB * cb, uint32_t begin, uint3
  */
 static void heapFixDown (StackFrame * caller, IExchangeSortCB * cb, uint32_t base, uint32_t begin, uint32_t end)
 {
+    if (JS_UNLIKELY(end - begin <= 1))
+        return;
+
+    uint32_t lastGood = base + (end - base - 2)/2;
     uint32_t i = begin;
-    uint32_t j = (i - base)*2 + 1 + base;
-    while (j < end) {
+
+    while (i <= lastGood) {
+        uint32_t j = (i - base)*2 + 1 + base;
         // Find the greater of the two children
         if (j+1 < end && cb->less(caller, j, j+1))
             ++j;
@@ -125,21 +152,20 @@ static void heapFixDown (StackFrame * caller, IExchangeSortCB * cb, uint32_t bas
 
         cb->swap(caller, i, j);
         i = j;
-        j = (j - base)*2 + 1 + base;
     }
-}
-
-static void heapify (StackFrame * caller, IExchangeSortCB * cb, uint32_t begin, uint32_t end)
-{
-    uint32_t start = (end - begin - 2)/2 + begin;
-    do
-        heapFixDown(caller, cb, begin, start, end);
-    while (start-- != begin);
 }
 
 void heapSort (StackFrame * caller, IExchangeSortCB * cb, uint32_t begin, uint32_t end)
 {
-    heapify(caller, cb, begin, end);
+    if (JS_UNLIKELY(end - begin <= 1))
+        return;
+
+    // "heapify"
+    uint32_t start = (end - begin - 2)/2 + begin;
+    do
+        heapFixDown(caller, cb, begin, start, end);
+    while (start-- != begin);
+
     while (end - begin > 1) {
         --end;
         cb->swap(caller, begin, end);
