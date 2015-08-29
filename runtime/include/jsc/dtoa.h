@@ -10,6 +10,7 @@ extern "C" {
 #endif
 
 char *g_fmt(char *, double);
+double g_strtod(const char *s00, char **se);
 
 #ifdef __cplusplus
 }

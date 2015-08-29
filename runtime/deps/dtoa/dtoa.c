@@ -524,7 +524,7 @@ BCinfo { int dp0, dp1, dplen, dsign, e0, inexact, nd, nd0, rounding, scale, uflc
 #define Kmax 7
 
 #ifdef __cplusplus
-extern "C" double strtod(const char *s00, char **se);
+extern "C" double g_strtod(const char *s00, char **se);
 extern "C" char *dtoa(double d, int mode, int ndigits,
 			int *decpt, int *sign, char **rve);
 #endif
@@ -2486,7 +2486,7 @@ retlow1:
 #endif /* NO_STRTOD_BIGCOMP */
 
  double
-strtod
+g_strtod
 #ifdef KR_headers
 	(s00, se) CONST char *s00; char **se;
 #else
