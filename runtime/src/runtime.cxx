@@ -1901,8 +1901,12 @@ TaggedValue arraySort (StackFrame * caller, Env * env, unsigned argc, const Tagg
     ArrayBase * array = NULL;
 
     io = dynamic_cast<IndexedObject*>(obj);
-    if (JS_UNLIKELY(!io)) {
-        // Not an indexed object. A very unlikely and very slow case. So, we copy it into an array
+    if (JS_LIKELY(io != NULL && (io->flags & OF_INDEX_PROPERTIES) == 0)) {
+        length = io->getIndexedLength();
+        // Also check if it is an array for even better performance
+        array = dynamic_cast<Array *>(io);
+    } else {
+        // A very unlikely and very slow case. So, we copy it into an array
         length = js::toUint32(&frame, js::get(caller, frame.locals[0], JS_GET_RUNTIME(&frame)->permStrLength));
         if (!length)
             return frame.locals[0];
@@ -1915,22 +1919,13 @@ TaggedValue arraySort (StackFrame * caller, Env * env, unsigned argc, const Tagg
             if (obj->hasComputed(&frame, ip))
                 *p = obj->getComputed(&frame, ip);
         }
-    } else {
-        length = io->getIndexedLength();
-        array = dynamic_cast<Array *>(io);
     }
 
-
-    if (!(io->flags & OF_INDEX_PROPERTIES)) {
-        if (array) {
-            ArraySortCB cb(array, compareFn);
-            quickSort(&frame, &cb, 0, length);
-        } else {
-            IndexedObjectSortCB cb(io, compareFn);
-            quickSort(&frame, &cb, 0, length);
-        }
+    if (array) {
+        ArraySortCB cb(array, compareFn);
+        quickSort(&frame, &cb, 0, length);
     } else {
-        GenericSortCB cb(obj, compareFn);
+        IndexedObjectSortCB cb(io, compareFn);
         quickSort(&frame, &cb, 0, length);
     }
 
@@ -1940,6 +1935,8 @@ TaggedValue arraySort (StackFrame * caller, Env * env, unsigned argc, const Tagg
         for ( uint32_t i = 0; i < length; ++i, ++p ) {
             if (p->tag != VT_ARRAY_HOLE)
                 obj->putComputed(&frame, makeNumberValue(i), *p);
+            else
+                obj->deleteComputed(&frame, makeNumberValue(i));
         }
     }
 
