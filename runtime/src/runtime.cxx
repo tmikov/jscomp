@@ -6,6 +6,7 @@
 #include "jsc/jsimpl.h"
 #include "jsc/config.h"
 #include "jsc/sort.h"
+#include "jsc/dtoa.h"
 
 #include <assert.h>
 #include <stdarg.h>
@@ -2025,6 +2026,8 @@ Runtime::Runtime (bool strictMode)
     permStrTrue = internString(&frame, true, "true");
     permStrFalse = internString(&frame, true, "false");
     permStrNaN = internString(&frame, true, "NaN");
+    permStrInfinity = internString(&frame, true, "Infinity");
+    permStrMinusInfinity = internString(&frame, true, "-Infinity");
     permStrPrototype = internString(&frame, true, "prototype");
     permStrConstructor = internString(&frame, true, "constructor");
     permStrLength = internString(&frame, true, "length");
@@ -2631,13 +2634,7 @@ Object * toObject (StackFrame * caller, TaggedValue v)
 
 TaggedValue toString (StackFrame * caller, double n)
 {
-    if (isnan(n))
-        return makeStringValue(JS_GET_RUNTIME(caller)->permStrNaN);
-    else {
-        char buf[64];
-        sprintf(buf, "%.16g", n);
-        return makeStringValue(caller, buf);
-    }
+    return makeStringValue(numberToString(caller, n, 10));
 }
 
 TaggedValue toString (StackFrame * caller, TaggedValue v)

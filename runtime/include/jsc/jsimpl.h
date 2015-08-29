@@ -83,6 +83,8 @@ public:
             growTo(caller, m_len + 1);
         addUnsafe(ch);
     }
+
+    void reverse (size_t begin, size_t end);
 };
 
 template <unsigned BITSET_SIZE>

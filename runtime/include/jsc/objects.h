@@ -914,6 +914,8 @@ struct Runtime
     const StringPrim * permStrTrue;
     const StringPrim * permStrFalse;
     const StringPrim * permStrNaN;
+    const StringPrim * permStrInfinity;
+    const StringPrim * permStrMinusInfinity;
     const StringPrim * permStrPrototype;
     const StringPrim * permStrConstructor;
     const StringPrim * permStrLength;
@@ -1160,6 +1162,8 @@ TaggedValue toString (StackFrame * caller, TaggedValue v);
 TaggedValue concatString (StackFrame * caller, StringPrim * a, StringPrim * b);
 bool less (const StringPrim * a, const StringPrim * b);
 bool equal (const StringPrim * a, const StringPrim * b);
+
+const StringPrim * numberToString (StackFrame * caller, double n, int radix);
 
 // Operators
 TaggedValue operator_ADD (StackFrame * caller, TaggedValue a, TaggedValue b);

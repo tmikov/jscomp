@@ -29,4 +29,20 @@ const StringPrim * StringBuilder::toStringPrim (StackFrame * caller) const
     return s;
 }
 
+void StringBuilder::reverse (size_t begin, size_t end)
+{
+    if (begin != end) {
+        unsigned char * b = m_buf + begin;
+        unsigned char * e = m_buf + end;
+        --e;
+        while (b < e) {
+            unsigned char t = *b;
+            *b = *e;
+            *e = t;
+            ++b;
+            --e;
+        }
+    }
+}
+
 }; // namespace js
