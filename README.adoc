@@ -148,3 +148,5 @@ Components with different licenses:
 
 * Acorn is licensed under the terms of its license in +acorn/LICENSE+.
 * pcre2 is licensed under the terms of its license in +runtime/deps/pcre2/LICENSE+.
+* dtoa and g_fmt are licensed under the terms of the license in +runtime/deps/dtoa/dtoa.c+ and
+  +runtime/deps/dtoa/g_fmt.c+.
