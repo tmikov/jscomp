@@ -1,0 +1,10 @@
+var assert = require("assert");
+assert.equal(parseFloat("3.14"), 3.14);
+assert.equal(parseFloat("-3.14"), -3.14);
+assert.equal(parseFloat("   +3.14"), 3.14);
+assert(isNaN(parseFloat("")));
+assert(isNaN(parseFloat("INFINITY")));
+assert(isNaN(parseFloat("NaN")));
+assert.equal(parseFloat("Infinity"), Infinity);
+assert.equal(parseFloat(" -Infinity"), -Infinity);
+assert.equal(parseFloat("+Infinity"), Infinity);

@@ -57,4 +57,34 @@ const StringPrim * numberToString (StackFrame * caller, double n, int radix)
     return buf.toStringPrim(caller);
 };
 
+double parseFloat (StackFrame * caller, const char * s)
+{
+    while (isspace(*s))
+        ++s;
+    // Normally [g_]strtod() does a case insensitive check for Infinity and NaN, which we cannot allow. We have compiled
+    // out g_strtod with NO_INFNAN_CHECK to prevent the checking entirely
+    const char * t = s;
+    bool minus = false;
+    if (*t == '+') // skip the sign
+        ++t;
+    else if (*t == '-') {
+        minus = true;
+        ++t;
+    }
+    if (isalpha(*t)) {
+        if (strncmp(t, "Infinity", 8) == 0)
+            return minus ? -INFINITY : INFINITY;
+        // In all other cases return NAN. The strings is either "NaN", or is invalid, and in both cases we return the
+        // the same result
+        return NAN;
+    }
+
+    char * e;
+    double res = g_strtod(s, &e);
+    if (JS_UNLIKELY(e == s))
+        return NAN;
+    return res;
+}
+
+
 }; // js

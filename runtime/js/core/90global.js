@@ -7,6 +7,7 @@ global = {};
 hidden(global, "isNaN", isNaN);
 hidden(global, "isFinite", isFinite);
 hidden(global, "parseInt", parseInt);
+hidden(global, "parseFloat", parseFloat);
 hidden(global, "decodeURI", decodeURI);
 hidden(global, "decodeURIComponent", decodeURIComponent);
 hidden(global, "encodeURI", decodeURI);

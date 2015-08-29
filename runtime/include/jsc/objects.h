@@ -1164,6 +1164,7 @@ bool less (const StringPrim * a, const StringPrim * b);
 bool equal (const StringPrim * a, const StringPrim * b);
 
 const StringPrim * numberToString (StackFrame * caller, double n, int radix);
+double parseFloat (StackFrame * caller, const char * s);
 
 // Operators
 TaggedValue operator_ADD (StackFrame * caller, TaggedValue a, TaggedValue b);

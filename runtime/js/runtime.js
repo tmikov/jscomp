@@ -34,6 +34,16 @@ function parseInt (string, radix)
     );
 }
 
+function parseFloat (string)
+{
+    var inputString = String(string);
+
+    return __asm__({},["res"],[["inputString",inputString]],[],
+        "const char * s = %[inputString].raw.sval->getStr();\n" +
+        "%[res] = js::makeNumberValue(js::parseFloat(%[%frame], s));"
+    );
+}
+
 function decodeURI (encodedURI)
 {
     var uriString = String(encodedURI);
