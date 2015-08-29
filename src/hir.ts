@@ -1451,8 +1451,17 @@ export class FunctionBuilder
             return "NAN";
         else if (!isFinite(n))
             return n > 0 ? "INFINITY" : "-INFINITY";
-        else
-            return String(n);
+        else {
+            var res = String(n);
+
+            if ((n | 0) === n || (n >>> 0) === n) // is it an integer?
+                return res;
+
+            if (res.indexOf(".") < 0) // If there is no decimal point, we must add it
+                return res + ".0";
+            else
+                return res;
+        }
     }
 
     private strRValue (rv: RValue): string
