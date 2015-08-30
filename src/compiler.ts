@@ -2181,7 +2181,7 @@ function compileSource (
         ctx.builder.genCreate(dest, objProto);
 
         props.forEach((propDesc: ObjectExprProp) => {
-            if (!propDesc.name) { // if this property was overwritten?
+            if (propDesc.name === null) { // if this property was overwritten?
                 // compile and ignore the values
                 if (propDesc.value)
                     compileSubExpression(scope, propDesc.value, false, null, null);
