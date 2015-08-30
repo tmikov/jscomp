@@ -517,11 +517,21 @@ hidden(Boolean.prototype, "toString", function boolean_tostring()
     var b;
     if (typeof this === "boolean")
         b = this;
-    else if (getInternalClass(this) === 8) // ICLS_BOOLEAN
+    else if (getInternalClass(this) === ICLS_BOOLEAN)
         b = Boolean(this);
     else
         throw TypeError("Boolean.prototype.toString called with a non-boolean");
     return b ? "true" : "false";
+});
+
+hidden(Boolean.prototype, "valueOf", function boolean_valueOf()
+{
+    if (typeof this === "boolean")
+        return this;
+    else if (getInternalClass(this) === ICLS_BOOLEAN)
+        return Boolean(this);
+    else
+        throw TypeError("not a boolean");
 });
 
 // String
@@ -553,3 +563,16 @@ hidden(String.prototype, "indexOf", function string_indexOf (searchString, posit
         "  %[result] = js::makeNumberValue(-1);"
     );
 });
+
+function string_toString ()
+{
+    if (typeof this === "string")
+        return this;
+    else if (getInternalClass(this) === ICLS_STRING)
+        return String(this);
+    else
+        throw TypeError("not a string");
+}
+
+hidden(String.prototype, "toString", string_toString);
+hidden(String.prototype, "valueOf", string_toString);

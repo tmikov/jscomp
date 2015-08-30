@@ -23,3 +23,13 @@ hidden(Number.prototype, "toString", function number_toString (radix)
     );
 
 });
+
+hidden(Number.prototype, "valueOf", function number_valueOf()
+{
+    if (typeof this === "number")
+        return this;
+    else if (getInternalClass(this) === ICLS_NUMBER)
+        return Number(this);
+    else
+        throw TypeError("not a number");
+});
