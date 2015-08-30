@@ -583,7 +583,8 @@ function isPrimitive(arg) {
 exports.isPrimitive = isPrimitive;
 
 function isBuffer(arg) {
-  return arg instanceof Buffer;
+  //return arg instanceof Buffer;
+  return Buffer.isBuffer(arg);
 }
 exports.isBuffer = isBuffer;
 
