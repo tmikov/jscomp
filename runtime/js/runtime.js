@@ -131,3 +131,5 @@ var Date;
 var global;
 var process;
 var console;
+var buffer;
+var Buffer;

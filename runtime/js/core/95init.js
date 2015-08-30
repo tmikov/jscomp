@@ -6,4 +6,6 @@ function runtimeInit ()
 {
     process = moduleRequire("process");
     console = moduleRequire("console");
+    buffer = moduleRequire("buffer");
+    Buffer = buffer.Buffer;
 }
