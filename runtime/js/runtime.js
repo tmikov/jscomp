@@ -127,4 +127,5 @@ function URIError (message)
 
 var Math;
 var RegExp;
+var Date;
 var global;
