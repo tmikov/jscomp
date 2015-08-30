@@ -16,3 +16,7 @@ hidden(global, "SyntaxError", SyntaxError);
 hidden(global, "InternalError", InternalError);
 hidden(global, "RangeError", RangeError);
 hidden(global, "URIError", URIError);
+
+hidden(global, "Math", Math);
+hidden(global, "RegExp", RegExp);
+hidden(global, "Date", Date);
