@@ -697,13 +697,40 @@ class Modules
     }
 }
 
-interface Runtime
+class Runtime
 {
     ctx: FunctionContext;
-    moduleRequire: Variable;
-    defineModule: Variable;
-    _defineAccessor: Variable;
-    regExp: Variable;
+    moduleRequire: Variable = null;
+    defineModule: Variable = null;
+    _defineAccessor: Variable = null;
+    regExp: Variable = null;
+
+    constructor (ctx: FunctionContext)
+    {
+        this.ctx = ctx;
+    }
+
+    public lookupSymbols (coreScope: Scope): void
+    {
+        if (!this.moduleRequire)
+            this.moduleRequire = coreScope.lookup("moduleRequire");
+        if (!this.defineModule)
+            this.defineModule = coreScope.lookup("defineModule");
+        if (!this._defineAccessor)
+            this._defineAccessor = coreScope.lookup("_defineAccessor");
+        if (!this.regExp)
+            this.regExp  = coreScope.lookup("$RegExp");
+    }
+
+    public allSymbolsDefined (): boolean
+    {
+        return !!(
+            this.moduleRequire &&
+            this.defineModule &&
+            this._defineAccessor &&
+            this.regExp
+        );
+    }
 }
 
 class SpecialVars
@@ -711,6 +738,15 @@ class SpecialVars
     require: Variable = null;
     _defineAccessor: Variable = null;
     regExp: Variable = null;
+
+    constructor (r?: Runtime)
+    {
+        if (r) {
+            this.require = r.moduleRequire;
+            this._defineAccessor = r._defineAccessor;
+            this.regExp = r.regExp;
+        }
+    }
 }
 
 class AsmBinding {
@@ -3441,18 +3477,14 @@ export function compile (
         if (!compileSource(runtimeCtx.scope, runtimeCtx.scope, runtimeFileName, m_reporter, new SpecialVars(), m_modules, m_options))
             return null;
 
-        var coreScope = compileCoreFiles(runtimeCtx, coreFilesDir);
+        var r: Runtime = new Runtime(runtimeCtx);
+
+        var coreScope = compileCoreFiles(r, coreFilesDir);
         if (!coreScope)
             return null;
 
-        var r: Runtime = {
-            ctx: runtimeCtx,
-            moduleRequire: coreScope.lookup("moduleRequire"),
-            defineModule: coreScope.lookup("defineModule"),
-            _defineAccessor: coreScope.lookup("_defineAccessor"),
-            regExp: coreScope.lookup("$RegExp")
-        };
-        if (!r.moduleRequire || !r.defineModule || !r._defineAccessor)
+        r.lookupSymbols(coreScope);
+        if (!r.allSymbolsDefined())
             error(null, "internal symbols missing from runtime");
 
         return r;
@@ -3462,20 +3494,22 @@ export function compile (
      * Compile a core file in a nested scope. We want to achieve visibility separation, but
      * we don't want the physical separation of another environment, etc.
      */
-    function compileInANestedScope (coreCtx: FunctionContext, fileName: string): Scope
+    function compileInANestedScope (r: Runtime, coreCtx: FunctionContext, fileName: string): Scope
     {
         var scope = new Scope(coreCtx, true, coreCtx.scope);
-        if (!compileInAScope(scope, fileName))
+        if (!compileInAScope(r, scope, fileName))
             return null;
         return scope;
     }
 
-    function compileCoreFiles (runtimeCtx: FunctionContext, coreFilesDir: string): Scope
+    function compileCoreFiles (r: Runtime, coreFilesDir: string): Scope
     {
+        var runtimeCtx: FunctionContext = r.ctx;
         var coreScope = new Scope(runtimeCtx, true, runtimeCtx.scope);
 
+        var entries: string[];
         try {
-        var entries: string[] = fs.readdirSync(coreFilesDir);
+            entries = fs.readdirSync(coreFilesDir);
         } catch (e) {
             error(null, `cannot access '${coreFilesDir}'`);
             return null;
@@ -3484,9 +3518,12 @@ export function compile (
         entries.sort();
         for ( var i = 0, e = entries.length; i < e; ++i ) {
             var entry = entries[i];
-            if (entry[0] !== "." && path.extname(entry) === ".js")
-                if (!compileInAScope(coreScope, path.join(coreFilesDir,entry)))
+            if (entry[0] !== "." && path.extname(entry) === ".js") {
+                if (!compileInAScope(r, coreScope, path.join(coreFilesDir,entry)))
                     return null;
+                // Update the internal symbols after every new core file
+                r.lookupSymbols(coreScope);
+            }
         }
 
         return coreScope;
@@ -3496,11 +3533,12 @@ export function compile (
      * Compile a core file in a pre-defined scope. We want to achieve visibility separation, but
      * we don't want the physical separation of another environment, etc.
      */
-    function compileInAScope (scope: Scope, fileName: string): boolean
+    function compileInAScope (r: Runtime, scope: Scope, fileName: string): boolean
     {
         var coreCtx: FunctionContext = scope.ctx;
+        var specialVars = new SpecialVars(r);
         definePaths(scope, fileName);
-        return compileSource(scope, coreCtx.scope, fileName, m_reporter, new SpecialVars(), m_modules, m_options);
+        return compileSource(scope, coreCtx.scope, fileName, m_reporter, specialVars, m_modules, m_options);
     }
 
     function compileModule (runtime: Runtime, parentContext: FunctionContext, fileName: string): Variable
@@ -3516,10 +3554,8 @@ export function compile (
         var modp = ctx.addParam("module");
         var require = ctx.addParam("require");
 
-        var specVars = new SpecialVars();
+        var specVars = new SpecialVars(runtime);
         specVars.require = require;
-        specVars._defineAccessor = runtime._defineAccessor;
-        specVars.regExp = runtime.regExp;
 
         var tmp = ctx.allocTemp();
         modp.setAccessed(true, ctx);
