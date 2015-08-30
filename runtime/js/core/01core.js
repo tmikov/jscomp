@@ -236,6 +236,14 @@ hidden(Object.prototype, "toLocaleString", function object_toLocaleString()
     return this.toString();
 });
 
+hidden(Object.prototype, "hasOwnProperty", function object_hasOwnProperty(V)
+{
+    var O = Object(this);
+    return __asm__({},["res"],[["O", O], ["V", V]],[],
+        "%[res] = js::makeBooleanValue(%[O].raw.oval->hasComputed(%[%frame], %[V], true));"
+    );
+});
+
 // Function
 //
 hidden(Function.prototype, "call", function function_call (thisArg)
