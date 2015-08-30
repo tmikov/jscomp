@@ -128,6 +128,7 @@ function URIError (message)
 var Math;
 var RegExp;
 var Date;
+var JSON;
 var global;
 var process;
 var console;

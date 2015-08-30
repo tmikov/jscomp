@@ -20,3 +20,4 @@ hidden(global, "URIError", URIError);
 hidden(global, "Math", Math);
 hidden(global, "RegExp", RegExp);
 hidden(global, "Date", Date);
+hidden(global, "JSON", JSON);
