@@ -2094,7 +2094,7 @@ function compileSource (
             var name: string;
 
             if (prop.computed) {
-                error(location(prop), "computer object expression not supported in ES5");
+                error(location(prop), "computed object expression not supported in ES5");
                 errors = true;
                 return;
             }
