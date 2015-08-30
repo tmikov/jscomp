@@ -584,3 +584,37 @@ function string_toString ()
 
 hidden(String.prototype, "toString", string_toString);
 hidden(String.prototype, "valueOf", string_toString);
+
+hidden(String.prototype, "split", function string_split (separator, limit)
+{
+    if (this === null || this === undefined)
+        throw TypeError("'this' not coercible to string");
+    var S = String(this);
+    var A = [];
+    var lim = limit === undefined ? 0xFFFFFFFF : limit >>> 0;
+
+    if (lim === 0)
+        return A;
+
+    if (separator === undefined) {
+        A[0] = S;
+        return A;
+    }
+
+    var R = String(separator);
+    var Rlen = R.length;
+
+    var lastIndex = 0;
+    var index;
+    var len = 0;
+    while ((index = S.indexOf(R, lastIndex)) >= 0) {
+        A[len++] = S.slice(lastIndex, index);
+        if (len >= lim)
+            return A;
+        lastIndex = index + Rlen;
+    }
+    if (lastIndex < S.length)
+        A[len++] = S.slice(lastIndex);
+
+    return A;
+});
