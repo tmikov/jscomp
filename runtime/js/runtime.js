@@ -129,3 +129,5 @@ var Math;
 var RegExp;
 var Date;
 var global;
+var process;
+var console;

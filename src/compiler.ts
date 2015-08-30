@@ -704,6 +704,7 @@ class Runtime
     defineModule: Variable = null;
     _defineAccessor: Variable = null;
     regExp: Variable = null;
+    runtimeInit: Variable = null;
 
     constructor (ctx: FunctionContext)
     {
@@ -720,6 +721,8 @@ class Runtime
             this._defineAccessor = coreScope.lookup("_defineAccessor");
         if (!this.regExp)
             this.regExp  = coreScope.lookup("$RegExp");
+        if (!this.runtimeInit)
+            this.runtimeInit = coreScope.lookup("runtimeInit");
     }
 
     public allSymbolsDefined (): boolean
@@ -728,7 +731,8 @@ class Runtime
             this.moduleRequire &&
             this.defineModule &&
             this._defineAccessor &&
-            this.regExp
+            this.regExp &&
+            this.runtimeInit
         );
     }
 }
@@ -3381,19 +3385,9 @@ export function compile (
             return;
 
         // Resolve and compile all system modules
-        var sysModNames: string[] = ["process", "console"];
-        var sysModules: Module[] = new Array<Module>(sysModNames.length);
-
-        for ( var i = 0; i < sysModNames.length; ++i )
-            sysModules[i] = m_modules.resolve("",sysModNames[i]);
         if (!compileResolvedModules(runtime))
             return;
-        for ( var i = 0; i < sysModNames.length; ++i ) {
-            var modvar = runtime.ctx.scope.newVariable(sysModNames[i]);
-            modvar.declared = true;
-            modvar.setAssigned(runtime.ctx);
-            callModuleRequire(runtime, sysModules[i], modvar.hvar);
-        }
+        callRuntimeInit(runtime);
 
         // Resolve main
         var main: Module = m_modules.resolve("", path.resolve(process.cwd(), m_fileName));
@@ -3579,6 +3573,15 @@ export function compile (
         ]);
         m.modVar.setAccessed(true, ctx);
         runtime.defineModule.setAccessed(true, ctx);
+    }
+
+    function callRuntimeInit (runtime: Runtime): void
+    {
+        var ctx = runtime.ctx;
+        ctx.builder.genCall(null, runtime.runtimeInit.hvar, [
+            hir.undefinedValue
+        ]);
+        runtime.runtimeInit.setAccessed(true, ctx);
     }
 
     function callModuleRequire (runtime: Runtime, m: Module, result: hir.LValue = null): void
