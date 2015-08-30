@@ -907,8 +907,10 @@ function compileSource (
         var startIndex: number = 0;
         if (body.length && matchStrictMode(body[0])) {
             startIndex = 1;
-            scope.ctx.strictMode = true;
-            note(location(body[0]), "strict mode enabled");
+            if (!scope.ctx.strictMode) {
+                scope.ctx.strictMode = true;
+                note(location(body[0]), "strict mode enabled");
+            }
         }
 
         // Scan for declarations
