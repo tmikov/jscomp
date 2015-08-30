@@ -188,6 +188,13 @@ TaggedValue Object::get (StackFrame * caller, const StringPrim * name)
     return JS_UNDEFINED_VALUE;
 }
 
+TaggedValue Object::getOwn (StackFrame * caller, const StringPrim * name)
+{
+    if (Property * p = getOwnProperty(name))
+        return getPropertyValue(caller, p);
+    return JS_UNDEFINED_VALUE;
+}
+
 void Object::put (StackFrame * caller, const StringPrim * name, TaggedValue v)
 {
     if (JS_LIKELY(!(this->flags & OF_NOWRITE))) {
@@ -220,18 +227,20 @@ void Object::put (StackFrame * caller, const StringPrim * name, TaggedValue v)
         throwTypeError(caller, "Property '%s' is not writable", name->getStr());
 }
 
-bool Object::hasComputed (StackFrame * caller, TaggedValue propName)
+bool Object::hasComputed (StackFrame * caller, TaggedValue propName, bool own)
 {
     StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":Object::hasComputed()", __LINE__);
     frame.locals[0] = toString(&frame, propName);
-    return this->hasProperty(frame.locals[0].raw.sval);
+    return JS_LIKELY(!own) ?
+        this->hasProperty(frame.locals[0].raw.sval) : this->hasOwnProperty(frame.locals[0].raw.sval);
 }
 
-TaggedValue Object::getComputed (StackFrame * caller, TaggedValue propName)
+TaggedValue Object::getComputed (StackFrame * caller, TaggedValue propName, bool own)
 {
     StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":Object::getComputed()", __LINE__);
     frame.locals[0] = toString(&frame, propName);
-    return this->get(&frame, frame.locals[0].raw.sval);
+    return JS_LIKELY(!own) ?
+        this->get(&frame, frame.locals[0].raw.sval) : this->getOwn(&frame, frame.locals[0].raw.sval);
 }
 
 void Object::putComputed (StackFrame * caller, TaggedValue propName, TaggedValue v)
@@ -363,11 +372,11 @@ ForInIterator * IndexedObject::makeIterator (StackFrame * caller)
     return it;
 }
 
-bool IndexedObject::hasComputed (StackFrame * caller, TaggedValue propName)
+bool IndexedObject::hasComputed (StackFrame * caller, TaggedValue propName, bool own)
 {
     uint32_t index;
     // Fast path
-    if (!(this->flags & OF_INDEX_PROPERTIES) && isValidArrayIndexNumber(propName, &index))
+    if (JS_LIKELY(!(this->flags & OF_INDEX_PROPERTIES) && isValidArrayIndexNumber(propName, &index)))
         return hasIndex(index);
 
     StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":ArrayBase::hasComputed()", __LINE__);
@@ -375,21 +384,26 @@ bool IndexedObject::hasComputed (StackFrame * caller, TaggedValue propName)
 
     if (this->flags & OF_INDEX_PROPERTIES) {
         // index-like properties exist in the object, so we must check them first
-        if (hasProperty(frame.locals[0].raw.sval))
+        if (!own ? hasProperty(frame.locals[0].raw.sval) : hasOwnProperty(frame.locals[0].raw.sval))
             return true;
+
+        if (isIndexString(frame.locals[0].raw.sval->getStr(), &index))
+            return hasIndex(index);
+
+        return false;
+    } else {
+        if (isIndexString(frame.locals[0].raw.sval->getStr(), &index))
+            return hasIndex(index);
+
+        return !own ? hasProperty(frame.locals[0].raw.sval) : hasOwnProperty(frame.locals[0].raw.sval);
     }
-
-    if (isIndexString(frame.locals[0].raw.sval->getStr(), &index))
-        return hasIndex(index);
-
-    return this->hasProperty(frame.locals[0].raw.sval);
 }
 
-TaggedValue IndexedObject::getComputed (StackFrame * caller, TaggedValue propName)
+TaggedValue IndexedObject::getComputed (StackFrame * caller, TaggedValue propName, bool own)
 {
     uint32_t index;
     // Fast path
-    if (!(this->flags & OF_INDEX_PROPERTIES) && isValidArrayIndexNumber(propName, &index))
+    if (JS_LIKELY(!(this->flags & OF_INDEX_PROPERTIES) && isValidArrayIndexNumber(propName, &index)))
         return getAtIndex(caller, index);
 
     StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":ArrayBase::getComputed()", __LINE__);
@@ -398,14 +412,19 @@ TaggedValue IndexedObject::getComputed (StackFrame * caller, TaggedValue propNam
     if (this->flags & OF_INDEX_PROPERTIES) {
         // index-like properties exist in the object, so we must check them first
         Object * propObj;
-        if (Property * p = getProperty(frame.locals[0].raw.sval, &propObj))
+        if (Property * p = !own ? getProperty(frame.locals[0].raw.sval, &propObj) : getOwnProperty(frame.locals[0].raw.sval))
             return getPropertyValue(&frame, p);
+
+        if (isIndexString(frame.locals[0].raw.sval->getStr(), &index))
+            return getAtIndex(&frame, index);
+
+        return JS_UNDEFINED_VALUE;
+    } else {
+        if (isIndexString(frame.locals[0].raw.sval->getStr(), &index))
+            return getAtIndex(&frame, index);
+
+        return this->get(&frame, frame.locals[0].raw.sval);
     }
-
-    if (isIndexString(frame.locals[0].raw.sval->getStr(), &index))
-        return getAtIndex(&frame, index);
-
-    return this->get(&frame, frame.locals[0].raw.sval);
 }
 
 void IndexedObject::putComputed (StackFrame * caller, TaggedValue propName, TaggedValue v)

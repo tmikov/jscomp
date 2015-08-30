@@ -286,9 +286,10 @@ struct Object : public Memory
     bool updatePropertyValue (StackFrame * caller, Object * propObj, Property * p, TaggedValue v);
 
     TaggedValue get (StackFrame * caller, const StringPrim * name);
+    TaggedValue getOwn (StackFrame * caller, const StringPrim * name);
     void put (StackFrame * caller, const StringPrim * name, TaggedValue v);
-    virtual bool hasComputed (StackFrame * caller, TaggedValue propName);
-    virtual TaggedValue getComputed (StackFrame * caller, TaggedValue propName);
+    virtual bool hasComputed (StackFrame * caller, TaggedValue propName, bool own = false);
+    virtual TaggedValue getComputed (StackFrame * caller, TaggedValue propName, bool own = false);
     virtual void putComputed (StackFrame * caller, TaggedValue propName, TaggedValue v);
 
     bool deleteProperty (StackFrame * caller, const StringPrim * name);
@@ -396,8 +397,8 @@ public:
 
     virtual ForInIterator * makeIterator (StackFrame * caller);
 
-    virtual bool hasComputed (StackFrame * caller, TaggedValue propName);
-    virtual TaggedValue getComputed (StackFrame * caller, TaggedValue propName);
+    virtual bool hasComputed (StackFrame * caller, TaggedValue propName, bool own);
+    virtual TaggedValue getComputed (StackFrame * caller, TaggedValue propName, bool own);
     virtual void putComputed (StackFrame * caller, TaggedValue propName, TaggedValue v);
     virtual bool deleteComputed (StackFrame * caller, TaggedValue propName);
 
