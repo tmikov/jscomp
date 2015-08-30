@@ -86,5 +86,89 @@ double parseFloat (StackFrame * caller, const char * s)
     return res;
 }
 
+double parseInt (StackFrame * caller, const char * s, int radix)
+{
+    while (isspace(*s))
+        ++s;
+
+    int sign = 1;
+    if (*s == '+')
+        ++s;
+    else if (*s == '-') {
+        ++s;
+        sign = -1;
+    }
+
+    if (radix == 0) {
+        if (s[0] == '0' && (s[1] | 32) == 'x') { // check for 0x
+            s += 2; // skip over the 0x
+            radix = 16;
+        } else {
+            radix = 10;
+        }
+    }
+    else if (radix < 2 || radix > 36)
+        return NAN;
+
+    if (radix == 16 && s[0] == '0' && (s[1] | 32) == 'x')
+        s += 2; // skip over the 0x
+
+    int lastDigit, lastLetter;
+
+    if (radix <= 10) {
+        lastDigit = lastLetter = radix + ('0' - 1);
+    } else {
+        lastDigit = '9';
+        lastLetter = radix + ('a' - 10 - 1);
+    }
+
+    int ch = *s++ | 32;
+    if (ch >= '0' && ch <= lastDigit)
+        ch -= '0';
+    else if (ch >= 'a' && ch <= lastLetter)
+        ch -= 'a' - 10;
+    else
+        return NAN; // First character isn't a digit
+
+    int32_t ires = ch;
+    for (;;) {
+        ch = *s++ | 32;
+        if (ch >= '0' && ch <= lastDigit)
+            ch -= '0';
+        else if (ch >= 'a' && ch <= lastLetter)
+            ch -= 'a' - 10;
+        else
+            break;
+
+        int32_t n = ires * radix + ch;
+        if (JS_UNLIKELY(n < ires)) // overflow?
+            goto floatLoop;
+
+        ires = n;
+    }
+
+    return (double)(ires * sign);
+
+    // We arrive here if the conversion doesn't fit in a 32-bit int
+floatLoop:
+    double fradix = radix;
+    double fres = (double)ires * fradix + ch;
+
+    for(;;)
+    {
+        ch = *s++ | 32;
+        if (ch >= '0' && ch <= lastDigit)
+            ch -= '0';
+        else if (ch >= 'a' && ch <= lastLetter)
+            ch -= 'a' - 10;
+        else
+            break;
+
+        fres = fres * fradix + ch;
+    }
+
+    return fres * sign;
+}
+
 
 }; // js

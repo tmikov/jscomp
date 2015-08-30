@@ -28,9 +28,7 @@ function parseInt (string, radix)
 
     return __asm__({},["res"],[["inputString",inputString],["radix",radix]],[],
         "const char * s = %[inputString].raw.sval->getStr();\n" +
-        "char * endptr;\n" +
-        "long val = strtol(s, &endptr, (int)%[radix].raw.nval);" +
-        "%[res] = js::makeNumberValue(endptr != s ? val : NAN);"
+        "%[res] = js::makeNumberValue(js::parseInt(%[%frame], s, (int)%[radix].raw.nval));"
     );
 }
 
