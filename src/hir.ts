@@ -722,7 +722,7 @@ export function isImmediateInteger (v: RValue): boolean
 export function isValidArrayIndex (s: string): boolean
 {
     var n = Number(s) >>> 0; // convert to uint32
-    return n != 4294967295 && String(n) === s;
+    return n !== 4294967295 && String(n) === s;
 }
 
 /**
@@ -2365,7 +2365,7 @@ export class ModuleBuilder
         {
             var to = min(buf.length, ofs + margin);
             line = "  \"" + escapeCStringBuffer(buf.buf, false, ofs, to) + "\"";
-            if (to == buf.length)
+            if (to === buf.length)
                 line += ";";
             line += "\n";
             out.write(line);
