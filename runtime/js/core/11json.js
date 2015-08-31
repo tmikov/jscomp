@@ -545,7 +545,7 @@ var json_parse = (function () {
 
     if (typeof Date.prototype.toJSON !== 'function') {
 
-        Date.prototype.toJSON = function () {
+        hidden(Date.prototype, "toJSON", function date_toJSON () {
 
             return isFinite(this.valueOf())
                 ? this.getUTCFullYear() + '-' +
@@ -555,11 +555,11 @@ var json_parse = (function () {
                         f(this.getUTCMinutes()) + ':' +
                         f(this.getUTCSeconds()) + 'Z'
                 : null;
-        };
+        });
 
-        Boolean.prototype.toJSON = this_value;
-        Number.prototype.toJSON = this_value;
-        String.prototype.toJSON = this_value;
+        hidden(Boolean.prototype, "toJSON", this_value);
+        hidden(Number.prototype, "toJSON", this_value);
+        hidden(String.prototype, "toJSON", this_value);
     }
 
     var gap,
