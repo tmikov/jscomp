@@ -2601,10 +2601,10 @@ function compileSource (
                 }
                 ctx.builder.genLabel(labLeftFalse);
                 v2 = compileSubExpression(scope, e.right, true, null, null);
-                ctx.builder.genLabel(labEnd);
                 ctx.releaseTemp(v2);
                 ctx.allocSpecific(dest);
                 ctx.builder.genAssign(dest, v2);
+                ctx.builder.genLabel(labEnd);
                 return dest;
             }
         } else {
@@ -2656,10 +2656,10 @@ function compileSource (
                 }
                 ctx.builder.genLabel(labLeftTrue);
                 v2 = compileSubExpression(scope, e.right, true, null, null);
-                ctx.builder.genLabel(labEnd);
                 ctx.releaseTemp(v2);
                 ctx.allocSpecific(dest);
                 ctx.builder.genAssign(dest, v2);
+                ctx.builder.genLabel(labEnd);
                 return dest;
             }
         } else {
