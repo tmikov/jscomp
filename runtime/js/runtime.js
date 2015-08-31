@@ -135,6 +135,8 @@ var console;
 var buffer;
 var Buffer;
 
+var Symbol; // FIXME: this is just a dummy to facilitate compilation
+
 // A few "dummy" symbols needed by some external modules designed to also work in browsers
 var window;
 var define;
