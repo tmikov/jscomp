@@ -134,3 +134,8 @@ var process;
 var console;
 var buffer;
 var Buffer;
+
+// A few "dummy" symbols needed by some external modules designed to also work in browsers
+var window;
+var define;
+var self;
