@@ -2408,9 +2408,9 @@ export class ModuleBuilder
 
         this.gen(
 `
-int main()
+int main(int argc, const char ** argv)
 {
-    js::g_runtime = new js::Runtime(${strictMode});
+    js::g_runtime = new js::Runtime(${strictMode}, argc, argv);
     js::StackFrameN<0, 1, 0> frame(NULL, NULL, __FILE__ ":main", __LINE__);
 `
         );

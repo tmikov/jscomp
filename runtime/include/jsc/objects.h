@@ -877,6 +877,8 @@ struct Runtime
     };
     unsigned diagFlags;
     bool strictMode;
+    int argc;
+    const char ** argv;
 
     TaggedValue strictThrowerAccessor;
     TaggedValue arrayLengthAccessor;
@@ -969,7 +971,7 @@ struct Runtime
     TryRecord * tryRecord = NULL;
     TaggedValue thrownObject = JS_UNDEFINED_VALUE;
 
-    Runtime (bool strictMode);
+    Runtime (bool strictMode, int argc, const char ** argv);
 
     bool mark (IMark * marker, unsigned markBit);
 

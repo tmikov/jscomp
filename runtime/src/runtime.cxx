@@ -2116,10 +2116,12 @@ bool Runtime::MemoryHead::mark (IMark *, unsigned) const
 { return true; }
 
 
-Runtime::Runtime (bool strictMode)
+Runtime::Runtime (bool strictMode, int argc, const char ** argv)
 {
     diagFlags = 0;
     this->strictMode = strictMode;
+    this->argc = argc;
+    this->argv = argv;
     env = NULL;
     markBit = 0;
     head.header = 0;
