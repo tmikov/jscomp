@@ -5,6 +5,8 @@
 #include "jsc/utf.h"
 #include "jsc/common.h"
 
+#include <stddef.h>
+
 namespace js {
 
 unsigned utf8Encode ( unsigned char * dst, uint32_t cp )
@@ -94,66 +96,144 @@ unsigned utf8Length (const unsigned char * from, const unsigned char * to)
     return length;
 }
 
-uint32_t utf8Decode (const unsigned char * from, bool * error)
+const unsigned char * utf8Decode (const unsigned char * from, uint32_t * res)
 {
     unsigned ch = from[0];
-    uint32_t result;
+    uint32_t tmp;
 
     if (JS_LIKELY((ch & 0x80) == 0)) { // Ordinary ASCII?
-        return ch;
+        *res = ch;
+        return from + 1;
     }
     else if (JS_LIKELY((ch & 0xE0) == 0xC0)) {
         uint32_t ch1 = from[1];
-        if (JS_UNLIKELY((ch1 & 0xC0) != 0x80))
-            goto returnError;
+        if (JS_UNLIKELY((ch1 & 0xC0) != 0x80)) {
+            *res = UNICODE_ERROR;
+            return from + 1;
+        }
 
-        result = ((ch & 0x1F) << 6) | (ch1 & 0x3F);
-        if (JS_UNLIKELY(result <= 0x7F))
-            goto returnError;
+        tmp = ((ch & 0x1F) << 6) | (ch1 & 0x3F);
+        if (JS_UNLIKELY(tmp <= 0x7F))
+            tmp = UNICODE_ERROR;
+
+        *res = tmp;
+        return from + 2;
     }
     else if (JS_LIKELY((ch & 0xF0) == 0xE0)) {
         uint32_t ch1 = from[1];
-        if (JS_UNLIKELY((ch1 & 0xC0) != 0x80))
-            goto returnError;
+        if (JS_UNLIKELY((ch1 & 0xC0) != 0x80)) {
+            *res = UNICODE_ERROR;
+            return from + 1;
+        }
 
         uint32_t ch2 = from[2];
-        if (JS_UNLIKELY((ch2 & 0xC0) != 0x80))
-            goto returnError;
+        if (JS_UNLIKELY((ch2 & 0xC0) != 0x80)) {
+            *res = UNICODE_ERROR;
+            return from + 2;
+        }
 
-        result = ((ch & 0x0F) << 12) | ((ch1 & 0x3F) << 6) | (ch2 & 0x3F);
-        if (JS_UNLIKELY(result <= 0x7FF))
-            goto returnError;
+        tmp = ((ch & 0x0F) << 12) | ((ch1 & 0x3F) << 6) | (ch2 & 0x3F);
+        if (JS_UNLIKELY(tmp <= 0x7FF ||
+                        tmp >= UNICODE_SURROGATE_LO && tmp <= UNICODE_SURROGATE_HI))
+            tmp = UNICODE_ERROR;
 
-        if (JS_UNLIKELY(result >= UNICODE_SURROGATE_LO && result <= UNICODE_SURROGATE_HI))
-            goto returnError;
+        *res = tmp;
+        return from + 3;
     }
     else if ((ch & 0xF8) == 0xF0) {
         uint32_t ch1 = from[1];
-        if (JS_UNLIKELY((ch1 & 0xC0) != 0x80))
-            goto returnError;
+        if (JS_UNLIKELY((ch1 & 0xC0) != 0x80)) {
+            *res = UNICODE_ERROR;
+            return from + 1;
+        }
 
         uint32_t ch2 = from[2];
-        if (JS_UNLIKELY((ch2 & 0xC0) != 0x80))
-            goto returnError;
+        if (JS_UNLIKELY((ch2 & 0xC0) != 0x80)) {
+            *res = UNICODE_ERROR;
+            return from + 2;
+        }
 
         uint32_t ch3 = from[3];
-        if (JS_UNLIKELY((ch3 & 0xC0) != 0x80))
-            goto returnError;
+        if (JS_UNLIKELY((ch3 & 0xC0) != 0x80)) {
+            *res = UNICODE_ERROR;
+            return from + 3;
+        }
 
-        result = ((ch & 0x07) << 18) | ((ch1 & 0x3F) << 12) | ((ch2 & 0x3F) << 6) | (ch3 & 0x3F);
-        if (JS_UNLIKELY(result <= 0xFFFF))
-            goto returnError;
-        if (JS_UNLIKELY(result > UNICODE_MAX_VALUE))
-            goto returnError;
+        tmp = ((ch & 0x07) << 18) | ((ch1 & 0x3F) << 12) | ((ch2 & 0x3F) << 6) | (ch3 & 0x3F);
+        if (JS_UNLIKELY(tmp <= 0xFFFF || tmp > UNICODE_MAX_VALUE))
+            tmp = UNICODE_ERROR;
+
+        *res = tmp;
+        return from + 4;
     }
-    else
-        goto returnError;
+    else if ((ch & 0xFC) == 0xF8) {
+        uint32_t ch1 = from[1];
+        if (JS_UNLIKELY((ch1 & 0xC0) != 0x80)) {
+            *res = UNICODE_ERROR;
+            return from + 1;
+        }
 
-    return result;
+        uint32_t ch2 = from[2];
+        if (JS_UNLIKELY((ch2 & 0xC0) != 0x80)) {
+            *res = UNICODE_ERROR;
+            return from + 2;
+        }
 
-returnError:
-    *error = true;
-    return UNICODE_REPLACEMENT_CHARACTER;
+        uint32_t ch3 = from[3];
+        if (JS_UNLIKELY((ch3 & 0xC0) != 0x80)) {
+            *res = UNICODE_ERROR;
+            return from + 3;
+        }
+
+        uint32_t ch4 = from[4];
+        if (JS_UNLIKELY((ch4 & 0xC0) != 0x80)) {
+            *res = UNICODE_ERROR;
+            return from + 4;
+        }
+
+        //tmp = ((ch & 3) << 24) | ((ch1 & 0x3F) << 18) | ((ch2 & 0x3F) << 12) | ((ch3 & 0x3F) << 6) | (ch4 & 0x3F);
+        *res = UNICODE_ERROR;
+        return from + 4;
+    }
+    else if ((ch & 0xFE) == 0xFC) {
+        uint32_t ch1 = from[1];
+        if (JS_UNLIKELY((ch1 & 0xC0) != 0x80)) {
+            *res = UNICODE_ERROR;
+            return from + 1;
+        }
+
+        uint32_t ch2 = from[2];
+        if (JS_UNLIKELY((ch2 & 0xC0) != 0x80)) {
+            *res = UNICODE_ERROR;
+            return from + 2;
+        }
+
+        uint32_t ch3 = from[3];
+        if (JS_UNLIKELY((ch3 & 0xC0) != 0x80)) {
+            *res = UNICODE_ERROR;
+            return from + 3;
+        }
+
+        uint32_t ch4 = from[4];
+        if (JS_UNLIKELY((ch4 & 0xC0) != 0x80)) {
+            *res = UNICODE_ERROR;
+            return from + 4;
+        }
+
+        uint32_t ch5 = from[5];
+        if (JS_UNLIKELY((ch5 & 0xC0) != 0x80)) {
+            *res = UNICODE_ERROR;
+            return from + 5;
+        }
+
+        //tmp = ((ch & 1) << 30) | ((ch1 & 0x3F) << 24) | ((ch2 & 0x3F) << 18) | ((ch3 & 0x3F) << 12) | ((ch4 & 0x3F) << 6) | (ch5 & 0x3F);
+        *res = UNICODE_ERROR;
+        return from + 4;
+    }
+    else {
+        *res = UNICODE_ERROR;
+        return from + 1;
+    }
 }
 
 uint32_t utf8DecodeFast (const unsigned char * from)

@@ -626,12 +626,28 @@ struct StringPrim : public Memory
     virtual bool mark (IMark * marker, unsigned markBit) const;
 
     static StringPrim * makeEmpty (StackFrame * caller, unsigned length);
-    static StringPrim * make (StackFrame * caller, const char * str, unsigned length, unsigned charLength);
-    static StringPrim * make (StackFrame * caller, const char * str, unsigned length);
-
-    static StringPrim * make (StackFrame * caller, const char * str)
+    static StringPrim * makeFromValid (StackFrame * caller, const char * str, unsigned length, unsigned charLength);
+    static StringPrim * makeFromValid (StackFrame * caller, const char * str, unsigned length);
+    static StringPrim * makeFromValid (StackFrame * caller, const char * str)
     {
-        return make(caller, str, (unsigned)strlen(str));
+        return makeFromValid(caller, str, (unsigned)strlen(str));
+    }
+
+    static StringPrim * makeFromASCII (StackFrame * caller, const char * str, unsigned length);
+    static StringPrim * makeFromASCII (StackFrame * caller, const char * str)
+    {
+        return makeFromASCII(caller, str, ::strlen(str));
+    }
+
+    /**
+     * External sequence of bytes. It must be validated before used. We actually don't know for sure
+     * what encoding it is using, but for now we will assume it is UTF-8. Invalid characters are replaced
+     * with the Unicode replacement character.
+     */
+    static StringPrim * makeFromUnvalidated (StackFrame * caller, const char * str, unsigned length);
+    static StringPrim * makeFromUnvalidated (StackFrame * caller, const char * str)
+    {
+        return makeFromUnvalidated(caller, str, ::strlen(str));
     }
 
     bool isInterned () const { return (this->stringFlags & F_INTERNED) != 0; }
@@ -1081,14 +1097,39 @@ inline TaggedValue makeStringValue (const StringPrim * s)
     return makeMemoryValue(VT_STRINGPRIM, const_cast<StringPrim*>(s));
 }
 
-inline TaggedValue makeStringValue (StackFrame * caller, const char * str)
+inline TaggedValue makeStringValueFromValid (StackFrame * caller, const char * str)
 {
-    return makeStringValue(StringPrim::make(caller, str));
+    return makeStringValue(StringPrim::makeFromValid(caller, str));
 }
 
-inline TaggedValue makeInternStringValue (StackFrame * caller, const char * str, bool permanent)
+inline TaggedValue makeStringValueFromValid (StackFrame * caller, const char * str, unsigned byteLength)
+{
+    return makeStringValue(StringPrim::makeFromValid(caller, str, byteLength));
+}
+
+inline TaggedValue makeInternedStringValueFromValid (StackFrame * caller, const char * str, bool permanent)
 {
     return makeStringValue(JS_GET_RUNTIME(caller)->internString(caller, permanent, str));
+}
+
+inline TaggedValue makeStringValueFromASCII (StackFrame * caller, const char * str)
+{
+    return makeStringValue(StringPrim::makeFromASCII(caller, str));
+}
+
+inline TaggedValue makeStringValueFromASCII (StackFrame * caller, const char * str, unsigned byteLength)
+{
+    return makeStringValue(StringPrim::makeFromASCII(caller, str, byteLength));
+}
+
+inline TaggedValue makeStringValueFromUnvalidated (StackFrame * caller, const char * str)
+{
+    return makeStringValue(StringPrim::makeFromUnvalidated(caller, str));
+}
+
+inline TaggedValue makeStringValueFromUnvalidated (StackFrame * caller, const char * str, unsigned byteLength)
+{
+    return makeStringValue(StringPrim::makeFromUnvalidated(caller, str, byteLength));
 }
 
 Object * objectCreate (StackFrame * caller, TaggedValue parent);

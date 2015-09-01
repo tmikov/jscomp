@@ -846,7 +846,7 @@ StringPrim * StringPrim::makeEmpty (StackFrame * caller, unsigned length)
     return new(caller, OFFSETOF(StringPrim, _str) + length + 1) StringPrim(length);
 }
 
-StringPrim * StringPrim::make (StackFrame * caller, const char * str, unsigned length, unsigned charLength)
+StringPrim * StringPrim::makeFromValid (StackFrame * caller, const char * str, unsigned length, unsigned charLength)
 {
     StringPrim * res = makeEmpty(caller, length);
     memcpy( res->_str, str, length);
@@ -854,9 +854,104 @@ StringPrim * StringPrim::make (StackFrame * caller, const char * str, unsigned l
     return res;
 }
 
-StringPrim * StringPrim::make (StackFrame * caller, const char * str, unsigned length)
+StringPrim * StringPrim::makeFromValid (StackFrame * caller, const char * str, unsigned length)
 {
-    return make(caller, str, length, lengthInUTF16Units((const unsigned char *)str, (const unsigned char *)str + length));
+    return makeFromValid(
+        caller, str, length, lengthInUTF16Units((const unsigned char *)str, (const unsigned char *)str + length));
+}
+
+StringPrim * StringPrim::makeFromASCII (StackFrame * caller, const char * str, unsigned length)
+{
+    StringPrim * res = makeEmpty(caller, length);
+    unsigned char * d = res->_str;
+    for ( unsigned len = length; len != 0; ++str, ++d, --len )
+        *d = (unsigned char)(*str & 0x7F);
+    res->init(length);
+    return res;
+}
+
+StringPrim * StringPrim::makeFromUnvalidated (StackFrame * caller, const char * str, unsigned length)
+{
+    const unsigned UNI_REPLACEMENT_LENGTH = 3;
+
+    unsigned actualLength = length;
+    unsigned charLen = 0;
+    bool errors = false;
+
+    const unsigned char * s = (const unsigned char *)str;
+    const unsigned char * e = (const unsigned char *)str + length;
+
+    while (s < e) {
+        ++charLen;
+        if (JS_LIKELY(!(*s & 0x80))) { // Plain old ASCII - we love thee!
+            ++s;
+        } else {
+            if (JS_LIKELY(utf8CodePointLength(*s) <= e - s)) {
+                uint32_t cp;
+                const unsigned char * ssav = s;
+                s = utf8Decode(s, &cp);
+                if (JS_UNLIKELY(cp == UNICODE_ERROR)) {
+                    errors = true;
+
+                    // Find the start of the next valid character
+                    while (s < e && !utf8IsStartByte(*s))
+                        ++s;
+                    actualLength = actualLength - (unsigned)(s - ssav) + UNI_REPLACEMENT_LENGTH;
+                }
+            } else {
+                // Uh-oh!
+                errors = true;
+                actualLength = actualLength - (unsigned)(e - s) + UNI_REPLACEMENT_LENGTH;
+                break;
+            }
+        }
+    }
+
+    StringPrim * res = makeEmpty(caller, actualLength);
+
+    if (JS_LIKELY(!errors)) {
+        assert(actualLength == length);
+        memcpy(res->_str, str, actualLength);
+    } else {
+        // Now painfully do the same thing, but this time setting the actual values
+        unsigned char * d = res->_str;
+        s = (const unsigned char *)str;
+
+        while (s < e) {
+            if (JS_LIKELY(!(*s & 0x80))) { // Plain old ASCII - we love thee!
+                *d++ = *s++;
+            } else {
+                if (JS_LIKELY(utf8CodePointLength(*s) <= e - s)) {
+                    uint32_t cp;
+                    const unsigned char * ssav = s;
+                    s = utf8Decode(s, &cp);
+                    if (JS_LIKELY(cp != UNICODE_ERROR)) {
+                        do
+                            *d++ = *ssav++;
+                        while (ssav < s);
+                    } else {
+                        // Find the start of the next valid character
+                        while (s < e && !utf8IsStartByte(*s))
+                            ++s;
+                        *d++ = UTF8_REPLACEMENT_CHAR_0;
+                        *d++ = UTF8_REPLACEMENT_CHAR_1;
+                        *d++ = UTF8_REPLACEMENT_CHAR_2;
+                    }
+                } else {
+                    // Uh-oh!
+                    *d++ = UTF8_REPLACEMENT_CHAR_0;
+                    *d++ = UTF8_REPLACEMENT_CHAR_1;
+                    *d++ = UTF8_REPLACEMENT_CHAR_2;
+                    break;
+                }
+            }
+        }
+
+        assert(d - res->_str == actualLength);
+    }
+
+    res->init(charLen);
+    return res;
 }
 
 const unsigned char * StringPrim::charPos (uint32_t index, bool * secondSurrogate) const
@@ -978,7 +1073,7 @@ TaggedValue StringPrim::charAt (StackFrame * caller, uint32_t index) const
         if (cpLen == 1/*&& ch0 < Runtime::CACHED_CHARS*/) // A good old ASCII character?
             return makeStringValue(JS_GET_RUNTIME(caller)->asciiChars[ch0]);
 
-        return makeStringValue(StringPrim::make(caller, (const char *)lpos, cpLen, 1));
+        return makeStringValue(StringPrim::makeFromValid(caller, (const char *)lpos, cpLen, 1));
     } else {
         return makeStringValue(JS_GET_RUNTIME(caller)->permStrUnicodeReplacementChar);
     }
@@ -2334,7 +2429,7 @@ const StringPrim * Runtime::internString (StackFrame * caller, bool permanent, c
     const StringPrim * res;
     auto it = permStrings.find(PasStr(len, (const unsigned char *)str));
     if (it == permStrings.end()) {
-        res = StringPrim::make(caller, str, len);
+        res = StringPrim::makeFromValid(caller, str, len);
         res->stringFlags |= StringPrim::F_INTERNED | (permanent ? StringPrim::F_PERMANENT : 0);
         permStrings[PasStr(len, res->_str)] = res;
     } else {
@@ -2453,7 +2548,7 @@ void throwTypeError (StackFrame * caller, const char * msg, ...)
         throwOutOfMemory(&frame);
     } else {
         frame.locals[0] = JS_UNDEFINED_VALUE;
-        frame.locals[1] = makeStringValue(StringPrim::make(&frame, buf));
+        frame.locals[1] = makeStringValue(StringPrim::makeFromValid(&frame, buf));
         free(buf);
         frame.locals[2] = typeErrorFunction(&frame, NULL, 2, &frame.locals[0]);
 

@@ -80,16 +80,18 @@ const StringPrim * uriDecode (
                 unsigned char tmp[8];
                 tmp[0] = ch0;
 
-                for ( unsigned i = 1; i < cplen; ++i, b += 3 ) {
+                unsigned i;
+                for ( i = 1; i < cplen; ++i, b += 3 ) {
                     if (b[0] != '%' || !isxdigit(b[1]) || !isxdigit(b[2]))
                         return NULL;
                     tmp[i] = (unsigned char)((fromxdigit(b[1]) << 4) + fromxdigit(b[2]));
                 }
+                tmp[i] = 0;
 
                 // Validate the encoded character
-                bool error = false;
-                uint32_t decodedCh = utf8Decode(tmp, &error);
-                if (error)
+                uint32_t decodedCh;
+                utf8Decode(tmp, &decodedCh);
+                if (decodedCh == UNICODE_ERROR)
                     return NULL;
 
                 if (reservedSet->check(decodedCh))

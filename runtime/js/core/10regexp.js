@@ -23,7 +23,7 @@ function pcre2_get_error_message (errorCode)
         "  buf = (PCRE2_UCHAR *)malloc(sizeof(PCRE2_UCHAR)*bufflen);\n" +
         "  if (!buf) js::throwOutOfMemory(%[%frame]);" +
         "}\n" +
-        "%[result] = js::makeStringValue(js::StringPrim::make(%[%frame], (const char *)buf, len));\n" +
+        "%[result] = js::makeStringValueFromASCII(%[%frame], (const char *)buf, len);\n" +
         "if (buf != sbuf) free(buf);"
     );
 }

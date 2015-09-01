@@ -20,7 +20,7 @@ const StringPrim * numberToString (StackFrame * caller, double n, int radix)
     if (radix == 10) {
         char buf[32];
         g_fmt(buf, n) ;
-        return StringPrim::make(caller, buf);
+        return StringPrim::makeFromValid(caller, buf);
     }
 
     // A very dumb, inaccurate, etc, algorithm, but should suffice for now

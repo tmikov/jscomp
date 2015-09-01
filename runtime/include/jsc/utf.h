@@ -17,6 +17,12 @@ const uint32_t UNICODE_MAX_VALUE             = 0x10FFFF;
 const uint32_t UNICODE_SURROGATE_LO          =   0xD800;
 const uint32_t UNICODE_SURROGATE_HI          =   0xDFFF;
 const uint32_t UNICODE_REPLACEMENT_CHARACTER =   0xFFFD;
+const uint32_t UNICODE_ERROR                 = 0xFFFFFFFF;
+
+// UTF-8 encoded UNICODE_REPLACEMENT_CHARACTER
+const uint8_t UTF8_REPLACEMENT_CHAR_0 = 0xEF;
+const uint8_t UTF8_REPLACEMENT_CHAR_1 = 0xBF;
+const uint8_t UTF8_REPLACEMENT_CHAR_2 = 0xBD;
 
 inline bool isValidCodePoint ( uint32_t cp )
 {
@@ -37,6 +43,11 @@ inline unsigned utf8CodePointLength (unsigned char firstByte)
         return 1;
 }
 
+inline bool utf8IsStartByte (unsigned char firstByte)
+{
+    return !(firstByte & 0x80) || (firstByte & 0xC0) == 0xC0;
+}
+
 /**
  *
  * @param dst  buffer big enough to hold at least 6 bytes
@@ -54,7 +65,7 @@ unsigned utf8Length (const unsigned char * from, const unsigned char * to);
  *
  * @param from a zero-terminated buffer.
  */
-uint32_t utf8Decode (const unsigned char * from, bool * error);
+const unsigned char * utf8Decode (const unsigned char * from, uint32_t * res);
 
 /**
  * Decode from a source which is guaranteed to be valid (thus no checks are necessary)
