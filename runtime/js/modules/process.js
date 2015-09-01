@@ -59,7 +59,10 @@ exports.cwd = function cwd ()
     return res;
 };
 
-
+exports.nextTick = function process_nextTick (cb) // FIXME
+{
+    console.error("process.nextTick() is not implemented!");
+};
 
 exports.binding = function process_binding (name) // FIXME
 {
