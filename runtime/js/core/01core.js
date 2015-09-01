@@ -344,7 +344,7 @@ function isArrayBaseOfLength (arg, length)
 }
 function isArray (arg)
 {
-    return getInternalClass() === 6; // ICLS_ARRAY
+    return getInternalClass(arg) === ICLS_ARRAY;
 }
 
 hidden(Array, "isArray", isArray);
