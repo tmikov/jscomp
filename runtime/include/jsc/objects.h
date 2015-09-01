@@ -784,7 +784,12 @@ struct StackFrame
     unsigned line;
 #endif
     unsigned localCount;
+#ifdef JS_DEBUG
+    // locals[0] confused the heck out of GDB, so in debug mode we keep it as an 1-sized array
+    TaggedValue locals[1];
+#else
     TaggedValue locals[0];
+#endif
 
     StackFrame (/*Runtime * runtime, */StackFrame * caller, Env * env, unsigned escapedCount, unsigned localCount,
                 unsigned skipInit
@@ -842,7 +847,12 @@ struct StackFrame
 template<unsigned E, unsigned L, unsigned SkipInit>
 struct StackFrameN : public StackFrame
 {
+#ifdef JS_DEBUG
+    TaggedValue _actualLocals[L > 1 ? L - 1 : 1];
+#else
     TaggedValue _actualLocals[L];
+#endif
+
 
 /*    StackFrameN (Runtime * runtime, StackFrame * caller, Env * env, const char * fileFunc, unsigned line) :
 #ifdef JS_DEBUG
