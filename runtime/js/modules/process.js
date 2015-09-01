@@ -59,6 +59,14 @@ exports.cwd = function cwd ()
     return res;
 };
 
+
+
+exports.binding = function process_binding (name) // FIXME
+{
+    console.error("process.binding(", name, ")is not implemented");
+    return {};
+};
+
 function initArgv ()
 {
     var argc = __asm__({},["res"],[],[],"%[res] = js::makeNumberValue(JS_GET_RUNTIME(%[%frame])->argc)");
