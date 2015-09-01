@@ -64,10 +64,14 @@ exports.nextTick = function process_nextTick (cb) // FIXME
     console.error("process.nextTick() is not implemented!");
 };
 
+var s_bindings = {
+    fs: require("./_fs")
+};
+
 exports.binding = function process_binding (name) // FIXME
 {
-    console.error("process.binding(", name, ")is not implemented");
-    return {};
+    console.error("process.binding(", name, ") is not implemented");
+    return s_bindings[name] || {};
 };
 
 function initArgv ()
