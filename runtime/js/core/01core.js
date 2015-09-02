@@ -161,8 +161,6 @@ function isCallable (x)
 //
 function object_protoGetter ()
 {
-    if (this === null || typeof this !== "object")
-        throw TypeError("not an object");
     return __asm__({},["result"],[["this",this]],[],
         "%[result] = js::toObject(%[%frame], %[this])->getParentValue()"
     );
