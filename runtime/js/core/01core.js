@@ -618,3 +618,21 @@ hidden(String.prototype, "split", function string_split (separator, limit)
 
     return A;
 });
+
+hidden(String.prototype, "toUpperCase", function string_toUpperCase ()
+{
+    if (this === null || this === undefined)
+        throw TypeError("'this' not coercible to string");
+    return __asm__({},["res"],[["S", String(this)]],[],
+        "%[res] = js::makeStringValue(js::toUpperCase(%[%frame], %[S].raw.sval));"
+    );
+});
+
+hidden(String.prototype, "toLowerCase", function string_toLowerCase ()
+{
+    if (this === null || this === undefined)
+        throw TypeError("'this' not coercible to string");
+    return __asm__({},["res"],[["S", String(this)]],[],
+        "%[res] = js::makeStringValue(js::toLowerCase(%[%frame], %[S].raw.sval));"
+    );
+});

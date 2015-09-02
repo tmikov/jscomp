@@ -18,6 +18,11 @@ namespace js {
 void mathInitRandom ();
 double mathRandom ();
 
+// string
+const StringPrim * toLowerCase (StackFrame * caller, const StringPrim * str);
+const StringPrim * toUpperCase (StackFrame * caller, const StringPrim * str);
+
+
 };
 
 #endif //JSCOMP_JSRUNTIME_H
