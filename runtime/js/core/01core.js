@@ -195,6 +195,14 @@ hidden(Object, "create", function object_create (proto, properties)
     return obj;
 });
 
+hidden(Object, "keys", function object_keys (O)
+{
+    needObject(O, "Object.keys");
+    return __asm__({},["res"],[["O", O]], [],
+        "%[res] = js::makeObjectValue(%[O].raw.oval->ownKeys(%[%frame]));"
+    );
+});
+
 hidden(Object.prototype, "toString", function object_toString()
 {
     switch (getInternalClass(this)) {

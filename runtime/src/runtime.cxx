@@ -243,6 +243,21 @@ TaggedValue Object::getComputed (StackFrame * caller, TaggedValue propName, bool
         this->get(&frame, frame.locals[0].raw.sval) : this->getOwn(&frame, frame.locals[0].raw.sval);
 }
 
+int Object::getComputedDescriptor (StackFrame * caller, TaggedValue propName, bool own, Property ** desc)
+{
+    StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":Object::getComputed()", __LINE__);
+    frame.locals[0] = toString(&frame, propName);
+
+    Object * propObj;
+    if (Property * p = !own ? getProperty(frame.locals[0].raw.sval, &propObj) : getOwnProperty(frame.locals[0].raw.sval)) {
+        *desc = p;
+        return 1;
+    } else {
+        *desc = NULL;
+        return 0;
+    }
+}
+
 void Object::putComputed (StackFrame * caller, TaggedValue propName, TaggedValue v)
 {
     StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":Object::putComputed()", __LINE__);
@@ -270,6 +285,34 @@ bool Object::deleteComputed (StackFrame * caller, TaggedValue propName)
     StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":Object::deleteComputed()", __LINE__);
     frame.locals[0] = toString(&frame, propName);
     return this->deleteProperty(&frame, frame.locals[0].raw.sval);
+}
+
+Array * Object::ownKeys (StackFrame * caller)
+{
+    StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":objectKeys()", __LINE__);
+
+    // Count the elements
+    unsigned n = 0;
+    for ( const ListEntry * entry = this->propList.next; entry != &this->propList; entry = entry->next ) {
+        const Property * prop = static_cast<const Property *>(entry);
+        if ((prop->flags & PROP_ENUMERABLE) != 0)
+            ++n;
+    }
+
+    Array * a;
+    frame.locals[0] = js::makeObjectValue(a = new(&frame) Array(JS_GET_RUNTIME(caller)->arrayPrototype));
+    a->init(&frame);
+
+    // Try to be just a tad smarter here to avoid initializing the array redundantly
+    a->elems.reserve(n);
+    for ( const ListEntry * entry = this->propList.next; entry != &this->propList; entry = entry->next ) {
+        const Property * prop = static_cast<const Property *>(entry);
+        if ((prop->flags & PROP_ENUMERABLE) != 0)
+            a->elems.push_back(js::makeStringValue(prop->name));
+    }
+
+    assert(a->getLength() == n);
+    return a;
 }
 
 TaggedValue Object::defaultValue (StackFrame * caller, ValueTag preferredType)
@@ -427,6 +470,46 @@ TaggedValue IndexedObject::getComputed (StackFrame * caller, TaggedValue propNam
     }
 }
 
+int IndexedObject::getComputedDescriptor (StackFrame * caller, TaggedValue propName, bool own, Property ** desc)
+{
+    uint32_t index;
+
+    *desc = NULL;
+
+    // Fast path
+    if (JS_LIKELY(!(this->flags & OF_INDEX_PROPERTIES) && isValidArrayIndexNumber(propName, &index))) {
+        return hasIndex(index) ? 2 : 0;
+    }
+
+    StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":ArrayBase::getComputed()", __LINE__);
+    frame.locals[0] = toString(&frame, propName);
+
+    if (this->flags & OF_INDEX_PROPERTIES) {
+        // index-like properties exist in the object, so we must check them first
+        Object * propObj;
+        if (Property * p = !own ? getProperty(frame.locals[0].raw.sval, &propObj) : getOwnProperty(frame.locals[0].raw.sval)) {
+            *desc = p;
+            return 1;
+        }
+
+        if (isIndexString(frame.locals[0].raw.sval->getStr(), &index))
+            return hasIndex(index) ? 2 : 0;
+
+        return 0;
+    } else {
+        if (isIndexString(frame.locals[0].raw.sval->getStr(), &index))
+            return hasIndex(index) ? 2 : 0;
+
+        Object * propObj;
+        if (Property * p = !own ? getProperty(frame.locals[0].raw.sval, &propObj) : getOwnProperty(frame.locals[0].raw.sval)) {
+            *desc = p;
+            return 1;
+        }
+
+        return 0;
+    }
+}
+
 void IndexedObject::putComputed (StackFrame * caller, TaggedValue propName, TaggedValue v)
 {
     if (JS_UNLIKELY(this->flags & OF_NOWRITE)) { // Let the base implementation handle the error
@@ -487,6 +570,52 @@ bool IndexedObject::deleteComputed (StackFrame * caller, TaggedValue propName)
         throwTypeError(&frame, "Cannot delete property [%lu]", (unsigned long)index);
 
     return res;
+}
+
+Array * IndexedObject::ownKeys (StackFrame * caller)
+{
+    StackFrameN<0,1,0> frame(caller, NULL, __FILE__ ":objectKeys()", __LINE__);
+    uint32_t length = getIndexedLength();
+
+    // Count the elements
+    uint32_t n = 0;
+
+    // First count only the real indexed properties
+    for ( uint32_t i = 0; i < length; ++i ) {
+        Property * prop;
+        if (getComputedDescriptor(&frame, makeNumberValue(i), true, &prop) == 2)
+            ++n;
+    }
+
+    for ( const ListEntry * entry = this->propList.next; entry != &this->propList; entry = entry->next ) {
+        const Property * prop = static_cast<const Property *>(entry);
+        if ((prop->flags & PROP_ENUMERABLE) != 0)
+            ++n;
+    }
+
+    Array * a;
+    frame.locals[0] = js::makeObjectValue(a = new(&frame) Array(JS_GET_RUNTIME(caller)->arrayPrototype));
+    a->init(&frame);
+
+    // Try to be just a tad smarter here to avoid initializing the array redundantly
+    a->elems.reserve(n);
+
+    for ( uint32_t i = 0; i < length; ++i ) {
+        Property * prop;
+        TaggedValue const & name = makeNumberValue(i);
+        if (getComputedDescriptor(&frame, name, true, &prop) == 2) {
+            a->elems.push_back(name);
+        }
+    }
+
+    for ( const ListEntry * entry = this->propList.next; entry != &this->propList; entry = entry->next ) {
+        const Property * prop = static_cast<const Property *>(entry);
+        if ((prop->flags & PROP_ENUMERABLE) != 0)
+            a->elems.push_back(js::makeStringValue(prop->name));
+    }
+
+    assert(a->getLength() == n);
+    return a;
 }
 
 bool ArrayBase::mark (IMark * marker, unsigned markBit) const

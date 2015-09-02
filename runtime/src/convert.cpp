@@ -10,6 +10,29 @@
 
 namespace js {
 
+static const char digits[] = "0123456789abcdefghijklmnopqrstuvwxyz";
+
+const StringPrim * uint32ToString (StackFrame * caller, uint32_t n, int radix)
+{
+    char buf[40]; // The largest buffer we would need is for base 2 - 32 bits plus a zero
+    char * s = buf;
+
+    do {
+        *s++ = digits[n % radix];
+        n /= radix;
+    } while (n != 0);
+
+    unsigned len = s - buf;
+    StringPrim * res = StringPrim::makeEmpty(caller, len);
+    unsigned char * d = res->_str;
+    do
+        *d++ = *--s;
+    while (s != buf);
+
+    res->init(len);
+    return res;
+}
+
 const StringPrim * numberToString (StackFrame * caller, double n, int radix)
 {
     if (isnan(n))
@@ -32,7 +55,6 @@ const StringPrim * numberToString (StackFrame * caller, double n, int radix)
 
     double whole = ::floor(n);
     double fract = n - whole;
-    static const char digits[] = "0123456789abcdefghijklmnopqrstuvwxyz";
 
     size_t startPos = buf.getLen();
     do {

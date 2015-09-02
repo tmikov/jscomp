@@ -36,6 +36,7 @@ struct NativeObject;
 struct Function;
 struct StringPrim;
 struct String;
+struct Array;
 class ForInIterator;
 struct StackFrame;
 struct Runtime;
@@ -290,10 +291,16 @@ struct Object : public Memory
     void put (StackFrame * caller, const StringPrim * name, TaggedValue v);
     virtual bool hasComputed (StackFrame * caller, TaggedValue propName, bool own = false);
     virtual TaggedValue getComputed (StackFrame * caller, TaggedValue propName, bool own = false);
+    /**
+     * @return 0 - no property, 1 - normal property, 2 - indexed property (*desc is null)
+     */
+    virtual int getComputedDescriptor (StackFrame * caller, TaggedValue propName, bool own, Property ** desc);
     virtual void putComputed (StackFrame * caller, TaggedValue propName, TaggedValue v);
 
     bool deleteProperty (StackFrame * caller, const StringPrim * name);
     virtual bool deleteComputed (StackFrame * caller, TaggedValue propName);
+
+    virtual Array * ownKeys (StackFrame * caller);
 
     TaggedValue getParentValue() const;
 
@@ -399,14 +406,20 @@ public:
 
     virtual bool hasComputed (StackFrame * caller, TaggedValue propName, bool own);
     virtual TaggedValue getComputed (StackFrame * caller, TaggedValue propName, bool own);
+    /**
+     * @return 0 - no property, 1 - normal property, 2 - indexed property (*desc is null)
+     */
+    virtual int getComputedDescriptor (StackFrame * caller, TaggedValue propName, bool own, Property ** desc);
     virtual void putComputed (StackFrame * caller, TaggedValue propName, TaggedValue v);
     virtual bool deleteComputed (StackFrame * caller, TaggedValue propName);
+    virtual Array * ownKeys (StackFrame * caller);
 
     virtual uint32_t getIndexedLength () const = 0;
     virtual bool hasIndex (uint32_t index) const = 0;
     virtual TaggedValue getAtIndex (StackFrame * caller, uint32_t index) const = 0;
     virtual bool setAtIndex (StackFrame * caller, uint32_t index, TaggedValue value) = 0;
     virtual bool deleteAtIndex (uint32_t index) = 0;
+
 };
 
 class ArrayBase : public IndexedObject
@@ -1217,6 +1230,7 @@ TaggedValue concatString (StackFrame * caller, StringPrim * a, StringPrim * b);
 bool less (const StringPrim * a, const StringPrim * b);
 bool equal (const StringPrim * a, const StringPrim * b);
 
+const StringPrim * uint32ToString (StackFrame * caller, uint32_t n, int radix);
 const StringPrim * numberToString (StackFrame * caller, double n, int radix);
 double parseFloat (StackFrame * caller, const char * s);
 double parseInt (StackFrame * caller, const char * s, int radix);
