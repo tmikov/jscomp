@@ -122,6 +122,8 @@ double parseInt (StackFrame * caller, const char * s, int radix)
         lastLetter = radix + ('a' - 10 - 1);
     }
 
+    const char * start = s; // save the start of the string. We might need it later
+
     int ch = *s++ | 32;
     if (ch >= '0' && ch <= lastDigit)
         ch -= '0';
@@ -151,20 +153,50 @@ double parseInt (StackFrame * caller, const char * s, int radix)
 
     // We arrive here if the conversion doesn't fit in a 32-bit int
 floatLoop:
-    double fradix = radix;
-    double fres = (double)ires * fradix + ch;
+    // For radix 10 we want to use g_strtod()
+    double fres;
 
-    for(;;)
-    {
-        ch = *s++ | 32;
-        if (ch >= '0' && ch <= lastDigit)
-            ch -= '0';
-        else if (ch >= 'a' && ch <= lastLetter)
-            ch -= 'a' - 10;
-        else
-            break;
+    if (radix == 10) {
+        char * buf = NULL;
 
-        fres = fres * fradix + ch;
+        // Check if the string could be interpreted as float by g_strtod()
+        s = start;
+        while (*s >= '0' && *s <= '9')
+            ++s;
+
+        // The string doesn't consist entirely of integer digits, strtod() might get confused.
+        // Copy only the integer digits into a new string
+        if (*s != 0) {
+            size_t len = s - start;
+            buf = (char *)malloc(len+1);
+            if (!buf)
+                throwOutOfMemory(caller);
+            memcpy(buf, start, len);
+            buf[len] = 0; // Zero terminate
+            start = buf;
+        }
+
+        char * e;
+        fres = strtod(start, &e);
+
+        if (buf)
+            free(buf);
+    } else {
+        double fradix = radix;
+        fres = (double)ires * fradix + ch;
+
+        for(;;)
+        {
+            ch = *s++ | 32;
+            if (ch >= '0' && ch <= lastDigit)
+                ch -= '0';
+            else if (ch >= 'a' && ch <= lastLetter)
+                ch -= 'a' - 10;
+            else
+                break;
+
+            fres = fres * fradix + ch;
+        }
     }
 
     return fres * sign;
