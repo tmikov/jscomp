@@ -362,6 +362,21 @@ function isArray (arg)
 
 hidden(Array, "isArray", isArray);
 
+hidden(Array.prototype, "forEach", function array_forEach(callbackFn, thisArg)
+{
+    var O = toObject(this);
+    var len = O.length >>> 0; // toUint32
+    if (thisArg === undefined) {
+        for ( var k = 0; k < len; ++k )
+            if (k in O)
+                callbackFn(O[k], k, O);
+    } else {
+        for ( var k = 0; k < len; ++k )
+            if (k in O)
+                callbackFn.call(thisArg, O[k], k, O);
+    }
+});
+
 hidden(Array.prototype, "push", function array_push(dummy)
 {
     var O = toObject(this);
