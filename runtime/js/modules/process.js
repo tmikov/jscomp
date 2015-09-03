@@ -65,13 +65,18 @@ exports.nextTick = function process_nextTick (cb) // FIXME
 };
 
 var s_bindings = {
-    fs: require("./_fs")
+    fs: require("./_fs"),
+    constants: require("./_constants")
 };
 
 exports.binding = function process_binding (name) // FIXME
 {
-    console.error("process.binding(", name, ") is not implemented");
-    return s_bindings[name] || {};
+    var res = s_bindings[name];
+    if (!res) {
+        console.error("process.binding(", name, ") is not implemented");
+        return {};
+    }
+    return res;
 };
 
 function initArgv ()
