@@ -23,8 +23,10 @@ exports.open = function open (path, flags, mode)
     return hnd;
 };
 
-exports.close = function close(fd) {
-    console.error("process.binding.fs.close() is not implemented");
+exports.close = function close (fd)
+{
+    if (__asm__({},["res"],[["fd", fd|0]],[], "%[res] = js::makeNumberValue(::close((int)%[fd].raw.nval));") === -1)
+        _jsc.throwIOError("close");
 };
 
 exports.fstat = function fstat (fd)
