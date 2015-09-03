@@ -3,6 +3,8 @@
 // root for complete license information.
 var _jsc = require("./_jsc");
 
+__asmh__({},"#include <sys/stat.h>");
+
 exports.FSInitialize = function FSInitialize (stats) {
     console.error("process.binding.fs.FSInitialize() is not implemented");
 };
@@ -24,10 +26,25 @@ exports.open = function open (path, flags, mode)
 exports.close = function close(fd) {
     console.error("process.binding.fs.close() is not implemented");
 };
-exports.fstat = function fstat(fd) {
-    console.error("process.binding.fs.fstat() is not implemented");
-    return {size: 0};
+
+exports.fstat = function fstat (fd)
+{
+    var size;
+    if (__asm__({},["res"],[["fd", fd|0], ["size", size]],[],
+            "struct stat buf;\n" +
+            "int res;\n" +
+            "%[res] = js::makeNumberValue(res = ::fstat((int)%[fd].raw.nval, &buf));\n" +
+            "if (res != -1) {\n" +
+            "  %[size] = js::makeNumberValue(buf.st_size);\n" +
+            "}"
+        ) === -1)
+    {
+        _jsc.throwIOError("fstat");
+    }
+
+    return { size: size };
 };
+
 exports.read = function read(fd, buffer, offset, length, position) {
     console.error("process.binding.fs.read() is not implemented");
     return 0;
