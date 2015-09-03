@@ -67,4 +67,18 @@ const StringPrim * toUpperCase (StackFrame * caller, const StringPrim * str)
     return convert(caller, str, upper());
 };
 
+const void * _memmem (const void * big, size_t biglen, void * little, size_t littlelen)
+{
+    if (JS_UNLIKELY(littlelen > biglen))
+        return NULL;
+
+    const char * b = (const char *)big;
+    const char * e =  b + biglen - littlelen + 1;
+    do {
+        if (::memcmp(b, little, littlelen) == 0)
+            return b;
+    } while (++b < e);
+    return NULL;
+}
+
 }; // namespace js

@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 2.8)
 project(jscomp)
 
+set(HAVE_GOOD_MEMMEM 0 CACHE STRING "The system library has a non-buggy memmem()")
+
 include(CheckCXXSourceCompiles)
 include(CheckIncludeFiles)
 include(CheckSymbolExists)

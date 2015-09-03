@@ -592,7 +592,10 @@ hidden(String.prototype, "indexOf", function string_indexOf (searchString, posit
         "const js::StringPrim * haystack = %[S].raw.sval;\n" +
         "bool secondSurr;\n" +
         "const unsigned char * startPos = haystack->charPos((uint32_t)%[start].raw.nval, &secondSurr);\n" +
-        "const unsigned char * pos = (const unsigned char *)::strstr((const char *)startPos, (const char*)%[searchStr].raw.sval->_str);\n" +
+        "const unsigned char * pos = (const unsigned char *)jsmemmem(" +
+            "startPos, haystack->_str + haystack->byteLength - startPos, " +
+            "%[searchStr].raw.sval->_str, %[searchStr].raw.sval->byteLength" +
+        ");\n" +
         "if (pos)\n" +
         "  %[result] = js::makeNumberValue(haystack->byteOffsetToUTF16Index(pos - haystack->_str));\n" +
         "else\n" +

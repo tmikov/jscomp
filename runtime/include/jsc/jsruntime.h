@@ -21,7 +21,13 @@ double mathRandom ();
 // string
 const StringPrim * toLowerCase (StackFrame * caller, const StringPrim * str);
 const StringPrim * toUpperCase (StackFrame * caller, const StringPrim * str);
+const void * _memmem (const void * big, size_t biglen, void * little, size_t littlelen);
 
+#ifdef HAVE_GOOD_MEMMEM
+#define jsmemmem ::memmem
+#else
+#define jsmemmem js::_memmem
+#endif
 
 };
 

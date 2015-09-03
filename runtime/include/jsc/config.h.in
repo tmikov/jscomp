@@ -1,3 +1,4 @@
 #cmakedefine HAVE_CXX11_EMPLACE
 #cmakedefine HAVE_SRANDOMDEV
 #define ENDIAN_H ${ENDIAN_H}
+#cmakedefine HAVE_GOOD_MEMMEM
