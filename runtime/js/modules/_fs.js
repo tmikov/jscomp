@@ -47,9 +47,58 @@ exports.fstat = function fstat (fd)
     return { size: size };
 };
 
-exports.read = function read(fd, buffer, offset, length, position) {
-    console.error("process.binding.fs.read() is not implemented");
-    return 0;
+exports.read = function read (fd, buffer, offset, length, position)
+{
+    if (!Buffer.isBuffer(buffer))
+        throw TypeError("invalid buffer");
+    offset = +offset;
+    length = +length;
+    if (offset < 0)
+        throw TypeError("negative offset");
+    if (length < 0)
+        throw TypeError("negative length");
+    if (offset + length > buffer.length)
+        throw TypeError("offset+length exceeds buffer size");
+
+    // We do know that our current "buffer" implementation is a Uint8Array
+    if (!(buffer instanceof Uint8Array))
+        throw TypeError("invalid buffer");
+    var arrayBuffer = buffer.buffer;
+    offset += buffer.byteOffset; // Offset in the underlying ArrayBuffer
+    if (offset + length > arrayBuffer.byteLength)
+        throw TypeError("offset+length exceeds buffer size");
+
+    var res;
+    var syscall;
+
+    if (position !== null && position !== undefined) {
+        syscall = "pread";
+        res = __asm__({},["res"],
+            [["fd", fd|0], ["arrayBuffer", arrayBuffer], ["offset", offset], ["length", length], ["position",+position]], [],
+            "js::ArrayBuffer * ab = (js::ArrayBuffer *)%[arrayBuffer].raw.oval;\n" +
+            "%[res] = js::makeNumberValue(::pread(" +
+                "(int)%[fd].raw.nval," +
+                "(char *)ab->data + (size_t)%[offset].raw.nval," +
+                "(size_t)%[length].raw.nval," +
+                "(off_t)%[position].raw.nval" +
+            "));"
+        );
+    } else {
+        syscall = "read";
+        res = __asm__({},["res"],[["fd", fd|0], ["arrayBuffer", arrayBuffer], ["offset", offset], ["length", length]], [],
+            "js::ArrayBuffer * ab = (js::ArrayBuffer *)%[arrayBuffer].raw.oval;\n" +
+            "%[res] = js::makeNumberValue(::read(" +
+                "(int)%[fd].raw.nval," +
+                "(char *)ab->data + (size_t)%[offset].raw.nval," +
+                "(size_t)%[length].raw.nval" +
+            "));"
+        );
+    }
+
+    if (res === -1)
+        _jsc.throwIOError(syscall);
+
+    return res;
 };
 
 
