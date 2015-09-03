@@ -71,6 +71,13 @@ function _defineAccessor (obj, prop, getter, setter)
     );
 }
 
+function toObject (x)
+{
+    return __asm__({},["res"], [["x", x]], [],
+        "%[res] = js::makeObjectValue(js::toObject(%[%frame], %[x]));"
+    );
+}
+
 function needObject (obj, msgPrefix)
 {
     if (obj === null || typeof obj !== "object" && typeof obj !== "function")
@@ -244,7 +251,7 @@ hidden(Object.prototype, "toLocaleString", function object_toLocaleString()
 
 hidden(Object.prototype, "hasOwnProperty", function object_hasOwnProperty(V)
 {
-    var O = Object(this);
+    var O = toObject(this);
     return __asm__({},["res"],[["O", O], ["V", V]],[],
         "%[res] = js::makeBooleanValue(%[O].raw.oval->hasComputed(%[%frame], %[V], true));"
     );
@@ -357,7 +364,7 @@ hidden(Array, "isArray", isArray);
 
 hidden(Array.prototype, "push", function array_push(dummy)
 {
-    var O = Object(this);
+    var O = toObject(this);
     var n = O.length >>> 0;
     /*
         This is what the code does, but we want to avoid allocating the arguments object
@@ -376,7 +383,7 @@ hidden(Array.prototype, "push", function array_push(dummy)
 
 hidden(Array.prototype, "pop", function array_pop()
 {
-    var O = Object(this);
+    var O = toObject(this);
     var len = O.length >>> 0;
     if (len !== 0) {
         --len;
@@ -422,7 +429,7 @@ function copyToArray (dest, destIndex, src, srcFrom, srcTo)
 
 hidden(Array.prototype, "concat", function array_concat()
 {
-    var O = Object(this);
+    var O = toObject(this);
     var n;
 
     // Size the result array first
@@ -461,7 +468,7 @@ hidden(Array.prototype, "concat", function array_concat()
 
 hidden(Array.prototype, "slice", function array_slice(start, end)
 {
-    var O = Object(this);
+    var O = toObject(this);
     var A = [];
     var len = O.length >>> 0; // toUint32()
     var k, final;
@@ -497,7 +504,7 @@ hidden(Array.prototype, "slice", function array_slice(start, end)
 
 hidden(Array.prototype, "join", function array_join (sep)
 {
-    var O = Object(this);
+    var O = toObject(this);
     var len = O.length >>> 0; // toUint32()
     if (!len)
         return "";
@@ -517,7 +524,7 @@ hidden(Array.prototype, "join", function array_join (sep)
 
 hidden(Array.prototype, "toString", function array_toString()
 {
-    var array = Object(this);
+    var array = toObject(this);
     var func = array.join;
     if (!isCallable(func))
         func = String.prototype.toString;
