@@ -413,8 +413,10 @@ hidden(Array.prototype, "pop", function array_pop()
 });
 
 /**
+ * Copy from an array-like object to an instance of ArrayBase. src and dest could be the same (copying values
+ * within the same array).
  *
- * @param dest - must be ArrayBase of sufficient length
+ * @param dest - must be ArrayBase of sufficient length and it must be filled with "holes" (unless it is the same as src)
  * @param destIndex - must be a number
  * @param src
  * @param srcFrom - must be a number
@@ -429,7 +431,7 @@ function copyToArray (dest, destIndex, src, srcFrom, srcTo)
         __asm__({},[],[["dest",dest], ["destIndex",destIndex], ["src",src], ["srcFrom",srcFrom], ["srcTo",srcTo]],[],
             "uint32_t srcFrom = (uint32_t)%[srcFrom].raw.nval;\n"+
             "uint32_t srcTo = (uint32_t)%[srcTo].raw.nval;\n"+
-            "::memcpy("+
+            "::memmove("+
                 "&((js::ArrayBase *)%[dest].raw.oval)->elems[(uint32_t)%[destIndex].raw.nval],"+
                 "&((js::ArrayBase *)%[src].raw.oval)->elems[srcFrom],"+
                 "sizeof(js::TaggedValue)*(srcTo - srcFrom)"+
@@ -535,6 +537,92 @@ hidden(Array.prototype, "join", function array_join (sep)
         R += sep + (elem === void 0 || elem === null ? "" : String(elem));
     }
     return R;
+});
+
+hidden(Array.prototype, "splice", function array_splice(start, deleteCount)
+{
+    var O = toObject(this);
+
+    var len = O.length >>> 0;
+    var actualStart;
+
+    if ((actualStart = Number(start)) < 0) {
+        if ((actualStart += len) < 0)
+            actualStart = 0;
+    } else {
+        if (actualStart > len)
+            actualStart = len;
+    }
+    actualStart >>>= 0; // toUint32
+
+    var actualDeleteCount;
+    if ((actualDeleteCount = Number(deleteCount)) < 0) {
+        actualDeleteCount = 0;
+    } else {
+        var tmp = len - actualStart;
+        if (actualDeleteCount > tmp)
+            actualDeleteCount = tmp;
+    }
+    actualDeleteCount >>>= 0; // toUint32
+
+    var A = [];
+    A.length = actualDeleteCount;
+
+    if (actualDeleteCount > 0)
+        copyToArray(A, 0, O, actualStart, actualStart + actualDeleteCount);
+
+    var itemCount = __asm__({},["res"],[],[],"%[res] = js::makeNumberValue(%[%argc] - 3);");
+    if (itemCount < 0)
+        itemCount = 0;
+
+    if (itemCount > actualDeleteCount)
+        O.length += itemCount - actualDeleteCount;
+
+    if (itemCount !== actualDeleteCount) {
+        // Shift the rest of the array (actualDeleteCount - itemCount) to the left
+        if (isArrayBase(O)) {
+            copyToArray(O, actualStart + itemCount, O, actualStart + actualDeleteCount, len);
+        } else {
+            var destIndex = actualStart + itemCount;
+            var srcFrom = actualStart + actualDeleteCount;
+
+            if (destIndex <= srcFrom) {
+                for ( var i = srcFrom; i < len; ++i, ++destIndex ) {
+                    if (i in O)
+                        O[destIndex] = O[i];
+                    else
+                        delete O[destIndex];
+                }
+
+                for ( ; destIndex < len; ++destIndex )
+                    delete O[destIndex];
+            } else {
+                // Copy in reverse direction
+                destIndex += (len - srcFrom);
+                for ( var i = len; i > srcFrom; ) {
+                    --i;
+                    --destIndex;
+                    if (i in O)
+                        O[destIndex] = O[i];
+                    else
+                        delete O[destIndex];
+                }
+            }
+        }
+    }
+
+    if (itemCount < actualDeleteCount)
+        O.length += itemCount - actualDeleteCount;
+
+
+    // copy the new items
+    for ( var i = 0; i < itemCount; ++i ) {
+        O[actualStart++] = __asm__({},["res"],[["i",i]],[],
+            "%[res] = %[%argv][(unsigned)%[i].raw.nval + 3];"
+        );
+    }
+
+    return A;
 });
 
 hidden(Array.prototype, "toString", function array_toString()
