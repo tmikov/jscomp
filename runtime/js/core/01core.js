@@ -210,6 +210,24 @@ hidden(Object, "keys", function object_keys (O)
     );
 });
 
+hidden(Object, "freeze", function object_freeze(O)
+{
+    needObject(O, "Object.freeze");
+    __asm__({},[],[["O", O]], [], "%[O].raw.oval->freeze();");
+});
+
+hidden(Object, "seal", function object_seal(O)
+{
+    needObject(O, "Object.seal");
+    __asm__({},[],[["O", O]], [], "%[O].raw.oval->seal();");
+});
+
+hidden(Object, "preventExtensions", function object_preventExtensions(O)
+{
+    needObject(O, "Object.preventExtensions");
+    __asm__({},[],[["O", O]], [], "%[O].raw.oval->preventExtensions();");
+});
+
 hidden(Object.prototype, "toString", function object_toString()
 {
     switch (getInternalClass(this)) {
