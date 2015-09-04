@@ -315,6 +315,15 @@ Array * Object::ownKeys (StackFrame * caller)
     return a;
 }
 
+uintptr_t Object::getInternalProp (unsigned index) const
+{
+    return 0;
+}
+
+void Object::setInternalProp (unsigned index, uintptr_t value)
+{
+}
+
 TaggedValue Object::defaultValue (StackFrame * caller, ValueTag preferredType)
 {
     if (!preferredType) {
@@ -398,6 +407,15 @@ InternalClass NativeObject::getInternalClass () const
 Object * NativeObject::createDescendant (StackFrame * caller)
 {
     return NativeObject::make(caller, this, this->internalCount);
+}
+
+uintptr_t NativeObject::getInternalProp (unsigned index) const
+{
+    return getInternal(index);
+}
+void NativeObject::setInternalProp (unsigned index, uintptr_t value)
+{
+    setInternal(index, value);
 }
 
 NativeObject::~NativeObject ()

@@ -302,6 +302,9 @@ struct Object : public Memory
 
     virtual Array * ownKeys (StackFrame * caller);
 
+    virtual uintptr_t getInternalProp (unsigned index) const;
+    virtual void setInternalProp (unsigned index, uintptr_t value);
+
     TaggedValue getParentValue() const;
 
     void freeze ()
@@ -356,6 +359,8 @@ struct NativeObject : public Object
 
     virtual InternalClass getInternalClass () const;
     virtual Object * createDescendant (StackFrame * caller);
+    virtual uintptr_t getInternalProp (unsigned index) const;
+    virtual void setInternalProp (unsigned index, uintptr_t value);
     virtual ~NativeObject ();
 
     void setInternalClass (InternalClass icls)
