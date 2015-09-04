@@ -1,0 +1,30 @@
+var x = [1,2,3,4];
+
+console.log(x);
+var y = x.shift();
+console.log(y, x);
+var y = x.shift();
+console.log(y, x);
+var y = x.shift();
+console.log(y, x);
+var y = x.shift();
+console.log(y, x);
+var y = x.shift();
+console.log(y, x);
+var y = x.shift();
+console.log(y, x);
+
+var x = {0: 1, 1: 2, 2: 3, 3: 4, length: 4};
+console.log(x);
+var y = Array.prototype.shift.call(x);
+console.log(y, x);
+var y = Array.prototype.shift.call(x);
+console.log(y, x);
+var y = Array.prototype.shift.call(x);
+console.log(y, x);
+var y = Array.prototype.shift.call(x);
+console.log(y, x);
+var y = Array.prototype.shift.call(x);
+console.log(y, x);
+var y = Array.prototype.shift.call(x);
+console.log(y, x);

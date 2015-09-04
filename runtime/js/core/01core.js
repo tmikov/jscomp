@@ -650,6 +650,36 @@ hidden(Array.prototype, "splice", function array_splice(start, deleteCount)
     return A;
 });
 
+hidden(Array.prototype, "shift", function array_shift()
+{
+    var O = toObject(this);
+
+    var len = O.length >>> 0;
+
+    if (len === 0) {
+        O.length = 0;
+        return undefined;
+    }
+
+    var res = O[0];
+
+    if (isArrayBase(O)) {
+        copyToArray(O, 0, O, 1, len);
+    } else {
+        for ( var i = 1; i < len; ++i ) {
+            if (i in O)
+                O[i-1] = O[i];
+            else
+                delete O[i-1];
+        }
+
+        delete O[len-1];
+    }
+
+    O.length = len - 1;
+    return res;
+});
+
 hidden(Array.prototype, "toString", function array_toString()
 {
     var array = toObject(this);
