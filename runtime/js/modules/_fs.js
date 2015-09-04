@@ -101,4 +101,93 @@ exports.read = function read (fd, buffer, offset, length, position)
     return res;
 };
 
+__asmh__({},"#include <dirent.h>");
+
+function opendir (path)
+{
+    path = String(path);
+    var dir = $jsc.createNative(1);
+    if (!__asm__({},["res"],[["dir",dir], ["path", path]],[],
+            "DIR * d = ::opendir(%[path].raw.sval->getStr());\n" +
+            "if (d) {\n" +
+            "  %[dir].raw.oval->setInternalProp(0, (uintptr_t)d);\n" +
+            "  %[res] = js::makeBooleanValue(true);\n" +
+            "} else {\n" +
+            "  %[res] = js::makeBooleanValue(false);\n" +
+            "}"
+        ))
+    {
+        _jsc.throwIOError("opendir", path);
+    }
+
+    // Set the finalizer
+    __asmh__({},
+        "static void dir_finalizer (js::NativeObject * obj)\n" +
+        "{\n" +
+        "  DIR * d = (DIR *)obj->getInternalUnsafe(0);\n" +
+        "  if (d) ::closedir(d);\n" +
+        "}"
+    );
+    __asm__({},[],[["dir", dir]],[],
+        "((js::NativeObject *)%[dir].raw.oval)->setNativeFinalizer(dir_finalizer);"
+    );
+    return dir;
+}
+
+function closedir (dir)
+{
+    if (__asm__({},["res"],[["dir",dir]],[],
+            "DIR * d = (DIR *)%[dir].raw.oval->getInternalProp(0);\n" +
+            "if (d) {\n" +
+            "  %[dir].raw.oval->setInternalProp(0, 0);\n" +
+            "  %[res] = js::makeNumberValue(::closedir(d));\n" +
+            "} else {\n" +
+            "  %[res] = js::makeNumberValue(0);\n" +
+            "}"
+        ) === -1)
+    {
+        _jsc.throwIOError("closedir");
+    }
+}
+
+function readdir (dir)
+{
+    var name = null;
+    if (!__asm__({},["res"],[["dir",dir],["name", name]],[],
+            "DIR * d = (DIR *)%[dir].raw.oval->getInternalProp(0);\n" +
+            "if (d) {\n" +
+            "  struct dirent * de;\n" +
+            "  errno = 0;\n" +
+            "  de = ::readdir(d);\n" +
+            "  if (de) {\n" +
+            "    %[name] = js::makeStringValueFromUnvalidated(%[%frame], de->d_name);\n" +
+            "    %[res] = js::makeBooleanValue(true);\n" +
+            "  } else {\n" +
+            "    %[res] = js::makeBooleanValue(errno == 0);\n" +
+            "  }\n" +
+            "} else {\n" +
+            "  %[res] = js::makeBooleanValue(true);\n" +
+            "}"
+        ) === -1)
+    {
+        _jsc.throwIOError("readdir");
+    }
+    return name;
+}
+
+exports.readdir = function readdirSync (path)
+{
+    var dir = opendir(path);
+    var res = [];
+    try {
+        var name;
+        while ((name = readdir(dir)) !== null) {
+            if (name !== "." && name !== "..")
+                res.push(name);
+        }
+    } finally {
+        closedir(dir);
+    }
+    return res;
+};
 
