@@ -191,3 +191,11 @@ exports.readdir = function readdirSync (path)
     return res;
 };
 
+exports.access = function access (path, mode)
+{
+    var res = __asm__({},["res"],[["path", String(path)], ["mode", mode | 0]], [],
+        "%[res] = js::makeNumberValue(::access(%[path].raw.sval->getStr(), (int)%[mode].raw.nval));"
+    );
+    if (res === -1)
+        _jsc.throwIOError("access", path);
+};
