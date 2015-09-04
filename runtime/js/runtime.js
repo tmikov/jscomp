@@ -141,3 +141,6 @@ var Symbol; // FIXME: this is just a dummy to facilitate compilation
 var window;
 var define;
 var self;
+
+// Export "core" functionality
+var $jsc;

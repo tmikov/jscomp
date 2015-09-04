@@ -164,6 +164,13 @@ function isCallable (x)
     return typeof(x) === "function";
 }
 
+// $jsc
+//
+$jsc = {};
+
+defineProperty($jsc, "createNative", {value: createNative});
+defineProperty($jsc, "getInternalClass", {value: getInternalClass});
+
 // Object
 //
 function object_protoGetter ()
