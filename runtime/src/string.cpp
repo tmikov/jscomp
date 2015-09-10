@@ -81,4 +81,17 @@ const void * _memmem (const void * big, size_t biglen, void * little, size_t lit
     return NULL;
 }
 
+const void * memrmem (const void * big, size_t biglen, void * little, size_t littlelen)
+{
+    if (JS_UNLIKELY(littlelen > biglen))
+        return NULL;
+
+    const char * b = (const char *)big;
+    const char * e =  b + biglen - littlelen;
+    do {
+        if (::memcmp(e, little, littlelen) == 0)
+            return e;
+    } while (e-- > b);
+    return NULL;
+}
 }; // namespace js

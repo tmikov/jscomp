@@ -774,6 +774,37 @@ hidden(String.prototype, "indexOf", function string_indexOf (searchString, posit
     );
 });
 
+hidden(String.prototype, "lastIndexOf", function string_indexOf (searchString, position)
+{
+    if (this === null || this === undefined)
+        throw TypeError("'this' is not coercible to String");
+    var S = String(this);
+    var searchStr = String(searchString);
+    var searchLen = searchStr.length;
+    var numPos = +position;
+    var start;
+
+    if (numPos < 0)
+        return -1;
+    else if (isNaN(numPos) || numPos > S.length - searchLen)
+        start = S.length - searchLen;
+    else
+        start = numPos >>> 0;
+
+    return __asm__({},["result"],[["S", S], ["searchStr", searchStr], ["end", start + searchLen]],[],
+        "const js::StringPrim * haystack = %[S].raw.sval;\n" +
+        "bool secondSurr;\n" +
+        "const unsigned char * pos = (const unsigned char *)js::memrmem(" +
+            "haystack->_str, (size_t)%[end].raw.nval, " +
+            "%[searchStr].raw.sval->_str, %[searchStr].raw.sval->byteLength" +
+        ");\n" +
+        "if (pos)\n" +
+        "  %[result] = js::makeNumberValue(haystack->byteOffsetToUTF16Index(pos - haystack->_str));\n" +
+        "else\n" +
+        "  %[result] = js::makeNumberValue(-1);"
+    );
+});
+
 function string_toString ()
 {
     if (typeof this === "string")
