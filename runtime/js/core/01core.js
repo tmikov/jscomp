@@ -171,6 +171,34 @@ $jsc = {};
 defineProperty($jsc, "createNative", {value: createNative});
 defineProperty($jsc, "getInternalClass", {value: getInternalClass});
 
+defineProperty($jsc, "ICLS_MEMORY"           , {value: ICLS_MEMORY});
+defineProperty($jsc, "ICLS_STRING_PRIM"      , {value: ICLS_STRING_PRIM});
+defineProperty($jsc, "ICLS_UNDEFINED"        , {value: ICLS_UNDEFINED});
+defineProperty($jsc, "ICLS_NULL"             , {value: ICLS_NULL});
+defineProperty($jsc, "ICLS_OBJECT"           , {value: ICLS_OBJECT});
+defineProperty($jsc, "ICLS_ARGUMENTS"        , {value: ICLS_ARGUMENTS});
+defineProperty($jsc, "ICLS_ARRAY"            , {value: ICLS_ARRAY});
+defineProperty($jsc, "ICLS_FUNCTION"         , {value: ICLS_FUNCTION});
+defineProperty($jsc, "ICLS_BOOLEAN"          , {value: ICLS_BOOLEAN});
+defineProperty($jsc, "ICLS_NUMBER"           , {value: ICLS_NUMBER});
+defineProperty($jsc, "ICLS_STRING"           , {value: ICLS_STRING});
+defineProperty($jsc, "ICLS_ERROR"            , {value: ICLS_ERROR});
+defineProperty($jsc, "ICLS_REGEXP"           , {value: ICLS_REGEXP});
+defineProperty($jsc, "ICLS_DATE"             , {value: ICLS_DATE});
+defineProperty($jsc, "ICLS_JSON"             , {value: ICLS_JSON});
+defineProperty($jsc, "ICLS_MATH"             , {value: ICLS_MATH});
+defineProperty($jsc, "ICLS_ArrayBuffer"      , {value: ICLS_ArrayBuffer});
+defineProperty($jsc, "ICLS_DataView"         , {value: ICLS_DataView});
+defineProperty($jsc, "ICLS_Int8Array"        , {value: ICLS_Int8Array});
+defineProperty($jsc, "ICLS_Uint8Array"       , {value: ICLS_Uint8Array});
+defineProperty($jsc, "ICLS_Uint8ClampedArray", {value: ICLS_Uint8ClampedArray});
+defineProperty($jsc, "ICLS_Int16Array"       , {value: ICLS_Int16Array});
+defineProperty($jsc, "ICLS_Uint16Array"      , {value: ICLS_Uint16Array});
+defineProperty($jsc, "ICLS_Int32Array"       , {value: ICLS_Int32Array});
+defineProperty($jsc, "ICLS_Uint32Array"      , {value: ICLS_Uint32Array});
+defineProperty($jsc, "ICLS_Float32Array"     , {value: ICLS_Float32Array});
+defineProperty($jsc, "ICLS_Float64Array"     , {value: ICLS_Float64Array});
+
 // Object
 //
 function object_protoGetter ()
