@@ -237,3 +237,4 @@ Components with different licenses:
 * JSON-js (from https://github.com/douglascrockford/JSON-js) is in the public domain.
 * Node code is licensed under the terms of its license in "runtime/js/nodelib/LICENSE+.
 * libuv : runtime/deps/libuv/LICENSE
+* gyp: runtimr/deps/gyp/LICENSE
