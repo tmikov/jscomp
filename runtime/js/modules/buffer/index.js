@@ -581,30 +581,56 @@ function base64Slice (buf, start, end) {
 }
 
 function utf8Slice (buf, start, end) {
-  var res = ''
-  var tmp = ''
-  end = Math.min(buf.length, end)
+  if ($jsc.getInternalClass(buf) === $jsc.ICLS_Uint8Array) {
+    start >>>= 0;
+    end >>>= 0;
+    if (end > buf.length || start >= end)
+      return "";
 
-  for (var i = start; i < end; i++) {
-    if (buf[i] <= 0x7F) {
-      res += decodeUtf8Char(tmp) + String.fromCharCode(buf[i])
-      tmp = ''
-    } else {
-      tmp += '%' + buf[i].toString(16)
+    return __asm__({},["res"],[["buf", buf],["start",start],["end", end]],[],
+      "js::Uint8Array * a = (js::Uint8Array *)%[buf].raw.oval;\n" +
+      "%[res] = js::makeStringValueFromUnvalidated(%[%frame], (const char *)a->data + (uint32_t)%[start].raw.nval," +
+         "(uint32_t)%[end].raw.nval - (uint32_t)%[start].raw.nval);"
+    );
+  } else {
+    var res = ''
+    var tmp = ''
+    end = Math.min(buf.length, end)
+
+    for (var i = start; i < end; i++) {
+      if (buf[i] <= 0x7F) {
+        res += decodeUtf8Char(tmp) + String.fromCharCode(buf[i])
+        tmp = ''
+      } else {
+        tmp += '%' + buf[i].toString(16)
+      }
     }
-  }
 
-  return res + decodeUtf8Char(tmp)
+    return res + decodeUtf8Char(tmp)
+  }
 }
 
 function asciiSlice (buf, start, end) {
-  var ret = ''
-  end = Math.min(buf.length, end)
+  if ($jsc.getInternalClass(buf) === $jsc.ICLS_Uint8Array) {
+    start >>>= 0;
+    end >>>= 0;
+    if (end > buf.length || start >= end)
+      return "";
 
-  for (var i = start; i < end; i++) {
-    ret += String.fromCharCode(buf[i] & 0x7F)
+    return __asm__({},["res"],[["buf", buf],["start",start],["end", end]],[],
+        "js::Uint8Array * a = (js::Uint8Array *)%[buf].raw.oval;\n" +
+        "%[res] = js::makeStringValueFromASCII(%[%frame], (const char *)a->data + (uint32_t)%[start].raw.nval," +
+        "(uint32_t)%[end].raw.nval - (uint32_t)%[start].raw.nval);"
+    );
+  } else {
+    var ret = ''
+    end = Math.min(buf.length, end)
+
+    for (var i = start; i < end; i++) {
+      ret += String.fromCharCode(buf[i] & 0x7F)
+    }
+    return ret
   }
-  return ret
 }
 
 function binarySlice (buf, start, end) {
