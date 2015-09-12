@@ -3387,7 +3387,7 @@ export function compile (
         // Resolve and compile all system modules
         if (!compileResolvedModules(runtime))
             return;
-        callRuntimeInit(runtime);
+        callRuntimeFunction(runtime, runtime.runtimeInit);
 
         // Resolve main
         var main: Module = m_modules.resolve("", path.resolve(process.cwd(), m_fileName));
@@ -3575,13 +3575,13 @@ export function compile (
         runtime.defineModule.setAccessed(true, ctx);
     }
 
-    function callRuntimeInit (runtime: Runtime): void
+    function callRuntimeFunction (runtime: Runtime, f: Variable): void
     {
         var ctx = runtime.ctx;
-        ctx.builder.genCall(null, runtime.runtimeInit.hvar, [
+        ctx.builder.genCall(null, f.hvar, [
             hir.undefinedValue
         ]);
-        runtime.runtimeInit.setAccessed(true, ctx);
+        f.setAccessed(true, ctx);
     }
 
     function callModuleRequire (runtime: Runtime, m: Module, result: hir.LValue = null): void
