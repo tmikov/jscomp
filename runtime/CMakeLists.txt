@@ -44,6 +44,7 @@ configure_file(
 
 include_directories("${CMAKE_CURRENT_SOURCE_DIR}/include")
 include_directories("${CMAKE_CURRENT_BINARY_DIR}/include")
+include_directories("${CMAKE_CURRENT_SOURCE_DIR}/deps/libuv/include")
 
 set(SOURCE_FILES
         src/runtime.cxx src/gc.cxx include/jsc/jsruntime.h src/operators.cpp
@@ -54,5 +55,6 @@ set(SOURCE_FILES
         src/string.cpp
         src/handles.cpp
         src/jsni.cpp
+        src/fs.cpp
 )
 add_library(jsruntime ${SOURCE_FILES} )

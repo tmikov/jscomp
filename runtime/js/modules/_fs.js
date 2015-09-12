@@ -3,52 +3,277 @@
 // root for complete license information.
 var _jsc = require("./_jsc");
 
+__asmh__({},'#include "jsc/fs.h"');
+__asmh__({},'#include "jsc/jsni.h"');
 __asmh__({},"#include <sys/stat.h>");
 
-exports.FSInitialize = function FSInitialize (stats) {
-    console.error("process.binding.fs.FSInitialize() is not implemented");
+var s_statsCon;
+
+exports.FSInitialize = function FSInitialize (statsCons) {
+    if (typeof statsCons !== 'function')
+        throw TypeError("parameter must be a function");
+
+    s_statsCon = statsCons; // prevent it from being GC-ed
+    __asm__({},[],[["statsCons", statsCons]],[],"js::g_statsConFn = js::jsniMakeObjectHandle(%[%frame], %[statsCons]);");
 };
 
-exports.open = function open (path, flags, mode)
+function cbwrap (req, fs_type, result, obj)
 {
-    var hnd = __asm__({},["res"],[["path", String(path)], ["flags", flags | 0], ["mode", mode | 0]], [],
-        "%[res] = js::makeNumberValue(" +
-            "::open(%[path].raw.sval->getStr()," +
-            "(int)%[flags].raw.nval," +
-            "(int)%[mode].raw.nval" +
-        "));"
-    );
-    if (hnd === -1)
-        _jsc.throwIOError("open", path);
-    return hnd;
-};
+    //console.log("cbwrap", req.syscall, fs_type, result);
+    var cb = req.oncomplete;
+    if (!cb)
+        return;
 
-exports.close = function close (fd)
-{
-    if (__asm__({},["res"],[["fd", fd|0]],[], "%[res] = js::makeNumberValue(::close((int)%[fd].raw.nval));") === -1)
-        _jsc.throwIOError("close");
-};
-
-exports.fstat = function fstat (fd)
-{
-    var size;
-    if (__asm__({},["res"],[["fd", fd|0], ["size", size]],[],
-            "struct stat buf;\n" +
-            "int res;\n" +
-            "%[res] = js::makeNumberValue(res = ::fstat((int)%[fd].raw.nval, &buf));\n" +
-            "if (res != -1) {\n" +
-            "  %[size] = js::makeNumberValue(buf.st_size);\n" +
-            "}"
-        ) === -1)
-    {
-        _jsc.throwIOError("fstat");
+    if (result < 0) {
+        cb(_jsc.makeUVError(result, req.syscall, req.path));
+        return;
     }
 
-    return { size: size };
+    switch (fs_type) {
+        case  2: // UV_FS_CLOSE
+        case 12: // UV_FS_ACCESS
+            cb(null);
+            break;
+
+        default:
+        //case  1: // UV_FS_OPEN
+        //case  3: // UV_FS_READ
+        //case  4: // UV_FS_WRITE
+        //case  6: // UV_FS_STAT
+        //case  7: // UV_FS_LSTAT
+        //case  8: // UV_FS_FSTAT
+        //case 22: // UV_FS_SCANDIR
+            cb(null, obj);
+            break;
+    }
+}
+
+/**
+ * Initialize the native object (which must have two internal properties): <ul>
+ *     <li>Prop 0 is initialized with a pointer to a new 'uv_fs_t' object;
+ *     <li>prop 1 is a handle to 'cbwrap()'.
+ *     <li>'uv_fs_t.data' is initialized with a handle to 'this'
+ * </ul>
+ * @constructor
+ */
+function FSReqWrap ()
+{
+    this.syscall = "";
+    this.path = undefined;
+    this.buffer = undefined;
+
+    __asm__({},[],[["this", this], ["cbwrap", cbwrap]],[],
+        "js::NativeObject * o = js::safeObjectCast<js::NativeObject>(%[%frame], %[this]);\n" +
+        "uv_fs_t * req = (uv_fs_t *)malloc(sizeof(uv_fs_t));\n" +
+        "if (!req) js::throwOutOfMemory(%[%frame]);\n" +
+        "req->data = (void *)js::jsniMakeObjectHandle(%[%frame], o);\n" +
+        "o->setInternalUnsafe(0, (uintptr_t)req);\n" +
+        "o->setInternalUnsafe(1, js::jsniMakeObjectHandle(%[%frame], %[cbwrap].raw.oval));\n"
+    );
+
+    $jsc.setInitTag(this, fsReqWrapInitTag);
+}
+
+var fsReqWrapInitTag = $jsc.newInitTag();
+_jsc.sealPrototype(FSReqWrap, $jsc.createNative(2));
+
+exports.FSReqWrap = FSReqWrap;
+
+exports.open = function open (path, flags, mode, req)
+{
+    var syscall = "open";
+    var res;
+
+    path = String(path);
+
+    if ($jsc.checkInitTag(req, fsReqWrapInitTag)) {
+        req.syscall = syscall;
+        req.path = path;
+
+        res = __asm__({},["res"],[["path", path], ["flags", flags | 0], ["mode", mode | 0], ["req", req]], [],
+            "uv_fs_t * req = (uv_fs_t *)((js::NativeObject *)%[req].raw.oval)->getInternalUnsafe(0);\n" +
+            "%[res] = js::makeNumberValue(uv_fs_open(uv_default_loop(), req,\n" +
+            "   %[path].raw.sval->getStr(),\n" +
+            "   (int)%[flags].raw.nval,\n" +
+            "   (int)%[mode].raw.nval,\n" +
+            "   js::fsCompletionCallback\n" +
+            "));"
+        );
+        if (res < 0)
+            _jsc.throwUVError(res, syscall, path);
+    }
+    else {
+        res = __asm__({},["res"],[["path", path], ["flags", flags | 0], ["mode", mode | 0]], [],
+            "uv_fs_t req;\n" +
+            "%[res] = js::makeNumberValue(uv_fs_open(uv_default_loop(), &req,\n" +
+            "   %[path].raw.sval->getStr(),\n" +
+            "   (int)%[flags].raw.nval,\n" +
+            "   (int)%[mode].raw.nval,\n" +
+            "   NULL\n" +
+            "));\n" +
+            "uv_fs_req_cleanup(&req);"
+        );
+        if (res < 0)
+            _jsc.throwUVError(res, syscall, path);
+
+        return res;
+    }
 };
 
-exports.read = function read (fd, buffer, offset, length, position)
+exports.close = function close (fd, req)
 {
+    var syscall = "close";
+    var res;
+
+    if ($jsc.checkInitTag(req, fsReqWrapInitTag)) {
+        req.syscall = syscall;
+
+        res = __asm__({},["res"],[["fd", fd|0], ["req", req]], [],
+            "uv_fs_t * req = (uv_fs_t *)((js::NativeObject *)%[req].raw.oval)->getInternalUnsafe(0);\n" +
+            "%[res] = js::makeNumberValue(uv_fs_close(uv_default_loop(), req,\n" +
+            "   (uv_file)%[fd].raw.nval,\n" +
+            "   js::fsCompletionCallback\n" +
+            "));"
+        );
+        if (res < 0)
+            _jsc.throwUVError(res, syscall);
+
+    } else {
+        res = __asm__({},["res"],[["fd", fd|0]], [],
+            "uv_fs_t req;\n" +
+            "%[res] = js::makeNumberValue(uv_fs_close(uv_default_loop(), &req,\n" +
+            "   (uv_file)%[fd].raw.nval,\n" +
+            "   NULL\n" +
+            "));\n" +
+            "uv_fs_req_cleanup(&req);"
+        );
+        if (res < 0)
+            _jsc.throwUVError(res, syscall);
+    }
+};
+
+exports.stat = function stat (path, req)
+{
+    var syscall = "stat";
+    var res;
+
+    path = String(path);
+
+    if ($jsc.checkInitTag(req, fsReqWrapInitTag)) {
+        req.syscall = syscall;
+        req.path = path;
+
+        res = __asm__({},["res"],[["path", path], ["req", req]], [],
+            "uv_fs_t * req = (uv_fs_t *)((js::NativeObject *)%[req].raw.oval)->getInternalUnsafe(0);\n" +
+            "%[res] = js::makeNumberValue(uv_fs_stat(uv_default_loop(), req,\n" +
+            "   %[path].raw.sval->getStr(),\n" +
+            "   js::fsCompletionCallback\n" +
+            "));"
+        );
+        if (res < 0)
+            _jsc.throwUVError(res, syscall, path);
+    } else {
+        var st;
+        res = __asm__({},["res"],[["path", path], ["stat", st]], [],
+            "uv_fs_t req;\n" +
+            "int res;\n" +
+            "%[res] = js::makeNumberValue(res = uv_fs_stat(uv_default_loop(), &req,\n" +
+            "   %[path].raw.sval->getStr(),\n" +
+            "   NULL\n" +
+            "));\n" +
+            "if (res >= 0) {\n" +
+            "   %[stat] = js::fsMakeStats(%[%frame], &req);" +
+            "}\n" +
+            "uv_fs_req_cleanup(&req);"
+        );
+        if (res < 0)
+            _jsc.throwUVError(res, syscall, path);
+        return st;
+    }
+};
+
+exports.lstat = function lstat (path, req)
+{
+    var syscall = "lstat";
+    var res;
+
+    path = String(path);
+
+    if ($jsc.checkInitTag(req, fsReqWrapInitTag)) {
+        req.syscall = syscall;
+        req.path = path;
+
+        res = __asm__({},["res"],[["path", path], ["req", req]], [],
+            "uv_fs_t * req = (uv_fs_t *)((js::NativeObject *)%[req].raw.oval)->getInternalUnsafe(0);\n" +
+            "%[res] = js::makeNumberValue(uv_fs_lstat(uv_default_loop(), req,\n" +
+            "   %[path].raw.sval->getStr(),\n" +
+            "   js::fsCompletionCallback\n" +
+            "));"
+        );
+        if (res < 0)
+            _jsc.throwUVError(res, syscall, path);
+    } else {
+        var st;
+        res = __asm__({},["res"],[["path", path], ["stat", st]], [],
+            "uv_fs_t req;\n" +
+            "int res;\n" +
+            "%[res] = js::makeNumberValue(res = uv_fs_lstat(uv_default_loop(), &req,\n" +
+            "   %[path].raw.sval->getStr(),\n" +
+            "   NULL\n" +
+            "));\n" +
+            "if (res >= 0) {\n" +
+            "   %[stat] = js::fsMakeStats(%[%frame], &req);" +
+            "}\n" +
+            "uv_fs_req_cleanup(&req);"
+        );
+        if (res < 0)
+            _jsc.throwUVError(res, syscall, path);
+        return st;
+    }
+};
+
+exports.fstat = function fstat (fd, req)
+{
+    var syscall = "fstat";
+    var res;
+
+    if ($jsc.checkInitTag(req, fsReqWrapInitTag)) {
+        req.syscall = syscall;
+
+        res = __asm__({},["res"],[["fd", fd|0], ["req", req]], [],
+            "uv_fs_t * req = (uv_fs_t *)((js::NativeObject *)%[req].raw.oval)->getInternalUnsafe(0);\n" +
+            "%[res] = js::makeNumberValue(uv_fs_fstat(uv_default_loop(), req,\n" +
+            "   (uv_file)%[fd].raw.nval,\n" +
+            "   js::fsCompletionCallback\n" +
+            "));"
+        );
+        if (res < 0)
+            _jsc.throwUVError(res, syscall);
+    } else {
+        var st;
+        res = __asm__({},["res"],[["fd", fd|0], ["stat", st]], [],
+            "uv_fs_t req;\n" +
+            "int res;\n" +
+            "%[res] = js::makeNumberValue(res = uv_fs_fstat(uv_default_loop(), &req,\n" +
+            "   (uv_file)%[fd].raw.nval,\n" +
+            "   NULL\n" +
+            "));\n" +
+            "if (res >= 0) {\n" +
+            "   %[stat] = js::fsMakeStats(%[%frame], &req);" +
+            "}\n" +
+            "uv_fs_req_cleanup(&req);"
+        );
+        if (res < 0)
+            _jsc.throwUVError(res, syscall);
+        return st;
+    }
+};
+
+exports.read = function read (fd, buffer, offset, length, position, req)
+{
+    var res;
+    var syscall = "read";
+
     if (!Buffer.isBuffer(buffer))
         throw TypeError("invalid buffer");
     offset = +offset;
@@ -68,145 +293,221 @@ exports.read = function read (fd, buffer, offset, length, position)
     if (offset + length > arrayBuffer.byteLength)
         throw TypeError("offset+length exceeds buffer size");
 
-    var res;
-    var syscall;
+    if (position === null || position === undefined)
+        position = -1; // read from current pos
+    else
+        position = +position;
 
-    if (position !== null && position !== undefined) {
-        syscall = "pread";
+    if ($jsc.checkInitTag(req, fsReqWrapInitTag)) {
+        req.syscall = syscall;
+        req.buffer = buffer; // prevent the buffer from being garbage-collected
+
         res = __asm__({},["res"],
-            [["fd", fd|0], ["arrayBuffer", arrayBuffer], ["offset", offset], ["length", length], ["position",+position]], [],
+            [
+                ["fd", fd|0], ["arrayBuffer", arrayBuffer], ["offset", offset], ["length", length],
+                ["position",position], ["req", req]
+            ], [],
+
+            "uv_fs_t * req = (uv_fs_t *)((js::NativeObject *)%[req].raw.oval)->getInternalUnsafe(0);\n" +
             "js::ArrayBuffer * ab = (js::ArrayBuffer *)%[arrayBuffer].raw.oval;\n" +
-            "%[res] = js::makeNumberValue(::pread(" +
-                "(int)%[fd].raw.nval," +
-                "(char *)ab->data + (size_t)%[offset].raw.nval," +
-                "(size_t)%[length].raw.nval," +
-                "(off_t)%[position].raw.nval" +
+            "uv_buf_t bufs[] = { {(char *)ab->data + (size_t)%[offset].raw.nval, (size_t)%[length].raw.nval} };\n" +
+            "%[res] = js::makeNumberValue(uv_fs_read(uv_default_loop(), req,\n" +
+            "   (uv_file)%[fd].raw.nval,\n" +
+            "   bufs,\n" +
+            "   1,\n" +
+            "   (int64_t)%[position].raw.nval," +
+            "   js::fsCompletionCallback\n" +
             "));"
         );
+
+        if (res < 0)
+            _jsc.throwUVError(res, syscall);
     } else {
-        syscall = "read";
-        res = __asm__({},["res"],[["fd", fd|0], ["arrayBuffer", arrayBuffer], ["offset", offset], ["length", length]], [],
+        res = __asm__({},["res"],
+            [["fd", fd|0], ["arrayBuffer", arrayBuffer], ["offset", offset], ["length", length], ["position",position]], [],
+
             "js::ArrayBuffer * ab = (js::ArrayBuffer *)%[arrayBuffer].raw.oval;\n" +
-            "%[res] = js::makeNumberValue(::read(" +
-                "(int)%[fd].raw.nval," +
-                "(char *)ab->data + (size_t)%[offset].raw.nval," +
-                "(size_t)%[length].raw.nval" +
+            "uv_buf_t bufs[] = { {(char *)ab->data + (size_t)%[offset].raw.nval, (size_t)%[length].raw.nval} };\n" +
+            "uv_fs_t req;\n" +
+            "%[res] = js::makeNumberValue(uv_fs_read(uv_default_loop(), &req,\n" +
+            "   (uv_file)%[fd].raw.nval,\n" +
+            "   bufs,\n" +
+            "   1,\n" +
+            "   (int64_t)%[position].raw.nval," +
+            "   NULL" +
+            "));\n" +
+            "uv_fs_req_cleanup(&req);"
+        );
+
+        if (res < 0)
+            _jsc.throwUVError(res, syscall);
+
+        return res;
+    }
+};
+
+function writeBuffer (fd, buffer, offset, length, position, req)
+{
+    var res;
+    var syscall = "write";
+
+    if (!Buffer.isBuffer(buffer))
+        throw TypeError("invalid buffer");
+    offset = +offset;
+    length = +length;
+    if (offset < 0)
+        throw TypeError("negative offset");
+    if (length < 0)
+        throw TypeError("negative length");
+    if (offset + length > buffer.length)
+        throw TypeError("offset+length exceeds buffer size");
+
+    // We do know that our current "buffer" implementation is a Uint8Array
+    if (!(buffer instanceof Uint8Array))
+        throw TypeError("invalid buffer");
+    var arrayBuffer = buffer.buffer;
+    offset += buffer.byteOffset; // Offset in the underlying ArrayBuffer
+    if (offset + length > arrayBuffer.byteLength)
+        throw TypeError("offset+length exceeds buffer size");
+
+    if (position === null || position === undefined)
+        position = -1; // read from current pos
+    else
+        position = +position;
+
+    if ($jsc.checkInitTag(req, fsReqWrapInitTag)) {
+        req.syscall = syscall;
+        req.buffer = buffer; // prevent the buffer from being garbage-collected
+
+        res = __asm__({},["res"],
+            [
+                ["fd", fd|0], ["arrayBuffer", arrayBuffer], ["offset", offset], ["length", length],
+                ["position",position], ["req", req]
+            ], [],
+
+            "uv_fs_t * req = (uv_fs_t *)((js::NativeObject *)%[req].raw.oval)->getInternalUnsafe(0);\n" +
+            "js::ArrayBuffer * ab = (js::ArrayBuffer *)%[arrayBuffer].raw.oval;\n" +
+            "uv_buf_t bufs[] = { {(char *)ab->data + (size_t)%[offset].raw.nval, (size_t)%[length].raw.nval} };\n" +
+            "%[res] = js::makeNumberValue(uv_fs_write(uv_default_loop(), req,\n" +
+            "   (uv_file)%[fd].raw.nval,\n" +
+            "   bufs,\n" +
+            "   1,\n" +
+            "   (int64_t)%[position].raw.nval," +
+            "   js::fsCompletionCallback\n" +
             "));"
         );
+
+        if (res < 0)
+            _jsc.throwUVError(res, syscall);
+    } else {
+        res = __asm__({},["res"],
+            [["fd", fd|0], ["arrayBuffer", arrayBuffer], ["offset", offset], ["length", length], ["position",position]], [],
+
+            "js::ArrayBuffer * ab = (js::ArrayBuffer *)%[arrayBuffer].raw.oval;\n" +
+            "uv_buf_t bufs[] = { {(char *)ab->data + (size_t)%[offset].raw.nval, (size_t)%[length].raw.nval} };\n" +
+            "uv_fs_t req;\n" +
+            "%[res] = js::makeNumberValue(uv_fs_write(uv_default_loop(), &req,\n" +
+            "   (uv_file)%[fd].raw.nval,\n" +
+            "   bufs,\n" +
+            "   1,\n" +
+            "   (int64_t)%[position].raw.nval," +
+            "   NULL" +
+            "));\n" +
+            "uv_fs_req_cleanup(&req);"
+        );
+
+        if (res < 0)
+            _jsc.throwUVError(res, syscall);
+
+        return res;
+
     }
+}
+exports.writeBuffer = writeBuffer;
 
-    if (res === -1)
-        _jsc.throwIOError(syscall);
+exports.writeString = function writeString (fd, data, position, encoding, req)
+{
+    if (!$jsc.checkInitTag(req, fsReqWrapInitTag))
+        req = null;
 
-    return res;
+    var buf = new Buffer(String(data), encoding);
+    return writeBuffer(fd, buf, 0, buf.length, position, req);
 };
 
-__asmh__({},"#include <dirent.h>");
-
-var dirTag = $jsc.newInitTag();
-
-function opendir (path)
+exports.readdir = function readdir (path, req)
 {
+    var syscall = "scandir";
+    var res;
+
     path = String(path);
-    var dir = $jsc.createNative(1);
 
-    if (!__asm__({},["res"],[["dir",dir], ["path", path]],[],
-            "DIR * d = ::opendir(%[path].raw.sval->getStr());\n" +
-            "if (d) {\n" +
-            "  %[dir].raw.oval->setInternalProp(0, (uintptr_t)d);\n" +
-            "  %[res] = js::makeBooleanValue(true);\n" +
-            "} else {\n" +
-            "  %[res] = js::makeBooleanValue(false);\n" +
-            "}"
-        ))
-    {
-        _jsc.throwIOError("opendir", path);
+    if ($jsc.checkInitTag(req, fsReqWrapInitTag)) {
+        req.syscall = syscall;
+        req.path = path;
+
+        res = __asm__({},["res"],[["path", path], ["req", req]], [],
+            "uv_fs_t * req = (uv_fs_t *)((js::NativeObject *)%[req].raw.oval)->getInternalUnsafe(0);\n" +
+            "%[res] = js::makeNumberValue(uv_fs_scandir(uv_default_loop(), req,\n" +
+            "   %[path].raw.sval->getStr(),\n" +
+            "   0,\n" +
+            "   js::fsCompletionCallback\n" +
+            "));"
+        );
+        if (res < 0)
+            _jsc.throwUVError(res, syscall, path);
+    } else {
+        var array;
+        res = __asm__({},["res"],[["path", path], ["array", array]], [],
+            "uv_fs_t req;\n" +
+            "int res;\n" +
+            "%[res] = js::makeNumberValue(res = uv_fs_scandir(uv_default_loop(), &req,\n" +
+            "   %[path].raw.sval->getStr(),\n" +
+            "   0,\n" +
+            "   NULL" +
+            "));\n" +
+            "if (res >= 0) {\n" +
+            "   %[array] = js::fsMakeReaddirArray(%[%frame], &req);" +
+            "}\n" +
+            "uv_fs_req_cleanup(&req);"
+        );
+        if (res < 0)
+            _jsc.throwUVError(res, syscall, path);
+        return array;
     }
-
-    // Set the finalizer
-    __asmh__({},
-        "static void dir_finalizer (js::NativeObject * obj)\n" +
-        "{\n" +
-        "  DIR * d = (DIR *)obj->getInternalUnsafe(0);\n" +
-        "  if (d) ::closedir(d);\n" +
-        "}"
-    );
-    __asm__({},[],[["dir", dir]],[],
-        "((js::NativeObject *)%[dir].raw.oval)->setNativeFinalizer(dir_finalizer);"
-    );
-
-    $jsc.setInitTag(dir, dirTag);
-    return dir;
-}
-
-function closedir (dir)
-{
-    if (!$jsc.checkInitTag(dir, dirTag))
-        throw TypeError("not a directory object");
-
-    if (__asm__({},["res"],[["dir",dir]],[],
-            "DIR * d = (DIR *)%[dir].raw.oval->getInternalProp(0);\n" +
-            "if (d) {\n" +
-            "  %[dir].raw.oval->setInternalProp(0, 0);\n" +
-            "  %[res] = js::makeNumberValue(::closedir(d));\n" +
-            "} else {\n" +
-            "  %[res] = js::makeNumberValue(0);\n" +
-            "}"
-        ) === -1)
-    {
-        _jsc.throwIOError("closedir");
-    }
-}
-
-function readdir (dir)
-{
-    if (!$jsc.checkInitTag(dir, dirTag))
-        throw TypeError("not a directory object");
-
-    var name = null;
-    if (!__asm__({},["res"],[["dir",dir],["name", name]],[],
-            "DIR * d = (DIR *)%[dir].raw.oval->getInternalProp(0);\n" +
-            "if (d) {\n" +
-            "  struct dirent * de;\n" +
-            "  errno = 0;\n" +
-            "  de = ::readdir(d);\n" +
-            "  if (de) {\n" +
-            "    %[name] = js::makeStringValueFromUnvalidated(%[%frame], de->d_name);\n" +
-            "    %[res] = js::makeBooleanValue(true);\n" +
-            "  } else {\n" +
-            "    %[res] = js::makeBooleanValue(errno == 0);\n" +
-            "  }\n" +
-            "} else {\n" +
-            "  %[res] = js::makeBooleanValue(true);\n" +
-            "}"
-        ) === -1)
-    {
-        _jsc.throwIOError("readdir");
-    }
-    return name;
-}
-
-exports.readdir = function readdirSync (path)
-{
-    var dir = opendir(path);
-    var res = [];
-    try {
-        var name;
-        while ((name = readdir(dir)) !== null) {
-            if (name !== "." && name !== "..")
-                res.push(name);
-        }
-    } finally {
-        closedir(dir);
-    }
-    return res;
 };
 
-exports.access = function access (path, mode)
+exports.access = function access (path, mode, req)
 {
-    var res = __asm__({},["res"],[["path", String(path)], ["mode", mode | 0]], [],
-        "%[res] = js::makeNumberValue(::access(%[path].raw.sval->getStr(), (int)%[mode].raw.nval));"
-    );
-    if (res === -1)
-        _jsc.throwIOError("access", path);
+    var syscall = "access";
+    var res;
+
+    path = String(path);
+
+    if ($jsc.checkInitTag(req, fsReqWrapInitTag)) {
+        req.syscall = syscall;
+        req.path = path;
+
+        res = __asm__({},["res"],[["path", path], ["mode", mode|0], ["req", req]], [],
+            "uv_fs_t * req = (uv_fs_t *)((js::NativeObject *)%[req].raw.oval)->getInternalUnsafe(0);\n" +
+            "%[res] = js::makeNumberValue(uv_fs_access(uv_default_loop(), req,\n" +
+            "   %[path].raw.sval->getStr(),\n" +
+            "   (int)%[mode].raw.nval,\n" +
+            "   js::fsCompletionCallback\n" +
+            "));"
+        );
+        if (res < 0)
+            _jsc.throwUVError(res, syscall, path);
+    } else {
+        res = __asm__({},["res"],[["path", path], ["mode", mode|0]], [],
+            "uv_fs_t req;\n" +
+            "%[res] = js::makeNumberValue(uv_fs_access(uv_default_loop(), &req,\n" +
+            "   %[path].raw.sval->getStr(),\n" +
+            "   (int)%[mode].raw.nval,\n" +
+            "   NULL\n" +
+            "));\n" +
+            "uv_fs_req_cleanup(&req);"
+        );
+        if (res < 0)
+            _jsc.throwUVError(res, syscall, path);
+    }
 };
