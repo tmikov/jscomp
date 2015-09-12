@@ -1484,7 +1484,7 @@ export class FunctionBuilder
 
     private strBlock (bb: BasicBlock): string
     {
-        return `B${bb.id}`;
+        return `b${bb.id}`;
     }
 
     private strDest (v: LValue): string
