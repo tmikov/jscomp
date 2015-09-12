@@ -705,6 +705,7 @@ class Runtime
     _defineAccessor: Variable = null;
     regExp: Variable = null;
     runtimeInit: Variable = null;
+    runtimeEventLoop: Variable = null;
 
     constructor (ctx: FunctionContext)
     {
@@ -723,6 +724,8 @@ class Runtime
             this.regExp  = coreScope.lookup("$RegExp");
         if (!this.runtimeInit)
             this.runtimeInit = coreScope.lookup("runtimeInit");
+        if (!this.runtimeEventLoop)
+            this.runtimeEventLoop = coreScope.lookup("runtimeEventLoop");
     }
 
     public allSymbolsDefined (): boolean
@@ -3396,6 +3399,9 @@ export function compile (
         if (!compileResolvedModules(runtime))
             return;
         callModuleRequire(runtime, main);
+
+        if (runtime.runtimeEventLoop)
+            callRuntimeFunction(runtime, runtime.runtimeEventLoop);
 
         runtime.ctx.close();
         topLevelBuilder.close();
