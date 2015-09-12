@@ -100,6 +100,9 @@ bool Marker::_mark (const Memory * memory)
 
 static void collect (StackFrame * caller)
 {
+    // We record the top frame to make it accessible to destructors
+    JS_SET_TOPFRAME(caller);
+
     Runtime * runtime = JS_GET_RUNTIME(caller);
     size_t startAllocatedSize = runtime->allocatedSize;
     if (runtime->diagFlags & Runtime::DIAG_HEAP_GC) {

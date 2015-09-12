@@ -42,7 +42,7 @@ var $RegExp = RegExp = function RegExp (pattern, flags)
 
     // Set the finalizer
     __asmh__({},
-        "static void regexp_finalizer (js::NativeObject * obj)\n" +
+        "static void regexp_finalizer (js::StackFrame *, js::NativeObject * obj)\n" +
         "{\n" +
         "  pcre2_code * re = (pcre2_code *)obj->getInternalUnsafe(0);\n" +
         "  pcre2_match_data * match = (pcre2_match_data *)obj->getInternalUnsafe(1);\n" +

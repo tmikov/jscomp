@@ -12,7 +12,6 @@
 #include "jsc/typedarrays.h"
 #endif
 
-
 namespace js {
 
 void mathInitRandom ();

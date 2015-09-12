@@ -50,5 +50,9 @@ set(SOURCE_FILES
         include/jsc/utf.h src/utf.cxx include/jsc/common.h include/jsc/jsimpl.h
         include/jsc/objects.h include/jsc/typedarrays.h src/typedarrays.cxx
         src/math.cpp
-        src/uri.cpp include/jsc/uri.h src/jsimpl.cpp include/jsc/sort.h src/sort.cpp include/jsc/dtoa.h src/convert.cpp src/string.cpp)
+        src/uri.cpp include/jsc/uri.h src/jsimpl.cpp include/jsc/sort.h src/sort.cpp include/jsc/dtoa.h src/convert.cpp
+        src/string.cpp
+        src/handles.cpp
+        src/jsni.cpp
+)
 add_library(jsruntime ${SOURCE_FILES} )

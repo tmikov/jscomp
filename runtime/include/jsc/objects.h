@@ -358,7 +358,7 @@ struct PropertyAccessor : public Memory
     virtual bool mark (IMark * marker, unsigned markBit) const;
 };
 
-typedef void (*NativeFinalizerFn)(NativeObject*);
+typedef void (*NativeFinalizerFn)(StackFrame *, NativeObject*);
 
 class NativeObject : public Object
 {
@@ -923,6 +923,73 @@ struct TryRecord
     jmp_buf jbuf;
 };
 
+struct Handles
+{
+    union HandleSlot
+    {
+        Memory * mem;
+        uintptr_t nextFree; // ((index << 1)|1)
+    };
+
+    uintptr_t m_firstFreeSlot;
+    unsigned m_level;
+    unsigned m_capacity;
+    HandleSlot * m_slots;
+
+    Handles ();
+
+    ~Handles ()
+    {
+        ::free(m_slots);
+    }
+
+    unsigned newHandle (StackFrame * caller, Memory * mem);
+    Memory * handle (unsigned hnd);
+    void     destroyHandle (unsigned hnd);
+
+    class iterator
+    {
+        HandleSlot * m_ptr;
+        HandleSlot * const m_end;
+
+        void scan ()
+        {
+            while (m_ptr != m_end && (m_ptr->nextFree & 1) != 0)
+                ++m_ptr;
+        }
+
+    public:
+        iterator (HandleSlot * p, HandleSlot * end):
+            m_ptr(p),
+            m_end(end)
+        {
+            scan();
+        };
+
+        bool atEnd () const
+        {
+            return m_ptr == m_end;
+        }
+
+        Memory * operator* () const
+        {
+            return m_ptr->mem;
+        }
+
+        iterator & operator++ ()
+        {
+            ++m_ptr;
+            scan();
+            return *this;
+        }
+    };
+
+    iterator begin ()
+    {
+        return iterator(m_slots, m_slots + m_level);
+    }
+};
+
 struct Runtime
 {
     enum
@@ -1012,6 +1079,8 @@ struct Runtime
     enum { CACHED_CHARS = 128 };
     const StringPrim * asciiChars[CACHED_CHARS];
 
+    Handles handles;
+
     unsigned markBit; // the value that was used for marking during the previous collection
 
     struct MemoryHead : public Memory
@@ -1064,6 +1133,10 @@ private:
 };
 
 extern Runtime * g_runtime;
+/**
+ * Used when calling through external functions;
+ */
+extern StackFrame * g_topFrame;
 
 #ifdef JS_DEBUG
 inline Runtime * getRuntime (StackFrame * frame) { return g_runtime; }
@@ -1073,6 +1146,10 @@ inline Runtime * getRuntime (StackFrame * frame) { return g_runtime; }
 #endif
 
 #define JS_IS_STRICT_MODE(frame) (JS_GET_RUNTIME(frame)->strictMode != false)
+
+#define JS_SET_TOPFRAME(frame)  ((void)(js::g_topFrame = (frame)))
+// NOTE: the typecast is to make it an RValue
+#define JS_GET_TOPFRAME()       ((js::StackFrame *)js::g_topFrame)
 
 TaggedValue emptyFunc (StackFrame * caller, Env *, unsigned, const TaggedValue *);
 TaggedValue objectFunction (StackFrame * caller, Env *, unsigned, const TaggedValue *);
