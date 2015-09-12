@@ -38,7 +38,7 @@ export class Options
     moduleDirs: string[] = [];
     includeDirs: string[] = [];
     libDirs: string[] = [];
-    libs: string[] = ["pcre2-8", "jsruntime", "dtoa"];
+    libs: string[] = ["pcre2-8", "jsruntime", "dtoa", "uv"];
     buildDir: string = ".jsbuild";
 }
 

@@ -122,6 +122,7 @@ function main (argv: string[]): void
     if (!runtimeDir)
         runtimeDir = "runtime";
     options.includeDirs.push(path.join(runtimeDir, "include"));
+    options.includeDirs.push(path.join(runtimeDir, "deps/libuv/include"));
     options.libDirs.push(path.join(runtimeDir, options.debug ? "debug" : "release"));
     options.moduleDirs = [path.join(runtimeDir, "js/modules"), path.join(runtimeDir, "js/nodelib")].concat(options.moduleDirs);
 
