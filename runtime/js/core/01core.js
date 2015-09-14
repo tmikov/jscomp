@@ -262,6 +262,12 @@ function object_protoSetter ()
 
 accessor(Object.prototype, "__proto__", object_protoGetter, object_protoSetter);
 
+hidden(Object.prototype, "__defineGetter__", function object_defineGetter(prop, func)
+{
+    needObject(this, "__defineGetter__");
+    defineProperty(this, prop, {enumerable: true, configurable: true, get: func});
+});
+
 hidden(Object, "getPrototypeOf", function object_getPrototypeOf(O)
 {
     needObject(O, "getPrototypeOf");
