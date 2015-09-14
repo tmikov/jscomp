@@ -1,47 +1,74 @@
-= jscomp
 Tzvetan Mikov <tmikov@gmail.com>
 
 An "ahead-of-time" compiler for the JavaScript programming language.
 
-WARNING: The compiler is in an early development stage and is not intended for use.
-Even though many things work, even more things don't. This document is for
-contributors.
+WARNING: The compiler is still under heavy development and not even "beta" quality yet. Even though
+many things work, many still don't. This document is for mainly for potential contributors.
 
 == Goals and Motivation
 
+JSC is a classic 'ahead-of-time' compiler. At compile time it generates static executable code
+(currently C++).  It implements ECMAScript 5 (with some minor exceptions) and provides an ever
+increasing level of Node.js API compatibility.
+
+The informal goals of the project are:
+
 * Modern ECMAScript compatibility
 * Acceptable performance
-* Predictability, observability and small memory footprint
+* Predictability, observability, simplicity of the execution model and small memory footprint
 
-When released, +jsc+ will support the ECMAScript 6 standard (or later), and will
-be compatible with 'Node.js' libraries and extensions. Module level +eval+ will also
-be supported (with performance cost). The goal is to be able to recompile most
-existing 'Node.js' applications without changes.
+== Try It
 
-It is not expected that the performance of compiled applications will rival
-'Node.js' (or 'v8'). JavaScript is an awful language for static compilation - it almost
+It has been tested on a Mac and Debian Linux (Windows support is coming ion the future -
+contributions are welcome). You need 'Node.js' v0.12, a C++11 compiler (Apple Clang or gcc-4.9 both
+work), CMake version at least 2.8, and TypeScript version *exactly* 1.4.1 (sudo npm -g install typescript@1.4.1).
+
+NOTE: TypeScript 1.5.0-beta has problems with 'node.d.ts'.
+
+* Clone the repository
+* From the root of the repository, build the runtime:
+
+----
+make runtime
+----
+
+* From the root of the repository, build the compiler:
+
+----
+make
+----
+
+* Run the compiler (only from the project root):
+
+----
+./jsc
+----
+
+* Compile and run an example
+
+----
+./jsc examples/factorial.js -o factorial
+./factorial
+----
+
+== Performance of the Compiled Code
+
+It is not expected that the performance of compiled applications will ever rival
+'v8'. JavaScript is an awful language for static compilation - it almost
 seems designed to foil optimization attempts, and so a JIT will always have a
-performance advantage.
+significant performance advantage.
 
-With that said, we believe that performance can be acceptable (compared to,
-say, Python) and even good. We have a number of potential optimizations planned,
-including whole program type inference.
+With that said, we believe that performance can be acceptable and even good. We have a number of
+potential optimizations planned, including whole program type inference.
 
-Perhaps even more importantly, the statically compiled binaries will have very
-predictable performance, which doesn't change. The produced code can be trivially examined,
-debugged, and reasoned about - it is not hidden in a huge opaque JIT compiler. 'v8' has
-excellent diagnostic and visualization tools, but by its very nature it is very complex
-and so are its tools. Even for an experienced assembler programmer (not to say a casual
-JavaScript developer), it can be very difficult to decipher or predict what 'v8' is doing.
+== Performance of the Compiler
 
-A JIT, also by its very nature, has big and somewhat unpredictable memory
-requirements. Different versions of code are kept around, compiled, decompiled, etc.
-It can get very challenging especially when running multiple ones in parallel, given
-that nothing can be shared between them. A static compiler avoids all of these
-problems.
+JSC may feel slow at times. It generates a huge C++ source file containing all
+used modules and runtime. There are plans afoot to speed this process greatly, but even now
+it should be taken in context of our goals:
 
-Lastly, the biggest and more important motivation is for fun. We like making compilers,
-languages and runtimes. So, why not?
+* Produce executables with minimal runtime dependencies
+* Perform whole-program optimizations
 
 == Status
 
@@ -87,55 +114,96 @@ and should not be used with "untrusted" regular expressions.
 * The object system is implemented, but some of the built-in constructors and many methods
 are not available. The plan is to implement as mush as possible in JavaScript.
 
-* Runtime: the runtime requires "C++11" and is very slow and wasteful. This is planned
-to change to "C" and "not slow" as soon as we have a more or less full support for the
-entire language.
+* Some built-in methods are still missing or have limited functionality.
 
-* The generated code also requires "C++11" (due to the runtime mainly). It will transition
-to "C".
+== Technical Details
 
-== Garbage Collector
+=== C++ 11
 
-The garbage collector is a very simple 'stop the world' mark and sweep. It is however
-precise. Since precise garbage collection has major implications on code generation,
-it is our belief that it must be supported early, if it is to be supported at all.
+The compiler generates C++ code that must be compiled with a C++ 11 compiler. The runtime is
+extremely inefficient - for example it uses +std::map<>+ for property storage. Our excuses are:
 
-We are considering making it compacting, though that would obviously have significant
-implications on the C++ runtime.
+* We concentrated on correctness and wanted to get something working ASAP
+* We craftily left obvious optimizations opportunities alone because we wanted to get easy
+performance boosts later in the project (with the corresponding boosts in morale). See the TODO
+section.
 
-== Building and Running
+=== Garbage Collector
 
-It has only been tested on a Mac (though it is expected it works on Linux without any
-modifications). You need 'Node.js' v0.12, a C++11 compiler (Apple Clang or gcc-4.9 both work),
-CMake version at least 2.8, and TypeScript 1.4.1 (sudo npm -g install typescript@1.4.1).
+There is a precise 'stop the world' mark and sweep garbage collector.
 
-NOTE: TypeScript 1.5.0-beta has problems with 'node.d.ts'.
+=== Node.js Compatibility
 
-* Clone the repository
-* From the root of the repository, build the runtime:
+Node.js compatibility is achieved by compiling *unmodified* Node.js built-in JavaScript modules
+(we use no C/C++ code from either Node or v8). This can be an occasionally painfull process, as
+these modules rely on internal C++ interfaces which must be reverse engineered and recreated.
+Since these modules are unmodified they serve a dual purpose - validate our compiler and
+environment as well as provide great Node.js compatibility.
 
-----
-make runtime
-----
+=== JavaScript -> Native Interface
 
-* From the root of the repository, build the compiler:
+Since this is a static compiler, connecting C/C++ and JavaScript is conceptually simpler than the
+interfaces provided by V8 and/or Node. However we are still working on defining interfaces
+which would be easier to use in practice without in-depth knowledge of the internals of the
+compiler and runtime system.
 
-----
-make
-----
+The +__asm__+ built-in is conceptually similar to its equivalent in GCC. Examples of its
+usage can be seen all over the runtime library (e.g. in +runtime/js/core+).
 
-* Run the compiler (only from the project root):
+== TODO
 
-----
-./jsc
-----
+=== Short term
 
-* Compile and run an example
+* Transition the runtime to C
+* Use 'hidden classes' instead of property maps.
+* 'NaN boxing' instead of explicit tagging
+* Copying generattional garbage collector (we believe it is important to do this work as early
+as possible as it has signigicant implications on code generation and the runtime).
+* Better implementation of Node.js 'Buffer' - currently we are using an inefficient implementation
+from Browserify.
+* Fill in missing runtime APIs (e.g. +Date+).
 
-----
-./jsc examples/factorial.js -o factorial
-./factorial
-----
+=== Medium term
+
+* Speed up compilation by caching compiled modules
+* Better source-level debugging
+* Support for source maps
+* ES6 support
+* IR-level optimizations and register allocation
+* TypeScript integration
+* V8 compatibility layer for existing Node extensions
+
+=== Long term
+
+* Module level +eval()+ (by building and interpreting an AST)
+* REPL
+
+== Philosophical Motivation
+
+When released, +jsc+ will support the ECMAScript 6 standard (or later), and will
+be compatible with 'Node.js' libraries and extensions. Module level +eval+ will also
+be supported (with performance cost). The goal is to be able to recompile most
+existing 'Node.js' applications without changes.
+
+As we mentioned, a static JavaScript compiler can never rival the performance of a JIT, due to
+the design of the language itself. But, it can still produce binaries with 'sufficient' or
+'useful' performance.
+
+Perhaps even more importantly, the statically compiled binaries will have very
+predictable performance, which doesn't change. The produced code can be trivially examined,
+debugged, and reasoned about - it is not hidden in a huge opaque JIT compiler. 'v8' has
+excellent diagnostic and visualization tools, but by its very nature it is very complex
+and so are its tools. Even for an experienced assembler programmer (not to say a casual
+JavaScript developer), it can be very difficult to decipher or predict what 'v8' is doing.
+
+A JIT, also by its very nature, has big and somewhat unpredictable memory
+requirements. Different versions of code are kept around, compiled, decompiled, etc.
+It can get very challenging especially when running multiple ones in parallel, given
+that nothing can be shared between them. A static compiler avoids all of these
+problems.
+
+Lastly, the biggest and more important motivation is for fun. We like making compilers,
+languages and runtimes. So, why not?
 
 == License and Copyright
 
