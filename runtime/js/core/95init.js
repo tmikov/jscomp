@@ -10,4 +10,6 @@ function runtimeInit ()
     console = moduleRequire("console");
     buffer = moduleRequire("buffer");
     Buffer = buffer.Buffer;
+
+    moduleRequire("_node").call({}, process);
 }

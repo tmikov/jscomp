@@ -144,3 +144,5 @@ var self;
 
 // Export "core" functionality
 var $jsc;
+
+var clearTimeout;

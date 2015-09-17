@@ -3,6 +3,12 @@
 // root for complete license information.
 
 var _jsc = require("./_jsc");
+var events = require("events");
+
+function Process () {}
+Process.prototype = Object.create(events.EventEmitter.prototype, {constructor: {value: Process.constructor}});
+
+exports = module.exports = new Process();
 
 exports.execArgv = null;
 exports.argv = null;
@@ -40,9 +46,16 @@ exports.nextTick = function process_nextTick (cb) // FIXME
     console.error("process.nextTick() is not implemented!");
 };
 
+exports._setupNextTick = function process_setupNextTick (tickInfo, tickCallback, runMicrotasks)
+{
+    console.error("process._setupNextTick() is not implemented!");
+};
+
 var s_bindings = {
     fs: require("./_fs"),
-    constants: require("./_constants")
+    constants: require("./_constants"),
+    tty_wrap: require("./_tty_wrap.js"),
+    timer_wrap: require("./_timer_wrap.js")
 };
 
 exports.binding = function process_binding (name) // FIXME
