@@ -430,6 +430,7 @@ exports.writeString = function writeString (fd, data, position, encoding, req)
     if (!$jsc.checkInitTag(req, fsReqWrapInitTag))
         req = null;
 
+    //TODO: if encoding === 'utf8', we can write it directly
     var buf = new Buffer(String(data), encoding);
     return writeBuffer(fd, buf, 0, buf.length, position, req);
 };

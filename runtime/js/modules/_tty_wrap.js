@@ -37,4 +37,9 @@ TTY.prototype.getWindowSize = function (winSize)
     console.error("TTY.getWindowSize is not implemented");
 };
 
+TTY.prototype.writeUtf8String = function (req, data)
+{
+    console.error("TTY.writeUtf8String() not implemented");
+};
+
 exports.TTY = TTY;

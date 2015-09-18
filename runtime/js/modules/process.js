@@ -55,7 +55,10 @@ var s_bindings = {
     fs: require("./_fs"),
     constants: require("./_constants"),
     tty_wrap: require("./_tty_wrap.js"),
-    timer_wrap: require("./_timer_wrap.js")
+    timer_wrap: require("./_timer_wrap.js"),
+    tcp_wrap: require("./_tcp_wrap.js"),
+    pipe_wrap: require("./_pipe_wrap.js"),
+    stream_wrap: require("./_stream_wrap.js"),
 };
 
 exports.binding = function process_binding (name) // FIXME
