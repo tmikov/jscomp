@@ -4,6 +4,8 @@
 
 #include "jsc/jsruntime.h"
 #include <assert.h>
+#include <stdlib.h>
+#include <stdio.h>
 #include <typeinfo>
 #include <deque>
 

@@ -14,13 +14,13 @@ void mathInitRandom ()
 #ifdef HAVE_SRANDOMDEV
     ::srandomdev();
 #else
-    ::srandom((unsigned)::time(NULL));
+    ::srand((unsigned)::time(NULL));
 #endif
 }
 
 double mathRandom ()
 {
-    return (double)::random() / ((double)RAND_MAX+1);
+    return (double)::rand() / ((double)RAND_MAX+1);
 }
 
 }; // namespace js
