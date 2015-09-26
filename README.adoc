@@ -19,15 +19,16 @@ The informal goals of the project are:
 
 == Try It
 
-It has been tested on Mac and Debian Linux (Windows support is coming in the future -
-contributions are welcome). You need:
+It has been tested on Mac and Debian Linux Windows (under cygwin). You need:
 
 * Node.js v0.12
 * a C++11 compiler (Apple Clang or gcc-4.9 both work)
-* CMake version at least 2.8
+* CMake version at least 2.8.4
 * TypeScript version *exactly* 1.4.1 (sudo npm -g install typescript@1.4.1).
 
 NOTE: TypeScript 1.5.0-beta has problems with 'node.d.ts'.
+
+NOTE: On Windows configure your mount point with 'noacl' to avoid permission issues during make.
 
 * Clone the repository
 * From the root of the repository, build the runtime:
