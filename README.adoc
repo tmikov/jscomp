@@ -19,8 +19,12 @@ The informal goals of the project are:
 
 == Try It
 
-It has been tested on Mac and Debian Linux (Windows support is coming in the future -
-contributions are welcome). You need:
+It has been tested on Mac and Debian Linux. Experimental Windows support is available under the
++cygwin+ branch; for Windows/Cygwin, please check-out that branch and follow the instructions in
+its README (note that it may be lagging behind the main development branch). Better Windows
+support is coming in the future (contributions are welcome).
+
+To build JSC You need:
 
 * Node.js v0.12
 * a C++11 compiler (Apple Clang or gcc-4.9 both work)
