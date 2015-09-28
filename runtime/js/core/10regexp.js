@@ -28,6 +28,8 @@ function pcre2_get_error_message (errorCode)
     );
 }
 
+var regExpTag = newInitTag();
+
 var $RegExp = RegExp = function RegExp (pattern, flags)
 {
     if (!(this instanceof RegExp))
@@ -117,10 +119,11 @@ var $RegExp = RegExp = function RegExp (pattern, flags)
         multiline: {value: multiline},
         lastIndex: {writable: true, value: 0}
     });
-}
 
-var regexp_prototype = createNative(2);
-RegExp.prototype = regexp_prototype;
+    setInitTag(this, regExpTag);
+};
+
+RegExp.prototype = createNative(2);
 
 Object.defineProperties(RegExp.prototype, {
     source: {value: ""},
@@ -132,16 +135,7 @@ Object.defineProperties(RegExp.prototype, {
 
 function isRegExp (obj)
 {
-    // TODO: perform stricter validation, e.g. with symbols?
-    if (obj.__proto__ === regexp_prototype) {
-        if ( __asm__({},["result"],[["obj",obj]],[],
-                "%[result] = js::makeBooleanValue(js::getInternalClass(%[obj]) == js::ICLS_REGEXP);"
-            ))
-        {
-            return true;
-        }
-    }
-    return false;
+    return checkInitTag(obj, regExpTag);
 }
 
 function validateObject (obj)
