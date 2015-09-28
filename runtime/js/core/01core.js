@@ -51,6 +51,35 @@ function setInternalClass (obj, value)
     );
 }
 
+function newInitTag ()
+{
+    return {};
+}
+
+function setInitTag (obj, tag)
+{
+    needObject(tag, "setInitTag");
+    if (!__asm__({},["res"],[["obj", obj], ["tag", tag]],[],
+            "if (js::NativeObject * no = js::isNativeObject(%[obj])) {\n" +
+            "    no->setInitTag(%[tag].raw.oval);\n" +
+            "    %[res] = js::makeBooleanValue(true);\n" +
+            "} else {\n" +
+            "    %[res] = js::makeBooleanValue(false);\n" +
+            "}"
+        ))
+    {
+        throw TypeError("setInitTag with an invalid target");
+    }
+
+}
+
+function checkInitTag (obj, tag)
+{
+    return __asm__({},["res"],[["obj", obj], ["tag", tag]],[],
+        "%[res] = js::makeBooleanValue(js::checkInitTag(%[obj], %[tag]));"
+    );
+}
+
 /** This is used only internally by the generated code in object expressions with accessors */
 function _defineAccessor (obj, prop, getter, setter)
 {
@@ -207,6 +236,10 @@ defineProperty($jsc, "ICLS_Int32Array"       , {value: ICLS_Int32Array});
 defineProperty($jsc, "ICLS_Uint32Array"      , {value: ICLS_Uint32Array});
 defineProperty($jsc, "ICLS_Float32Array"     , {value: ICLS_Float32Array});
 defineProperty($jsc, "ICLS_Float64Array"     , {value: ICLS_Float64Array});
+
+constProp($jsc, "newInitTag", newInitTag);
+constProp($jsc, "setInitTag", setInitTag);
+constProp($jsc, "checkInitTag", checkInitTag);
 
 // Object
 //

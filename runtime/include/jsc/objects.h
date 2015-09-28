@@ -360,21 +360,36 @@ struct PropertyAccessor : public Memory
 
 typedef void (*NativeFinalizerFn)(NativeObject*);
 
-struct NativeObject : public Object
+class NativeObject : public Object
 {
+    typedef Object super;
     InternalClass icls;
+    Object * initTag;
     NativeFinalizerFn nativeFinalizer;
     unsigned const internalCount;
     uintptr_t internalProps[1];
+public:
 
     static NativeObject * make (StackFrame * caller, Object * parent, unsigned internalPropCount);
     static NativeObject * make (StackFrame * caller, unsigned internalPropCount);
 
     virtual InternalClass getInternalClass () const;
     virtual Object * createDescendant (StackFrame * caller);
+    virtual bool mark (IMark * marker, unsigned markBit) const;
     virtual uintptr_t getInternalProp (unsigned index) const;
     virtual void setInternalProp (unsigned index, uintptr_t value);
     virtual ~NativeObject ();
+
+    void setInitTag (Object * it)
+    {
+        if (!this->initTag)
+            this->initTag = it;
+    }
+
+    bool checkInitTag (Object * tag) const
+    {
+        return this->initTag == tag;
+    }
 
     void setInternalClass (InternalClass icls)
     {
@@ -1181,6 +1196,20 @@ TaggedValue newFunction (StackFrame * caller, Env * env, const StringPrim * name
 void throwValue (StackFrame * caller, TaggedValue val) JS_NORETURN;
 void throwOutOfMemory (StackFrame * caller) JS_NORETURN;
 void throwTypeError (StackFrame * caller, const char * str, ...) JS_NORETURN;
+
+inline NativeObject * isNativeObject (TaggedValue v)
+{
+    // TODO: get rid of this dynamic_cast
+    return isValueTagObject(v.tag) ? dynamic_cast<NativeObject *>(v.raw.oval) : NULL;
+}
+
+inline bool checkInitTag (TaggedValue obj, TaggedValue initTag)
+{
+    if (NativeObject * no = isNativeObject(obj))
+        return isValueTagObject(initTag.tag) && no->checkInitTag(initTag.raw.oval);
+    else
+        return false;
+}
 
 inline Function * isFunction (TaggedValue v)
 {

@@ -509,6 +509,7 @@ NativeObject * NativeObject::make (StackFrame * caller, unsigned internalPropCou
 NativeObject::NativeObject (Object * parent, unsigned internalCount) :
     Object(parent),
     icls(ICLS_OBJECT),
+    initTag(NULL),
     nativeFinalizer(NULL),
     internalCount(internalCount)
 {
@@ -523,6 +524,11 @@ InternalClass NativeObject::getInternalClass () const
 Object * NativeObject::createDescendant (StackFrame * caller)
 {
     return NativeObject::make(caller, this, this->internalCount);
+}
+
+bool NativeObject::mark (IMark * marker, unsigned markBit) const
+{
+    return markMemory(marker, markBit, this->initTag) && super::mark(marker, markBit);
 }
 
 uintptr_t NativeObject::getInternalProp (unsigned index) const
