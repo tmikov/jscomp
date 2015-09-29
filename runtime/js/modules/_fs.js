@@ -103,10 +103,13 @@ exports.read = function read (fd, buffer, offset, length, position)
 
 __asmh__({},"#include <dirent.h>");
 
+var dirTag = $jsc.newInitTag();
+
 function opendir (path)
 {
     path = String(path);
     var dir = $jsc.createNative(1);
+
     if (!__asm__({},["res"],[["dir",dir], ["path", path]],[],
             "DIR * d = ::opendir(%[path].raw.sval->getStr());\n" +
             "if (d) {\n" +
@@ -131,11 +134,16 @@ function opendir (path)
     __asm__({},[],[["dir", dir]],[],
         "((js::NativeObject *)%[dir].raw.oval)->setNativeFinalizer(dir_finalizer);"
     );
+
+    $jsc.setInitTag(dir, dirTag);
     return dir;
 }
 
 function closedir (dir)
 {
+    if (!$jsc.checkInitTag(dir, dirTag))
+        throw TypeError("not a directory object");
+
     if (__asm__({},["res"],[["dir",dir]],[],
             "DIR * d = (DIR *)%[dir].raw.oval->getInternalProp(0);\n" +
             "if (d) {\n" +
@@ -152,6 +160,9 @@ function closedir (dir)
 
 function readdir (dir)
 {
+    if (!$jsc.checkInitTag(dir, dirTag))
+        throw TypeError("not a directory object");
+
     var name = null;
     if (!__asm__({},["res"],[["dir",dir],["name", name]],[],
             "DIR * d = (DIR *)%[dir].raw.oval->getInternalProp(0);\n" +
