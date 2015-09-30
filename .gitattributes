@@ -1,1 +1,5 @@
+# normalize line-endings for all text files
+* text=auto
+
+# ensure bash scripts checkout with LF line-endings
 /jsc eol=lf
