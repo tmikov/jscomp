@@ -29,10 +29,7 @@ To build JSC You need:
 * Node.js v0.12
 * a C++11 compiler (Apple Clang or gcc-4.9 both work)
 * CMake version at least 2.8
-* TypeScript version *exactly* 1.4.1 (sudo npm -g install typescript@1.4.1).
-
-NOTE: TypeScript 1.5.0-beta has problems with 'node.d.ts'.
-
+* TypeScript version at least 1.5.3
 * Clone the repository
 * From the root of the repository, build the runtime:
 
