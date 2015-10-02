@@ -91,24 +91,29 @@ bool Object::mark (IMark * marker, unsigned markBit) const
     return true;
 }
 
-Object * Object::defineOwnProperty (StackFrame * caller, const StringPrim * name, unsigned flags, TaggedValue value)
+#define IS_DATA_DESCRIPTOR(flags)       (((flags) & (PROP_HAVE_VALUE | PROP_HAVE_WRITABLE)) != 0)
+#define IS_GENERIC_DESCRIPTOR(flags)    (!((flags) & (PROP_HAVE_VALUE | PROP_HAVE_WRITABLE | PROP_GET_SET)))
+
+// 8.12.9
+bool Object::defineOwnPropertyExplicit (StackFrame * caller, const StringPrim * name, unsigned flags, TaggedValue value)
 {
+    assert(((flags & (PROP_GET_SET | PROP_HAVE_VALUE)) != (PROP_GET_SET | PROP_HAVE_VALUE)) &&
+           "PROP_GET_SET and PROP_HAVE_VALUE specified at the same time");
+
     if (JS_UNLIKELY(!name->isInterned()))
         name = JS_GET_RUNTIME(caller)->internString(name);
 
+    // 1
     auto it = props.find(name->getStr());
-    if (it != props.end()) {
-        if ((this->flags & OF_NOCONFIG) || !(it->second.flags & PROP_CONFIGURABLE)) {
-            throwTypeError(caller, "Cannot redefine property '%s'", name->getStr());
-        }
+    if (it == props.end()) {
+        // 3
+        if (this->flags & OF_NOEXTEND)
+            return false;
 
-        Property * prop = &it->second;
-        prop->flags = flags;
-        prop->value = value;
-    } else {
-        if (this->flags & OF_NOCONFIG)
-            throwTypeError(caller, "Cannot define property '%s'", name->getStr());
+        // Remove the parameter flags
+        flags &= PROP_FLAGS;
 
+        // 4
 #ifdef HAVE_CXX11_EMPLACE
         Property * prop = &props.emplace(
             std::piecewise_construct, std::make_tuple(name->getStr()), std::make_tuple(name, flags, value)
@@ -124,9 +129,118 @@ Object * Object::defineOwnProperty (StackFrame * caller, const StringPrim * name
         uint32_t dummy;
         if (isIndexString(name->getStr(), &dummy))
             this->flags |= OF_INDEX_PROPERTIES;
+
+        return true;
     }
 
-    return this;
+    Property * current = &it->second;
+    unsigned currentFlags = current->flags;
+
+    // 5
+    // If no field is set, do nothing and succeed
+    if (!(flags & (PROP_HAVE_ENUMERABLE | PROP_HAVE_WRITABLE | PROP_HAVE_CONFIGURABLE | PROP_HAVE_VALUE | PROP_GET_SET))) {
+        return true;
+    }
+
+    // 7
+    // If current is not configurable, but we are changing "configurable" or "enumerable"
+    if ((this->flags & OF_NOCONFIG) || !(currentFlags & PROP_CONFIGURABLE)) {
+        // 7a
+        if (flags & PROP_CONFIGURABLE)
+            return false;
+        // 7b
+        // If enumerable is specified and is different
+        if ((flags & PROP_HAVE_ENUMERABLE) && ((flags ^ currentFlags) & PROP_ENUMERABLE))
+            return false;
+    }
+
+    // 8
+    if (!IS_GENERIC_DESCRIPTOR(flags)) {
+        // 9
+        // if IS_DATA_DESCRIPTOR(desc) and current have different results
+        if (IS_DATA_DESCRIPTOR(flags) != !(currentFlags & PROP_GET_SET)) {
+            // 9a
+            if ((this->flags & OF_NOCONFIG) || !(currentFlags & PROP_CONFIGURABLE))
+                return false;
+        // 10
+        } else if (IS_DATA_DESCRIPTOR(flags)) {
+            // 10a
+            // If the property is not configurable
+            if ((this->flags & OF_NOCONFIG) || !(currentFlags & PROP_CONFIGURABLE)) {
+                if ((this->flags & OF_NOWRITE) || !(currentFlags & PROP_WRITEABLE)) {
+                    // 10a.i
+                    // Reject if trying to change writable from false to true
+                    if (flags & PROP_WRITEABLE)
+                        return false;
+                    // 10a.ii.1
+                    // Reject if there is a new value and it is different
+                    if ((flags & PROP_HAVE_VALUE) && !operator_IF_STRICT_EQ(value, current->value))
+                        return false;
+                }
+            }
+        // 11 - desc and current are accessor descriptors
+        } else {
+            // 11a
+            // If the property is not configurable
+            if ((this->flags & OF_NOCONFIG) || !(currentFlags & PROP_CONFIGURABLE)) {
+                assert(value.tag == VT_MEMORY && (!value.raw.mval || dynamic_cast<PropertyAccessor *>(value.raw.mval) != NULL));
+
+                // We assume it could be null
+                if (PropertyAccessor * accessor = static_cast<PropertyAccessor *>(value.raw.mval)) {
+                    PropertyAccessor * curAccessor = static_cast<PropertyAccessor *>(current->value.raw.mval);
+                    assert(curAccessor);
+
+                    if ((accessor->set && accessor->set != curAccessor->set) ||
+                        (accessor->get && accessor->get != curAccessor->get))
+                    {
+                        return false;
+                    }
+                }
+            }
+        }
+    }
+
+    // Update the values
+    //
+    if (flags & PROP_HAVE_ENUMERABLE)
+        currentFlags = (currentFlags & ~PROP_ENUMERABLE) | (flags & PROP_ENUMERABLE);
+    if (flags & PROP_HAVE_WRITABLE)
+        currentFlags = (currentFlags & ~PROP_WRITEABLE) | (flags & PROP_WRITEABLE);
+    if (flags & PROP_HAVE_CONFIGURABLE)
+        currentFlags = (currentFlags & ~PROP_CONFIGURABLE) | (flags & PROP_CONFIGURABLE);
+
+    if (flags & PROP_HAVE_VALUE) {
+        currentFlags &= ~PROP_GET_SET;
+        current->value = value;
+    } else if (flags & PROP_GET_SET) {
+        currentFlags |= PROP_GET_SET;
+        current->value = value;
+    }
+
+    current->flags = currentFlags;
+
+    return true;
+}
+
+#undef IS_DATA_DESCRIPTOR
+#undef IS_GENERIC_DESCRIPTOR
+
+void Object::defineOwnPropertyExplicitThrowing (
+    StackFrame * caller, const StringPrim * name, unsigned flags, TaggedValue value
+)
+{
+    if (!defineOwnPropertyExplicit(caller, name, flags, value))
+        throwTypeError(caller, "Cannot redefine property '%s'", name->getStr());
+}
+
+void Object::defineOwnProperty (StackFrame * caller, const StringPrim * name, unsigned flags, TaggedValue value)
+{
+    // The caller wants to specify everything
+    flags |= PROP_HAVE_ENUMERABLE | PROP_HAVE_CONFIGURABLE;
+    if (!(flags & PROP_GET_SET))
+        flags |= PROP_HAVE_VALUE;
+
+    defineOwnPropertyExplicitThrowing(caller, name, flags, value);
 }
 
 Property * Object::getProperty (const StringPrim * name, Object ** propObj)

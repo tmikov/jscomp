@@ -62,11 +62,11 @@ function _defineAccessor (obj, prop, getter, setter)
             "js::isFunction(%[get]),"+
             "js::isFunction(%[set])"+
         "));\n"+
-        "%[obj].raw.oval->defineOwnProperty(%[%frame], %[prop].raw.sval,"+
-        "js::PROP_CONFIGURABLE |"+
-        "js::PROP_ENUMERABLE |"+
-        "js::PROP_GET_SET"+
-        ", %[accessor]"+
+        "%[obj].raw.oval->defineOwnPropertyExplicitThrowing(%[%frame], %[prop].raw.sval,"+
+        "    js::PROP_HAVE_CONFIGURABLE | js::PROP_CONFIGURABLE |"+
+        "    js::PROP_HAVE_ENUMERABLE | js::PROP_ENUMERABLE |"+
+        "    js::PROP_GET_SET,"+
+        "  %[accessor]"+
         ");"
     );
 }
@@ -97,6 +97,7 @@ function defineProperty (obj, prop, descriptor)
         throw new TypeError("'set' is not a function");
 
     var value;
+    var haveValue = false;
     var getset = false;
     if (descriptor.get || descriptor.set) {
         if (("value" in descriptor) || ("writable" in descriptor))
@@ -110,20 +111,28 @@ function defineProperty (obj, prop, descriptor)
             "));"
         );
     } else {
+        haveValue = "value" in descriptor;
         value = descriptor.value;
     }
 
     __asm__({},[],[
-            ["obj", obj], ["prop", String(prop)], ["value", value],
-            ["configurable", !!descriptor.configurable], ["enumerable", !!descriptor.enumerable],
-            ["writable", !!descriptor.writable], ["getset", getset]
+            ["obj", obj], ["prop", String(prop)],
+            ["haveValue", haveValue],                           ["value", value],
+            ["haveConfigurable", "configurable" in descriptor], ["configurable", !!descriptor.configurable],
+            ["haveEnumerable", "enumerable" in descriptor],     ["enumerable", !!descriptor.enumerable],
+            ["haveWritable", "writable" in descriptor],         ["writable", !!descriptor.writable],
+            ["getset", getset]
         ],[],
-        "%[obj].raw.oval->defineOwnProperty(%[%frame], %[prop].raw.sval,"+
-          "(%[configurable].raw.bval ? js::PROP_CONFIGURABLE : 0) |"+
-          "(%[enumerable].raw.bval ? js::PROP_ENUMERABLE : 0) |"+
-          "(%[writable].raw.bval ? js::PROP_WRITEABLE : 0) |"+
-          "(%[getset].raw.bval ? js::PROP_GET_SET : 0)"+
-        ", %[value]"+
+        "%[obj].raw.oval->defineOwnPropertyExplicitThrowing(%[%frame], %[prop].raw.sval,"+
+        "    (%[haveConfigurable].raw.bval ? js::PROP_HAVE_CONFIGURABLE : 0) |"+
+        "    (%[configurable].raw.bval ? js::PROP_CONFIGURABLE : 0) |"+
+        "    (%[haveEnumerable].raw.bval ? js::PROP_HAVE_ENUMERABLE : 0) |"+
+        "    (%[enumerable].raw.bval ? js::PROP_ENUMERABLE : 0) |"+
+        "    (%[haveWritable].raw.bval ? js::PROP_HAVE_WRITABLE : 0) |"+
+        "    (%[writable].raw.bval ? js::PROP_WRITEABLE : 0) |"+
+        "    (%[getset].raw.bval ? js::PROP_GET_SET : 0) |" +
+        "    (%[haveValue].raw.bval ? js::PROP_HAVE_VALUE : 0),"+
+        "  %[value]"+
         ");"
     );
 

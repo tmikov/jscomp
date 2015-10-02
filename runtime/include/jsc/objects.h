@@ -178,7 +178,14 @@ enum PropAttr
 {
     PROP_NONE = 0x00,
     PROP_ENUMERABLE = 0x01, PROP_WRITEABLE = 0x02, PROP_CONFIGURABLE = 0x04, PROP_GET_SET = 0x08,
-    PROP_NORMAL = PROP_ENUMERABLE | PROP_WRITEABLE | PROP_CONFIGURABLE
+    PROP_NORMAL = PROP_ENUMERABLE | PROP_WRITEABLE | PROP_CONFIGURABLE,
+    PROP_FLAGS = 0x0F,
+
+    // Only to be used as params to defineOwnProperty()
+    PROP_HAVE_ENUMERABLE    = 0x10,
+    PROP_HAVE_WRITABLE      = 0x20,
+    PROP_HAVE_CONFIGURABLE  = 0x40,
+    PROP_HAVE_VALUE         = 0x80,
 };
 
 struct ListEntry
@@ -261,7 +268,13 @@ struct Object : public Memory
 
     virtual bool mark (IMark * marker, unsigned markBit) const;
 
-    Object * defineOwnProperty (
+    bool defineOwnPropertyExplicit (
+        StackFrame * caller, const StringPrim * name, unsigned flags, TaggedValue value
+    );
+    void defineOwnPropertyExplicitThrowing (
+        StackFrame * caller, const StringPrim * name, unsigned flags, TaggedValue value
+    );
+    void defineOwnProperty (
         StackFrame * caller, const StringPrim * name, unsigned flags, TaggedValue value = JS_UNDEFINED_VALUE
     );
 
