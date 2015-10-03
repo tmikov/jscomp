@@ -123,7 +123,7 @@ var $RegExp = RegExp = function RegExp (pattern, flags)
     setInitTag(this, regExpTag);
 };
 
-RegExp.prototype = createNative(2);
+sealPrototype(RegExp, createNative(2));
 
 Object.defineProperties(RegExp.prototype, {
     source: {value: ""},
