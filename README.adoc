@@ -56,6 +56,10 @@ make
 ./factorial
 ----
 
+== Hacking
+
+See link:docs/hacking.adoc[docs/hacking.adoc]
+
 == Performance of the Compiled Code
 
 It is not expected that the performance of compiled applications will ever rival

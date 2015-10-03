@@ -1,0 +1,70 @@
+= Hacking the compiler
+
+== Source Control
+
+* `master` will contain releases, when they occur
+* `develop` is the public development branch. All contributions must be
+  based on it
+* `work` and all other branches are private branches that I use while development
+  and can change randomly.
+
+In the future, if there was interest and enough contributors (which would be
+very presumptuous to assume now) an official repository separate from my own will
+be created.
+
+=== Contributing
+
+Pull requests, when accepted, will be rebased against `develop`. They should rebase
+cleanly, if not I would ask for the conflicts to be cleaned and a new PR.
+
+Ideally, your PR should contain tests, making it easy to validate that it works.
+Of course, that is not always possible.
+
+== Source Overview
+
+There are two major parts of the project:
+
+* the compiler
+* the runtime
+
+The compiler is written in TypeScript (using a small number of JavaScript
+libraries). It is independent from the runtime and when run under Node.js
+it doesn't use the runtime.
+
+The runtime provides fundamental functionality like garbage collection,
+objects, the standard ECMAScript 5 environment and a growing
+subset of Node.js APIs. In a sense it is a replacement of both `v8` and `Node.js`.
+
+When the compiler compiles itself, the result uses the runtime and is
+independent from v8/Node.js. That is not yet fully possible because not all
+required Node.js APIs have been implemented in the runtime.
+
+== The Compiler
+
+As mentioned before, the compiler is written in TypeScript and some JavaScript.
+The `tsc` tool translates the TypeScript sources into JavaScript and the combined
+result is executed by Node.js.
+
+* `main.ts` in the project root is the entry point
+* the TypeScript sources live in `src/`
+* the JavaScript sources live in `js/`
+
+== The Runtime
+
+The runtime is written in a mixture of C++ and JavaScript and lives
+entirely under `runtime/`:
+
+* `runtime/js/` contains all JavaScript runtime sources
+* `runtime/include/` and `runtime/src/` contain the C++ sources
+* `runtime/deps/` contains all runtime dependencies
+
+=== JavaScript runtime
+
+The JavaScript portions are split into several groups:
+
+* `runtime/js/runtime.js` is the first file compiled in the runtime
+* `runtime/js/core/` provides the "core" ECMAScript objects and APIs
+* `runtime/js/modules/` contains modules accessible via  `require("modile")` which 
+  have been written specifically for this project.
+* `runtime/js/nodelib/` contains Node.js modules with minimal modifications which have
+  been imported into the project
