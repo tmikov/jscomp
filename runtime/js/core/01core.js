@@ -197,6 +197,11 @@ function constProp (obj, prop, value)
     defineProperty(obj, prop, {value: value, writable: false});
 }
 
+function sealPrototype (obj, value)
+{
+    constProp(obj, "prototype", value);
+}
+
 function isCallable (x)
 {
     return typeof(x) === "function";
