@@ -194,7 +194,7 @@ function accessor (obj, prop, getF, setF)
 
 function constProp (obj, prop, value)
 {
-    defineProperty(obj, prop, {value: value});
+    defineProperty(obj, prop, {value: value, writable: false});
 }
 
 function isCallable (x)
