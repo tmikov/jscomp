@@ -4,6 +4,11 @@
 
 __asmh__({},"#include <errno.h>");
 
+exports.sealPrototype = function sealPrototype (obj, value)
+{
+    Object.defineProperty(obj, "prototype", {value: value, writable: false});
+};
+
 function getErrno ()
 {
     return __asm__({},["res"],[],[],
