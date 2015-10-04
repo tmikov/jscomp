@@ -16,7 +16,7 @@ script_dir = os.path.dirname(__file__)
 uv_root = os.path.normpath(script_dir)
 output_dir = os.path.join(os.path.abspath(uv_root), 'out')
 
-sys.path.insert(0, os.path.join(uv_root, 'build', 'gyp', 'pylib'))
+sys.path.insert(0, os.path.join(uv_root, '..', 'gyp', 'pylib'))
 try:
   import gyp
 except ImportError:
