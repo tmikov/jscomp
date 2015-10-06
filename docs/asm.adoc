@@ -1,0 +1,66 @@
+= Inline C
+
+The `__asm__()` and `__asmh__()` statements are similar in spirit to GCC's
+`asm()` statement. They insert inline C code in the output of the compiler
+enabling functionality which is not possible in pure JavaScript.
+
+A large part of the runtime relies on this.
+
+
+== __asmh__
+
+Syntax:
+
+__asmh__(options, "string")
+
+* options: for now no options are supported to it must be an empty object `{}`
+* string: a constant string, or a sequence of constant string concatenated with `+`.
+
+'string' is added at the top of a generated C file containing all the inline code for
+the current module. Multiple `__asmh__()` with the same string and collapsed into a single
+one.
+
+The purpose of `__asmh__()` is to generate a C `#include` statement or possibly a global
+function or type. For example:
+
+[source,javascript]
+----
+__asmh__({}, '#include <stdio.h>');
+__asmh__({}, 'static void newline (void ) {\n'+
+             '  printf("\\n");\n'+
+             '}');
+----
+
+Note the double escape `"\\n"` - it is necessary because this is a JavaScript string.
+
+== __asm__
+
+The `__asm__()` statement is much more powerful and thus complex.
+
+Syntax:
+
+__asm__(options, result, parameters, temporaries, "body")
+
+
+=== Parameter Descriptor
+
+["name", value, options...]
+
+
+Options:
+
+* "in" - an input parameter. It will not be modified by the inline code
+* "out" - an output parameter. Its initial value is indeterminate. It will be set by the inline
+code.
+* "inout" - an input/output parameter.
+* "auto"
+
+Type options:
+* "double"
+* "const char *"
+* "int32_t"
+* "uint32_t"
+* "int_least31_t"
+* "bool"
+* "js::StringPrim"
+* "js::Object"

@@ -593,8 +593,63 @@ export class IfOp extends JumpInstruction {
 
 export type AsmPattern = Array<string|number>;
 
+export const enum AsmBindingUsage
+{
+    IN,
+    OUT,
+    INOUT,
+    RESULT,
+}
+
+var g_asmBindingUsageName: string[] = ["IN","OUT","INOUT","RESULT"];
+
+export const enum AsmBindingType
+{
+    VALUE,
+    STRING,
+    OBJECT,
+    ASCIIZ,
+    DOUBLE,
+    INT32,
+    UINT32,
+    INT31,
+    BOOL,
+}
+
+var g_asmBindingTypeName: string[] = [
+    "VALUE",
+    "STRING",
+    "OBJECT",
+    "ASCIIZ",
+    "DOUBLE",
+    "INT32",
+    "UINT32",
+    "INT31",
+    "BOOL",
+];
+
+export class AsmBinding
+{
+    public name: string;
+    public usage: AsmBindingUsage;
+    public type: AsmBindingType;
+    public value: RValue;
+
+    constructor (name: string, usage: AsmBindingUsage, type: AsmBindingType, value: RValue) {
+        this.name = name;
+        this.usage = usage;
+        this.type = type;
+        this.value = value;
+    }
+
+    toString (): string
+    {
+        return `[${this.name},${rv2s(this.value)},${g_asmBindingUsageName[this.usage]},${g_asmBindingTypeName[this.type]}]`;
+    }
+}
+
 export class AsmOp extends Instruction {
-    constructor (public dest: LValue, public bindings: RValue[], public pat: AsmPattern)
+    constructor (public dest: LValue, public bindings: AsmBinding[], public pat: AsmPattern)
     {
         super(OpCode.ASM);
     }
@@ -1034,9 +1089,9 @@ export class FunctionBuilder
     {
         this.getBB().push(new ClosureOp(dest, func));
     }
-    genAsm (dest: LValue, bindings: RValue[], pat: AsmPattern): void
+    genAsm (dest: LValue, bindings: AsmBinding[], pat: AsmPattern): void
     {
-        assert(!dest || bindings[0] === dest);
+        assert(!dest || bindings[0].value === dest);
         this.getBB().push(new AsmOp(dest || nullReg, bindings, pat));
     }
 
@@ -1215,13 +1270,22 @@ export class FunctionBuilder
         //this.genAsm(dest, [dest, frameReg, obj], [
         //    "js::ForInIterator::make(",1,",&",0,",",2,".raw.oval);"
         //]);
-        this.genAsm(dest, [dest, frameReg, obj], [
+        this.genAsm(dest, [
+                new AsmBinding("dest", AsmBindingUsage.RESULT, AsmBindingType.VALUE, dest),
+                new AsmBinding("frameReg", AsmBindingUsage.IN, AsmBindingType.VALUE, frameReg),
+                new AsmBinding("obj", AsmBindingUsage.IN, AsmBindingType.VALUE, obj)
+            ], [
             0," = js::makeForInIteratorValue(",2,".raw.oval->makeIterator(",1,"));"
         ]);
     }
     genForInIteratorNext (more: LValue, value: LValue, iter: RValue): void
     {
-        this.genAsm(more, [more, frameReg, iter, value], [
+        this.genAsm(more, [
+                new AsmBinding("more", AsmBindingUsage.RESULT, AsmBindingType.VALUE, more),
+                new AsmBinding("frameReg", AsmBindingUsage.IN, AsmBindingType.VALUE, frameReg),
+                new AsmBinding("iter", AsmBindingUsage.IN, AsmBindingType.VALUE, iter),
+                new AsmBinding("value", AsmBindingUsage.INOUT, AsmBindingType.VALUE, value)
+            ], [
             0," = js::makeBooleanValue(((js::ForInIterator*)",2,".raw.mval)->next(",1,", &",3,"));"
         ]);
     }
