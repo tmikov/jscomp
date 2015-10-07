@@ -242,6 +242,13 @@ function sealPrototype (obj, value)
     constProp(obj, "prototype", value);
 }
 
+function sealNativePrototype (obj, propCount, icls)
+{
+    var proto = createNative(propCount, icls);
+    constProp(proto, "constructor", obj);
+    sealPrototype(obj, proto);
+}
+
 function isCallable (x)
 {
     return typeof(x) === "function";
@@ -252,6 +259,7 @@ function isCallable (x)
 $jsc = {};
 
 defineProperty($jsc, "createNative", {value: createNative});
+defineProperty($jsc, "sealNativePrototype", {value: sealNativePrototype});
 defineProperty($jsc, "getInternalClass", {value: getInternalClass});
 
 defineProperty($jsc, "ICLS_MEMORY"           , {value: ICLS_MEMORY});
