@@ -74,8 +74,8 @@ function FSReqWrap ()
     $jsc.setInitTag(this, fsReqWrapInitTag);
 }
 
-var fsReqWrapInitTag = $jsc.newInitTag();
-_jsc.sealPrototype(FSReqWrap, $jsc.createNative(2));
+$jsc.sealNativePrototype(FSReqWrap, 2);
+var fsReqWrapInitTag = $jsc.newInitTag(FSReqWrap.prototype);
 
 exports.FSReqWrap = FSReqWrap;
 
