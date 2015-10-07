@@ -28,8 +28,6 @@ function pcre2_get_error_message (errorCode)
     );
 }
 
-var regExpTag = newInitTag();
-
 var $RegExp = RegExp = function RegExp (pattern, flags)
 {
     if (!(this instanceof RegExp))
@@ -118,7 +116,8 @@ var $RegExp = RegExp = function RegExp (pattern, flags)
     setInitTag(this, regExpTag);
 };
 
-sealPrototype(RegExp, createNative(2, ICLS_REGEXP));
+sealNativePrototype(RegExp, 2, ICLS_REGEXP);
+var regExpTag = newInitTag(RegExp.prototype);
 
 Object.defineProperties(RegExp.prototype, {
     source: {value: ""},
@@ -128,15 +127,10 @@ Object.defineProperties(RegExp.prototype, {
     multiline: {value: false}
 });
 
+// Not used
 function isRegExp (obj)
 {
     return checkInitTag(obj, regExpTag);
-}
-
-function validateObject (obj)
-{
-    if (!isRegExp(obj))
-        throw TypeError("'this' is not a RegExp");
 }
 
 function getSubstringByNumber (obj, str, num)
@@ -169,7 +163,7 @@ function getSubstringIndexByNumber (obj, str, num, which)
 
 function domatch (obj, str)
 {
-    validateObject(obj);
+    $jsc.assertInitTag(obj, regExpTag);
 
     str = String(str);
 
@@ -238,6 +232,6 @@ hidden(RegExp.prototype, "test", function regexp_test (str)
 
 hidden(RegExp.prototype, "toString", function regexp_toString()
 {
-    validateObject(this);
+    $jsc.assertInitTag(this, regExpTag);
     return "/" + this.source + "/" + this.flags;
 });
