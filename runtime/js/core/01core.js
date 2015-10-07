@@ -54,9 +54,9 @@ function setInternalClass (obj, value)
     );
 }
 
-function newInitTag ()
+function newInitTag (proto, name)
 {
-    return {};
+    return {proto: proto, name: name || undefined};
 }
 
 function setInitTag (obj, tag)
@@ -81,6 +81,21 @@ function checkInitTag (obj, tag)
     return __asm__({},["res"],[["obj", obj], ["tag", tag]],[],
         "%[res] = js::makeBooleanValue(js::checkInitTag(%[obj], %[tag]));"
     );
+}
+
+function assertInitTag (obj, tag, messagePrefix)
+{
+    if (!checkInitTag(obj, tag)) {
+        var name = tag.name || tag.proto && tag.proto.constructor && tag.proto.constructor.name;
+        if (name)
+            name = "expected " + name;
+        else
+            name = "incorrect type";
+
+        var msg = messagePrefix ? messagePrefix + ": " + name : name;
+
+        throw new TypeError(msg);
+    }
 }
 
 /** This is used only internally by the generated code in object expressions with accessors */
@@ -270,6 +285,7 @@ defineProperty($jsc, "ICLS_Float64Array"     , {value: ICLS_Float64Array});
 constProp($jsc, "newInitTag", newInitTag);
 constProp($jsc, "setInitTag", setInitTag);
 constProp($jsc, "checkInitTag", checkInitTag);
+constProp($jsc, "assertInitTag", assertInitTag);
 
 // Object
 //
