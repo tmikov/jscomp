@@ -9,7 +9,6 @@ import util = require("util");
 import stream = require("stream");
 
 import StringMap = require("../lib/StringMap");
-import bmh = require("../lib/bmh");
 
 export interface SourceLocation
 {
@@ -142,7 +141,7 @@ export var argcReg = new SystemReg(-2, "#argcReg");
 export var argvReg = new SystemReg(-3, "#argvReg");
 export var lastThrownValueReg = new SystemReg(-4, "#lastThrownValue");
 
-export function unwrapImmedate (v: RValue): any
+export function unwrapImmediate (v: RValue): any
 {
     if (v === nullValue)
         return null;
@@ -442,7 +441,7 @@ export function isJump (op: OpCode): boolean
     return op >= OpCode._JUMP_FIRST && op <= OpCode._JUMP_LAST;
 }
 
-function isBinopConditional (op: OpCode): boolean
+export function isBinopConditional (op: OpCode): boolean
 {
     return op >= OpCode._BINOP_FIRST && op <= OpCode._BINOP_FIRST + OpCode._BINCOND_LAST - OpCode._BINCOND_FIRST;
 }
@@ -453,7 +452,7 @@ export function binopToBincond (op: OpCode): OpCode
     return op + OpCode._BINCOND_FIRST - OpCode._BINOP_FIRST;
 }
 
-function rv2s (v: RValue): string
+export function rv2s (v: RValue): string
 {
     if (v === null)
         return "";
@@ -463,21 +462,21 @@ function rv2s (v: RValue): string
         return String(v); // FIXME: regex, other types, etc
 }
 
-function oc2s (op: OpCode): string
+export function oc2s (op: OpCode): string
 {
     return g_opcodeName[op];
 }
 
-class Instruction {
+export class Instruction {
     constructor (public op: OpCode) {}
 }
-class ClosureOp extends Instruction {
+export class ClosureOp extends Instruction {
     constructor (public dest: LValue, public funcRef: FunctionBuilder) { super(OpCode.CLOSURE); }
     toString (): string {
             return `${rv2s(this.dest)} = ${oc2s(this.op)}(${this.funcRef})`;
     }
 }
-class LoadSCOp extends Instruction {
+export class LoadSCOp extends Instruction {
     constructor (public dest: LValue, public sc: SysConst, public arg?: string) { super(OpCode.LOAD_SC); }
     toString (): string {
         if (!this.arg)
@@ -486,7 +485,7 @@ class LoadSCOp extends Instruction {
             return `${rv2s(this.dest)} = ${oc2s(this.op)}(${g_sysConstName[this.sc]}, ${this.arg})`;
     }
 }
-class BinOp extends Instruction {
+export class BinOp extends Instruction {
     constructor (op: OpCode, public dest: LValue, public src1: RValue, public src2: RValue) { super(op); }
     toString (): string {
         if (this.src2 !== null)
@@ -495,24 +494,24 @@ class BinOp extends Instruction {
             return `${rv2s(this.dest)} = ${oc2s(this.op)}(${rv2s(this.src1)})`;
     }
 }
-class UnOp extends BinOp {
+export class UnOp extends BinOp {
     constructor (op: OpCode, dest: LValue, src: RValue) { super(op, dest, src, null); }
 }
-class AssignOp extends UnOp {
+export class AssignOp extends UnOp {
     constructor (dest: LValue, src: RValue) { super(OpCode.ASSIGN, dest, src); }
     toString (): string {
         return `${rv2s(this.dest)} = ${rv2s(this.src1)}`;
     }
 }
 
-class PutOp extends Instruction {
+export class PutOp extends Instruction {
     constructor (public obj: RValue, public propName: RValue, public src: RValue) { super(OpCode.PUT); }
     toString (): string {
         return `${oc2s(this.op)}(${rv2s(this.obj)}, ${rv2s(this.propName)}, ${rv2s(this.src)})`;
     }
 }
 
-class CallOp extends Instruction {
+export class CallOp extends Instruction {
     public fileName: string = null;
     public line: number = 0;
     public column: number = 0;
@@ -531,28 +530,28 @@ class CallOp extends Instruction {
             return `${rv2s(this.dest)} = ${oc2s(this.op)}(${this.closure}, [${this.args}])`;
     }
 }
-class JumpInstruction extends Instruction {
+export class JumpInstruction extends Instruction {
     constructor (op: OpCode, public label1: Label, public label2: Label)  { super(op); }
 }
-class RetOp extends JumpInstruction {
+export class RetOp extends JumpInstruction {
     constructor (label1: Label, public src: RValue) { super(OpCode.RET, label1, null); }
     toString (): string {
         return `${oc2s(this.op)} ${this.label1}, ${rv2s(this.src)}`;
     }
 }
-class ThrowOp extends JumpInstruction {
+export class ThrowOp extends JumpInstruction {
     constructor (public src: RValue) { super(OpCode.THROW, null, null); }
     toString (): string {
         return `${oc2s(this.op)} ${rv2s(this.src)}`;
     }
 }
-class GotoOp extends JumpInstruction {
+export class GotoOp extends JumpInstruction {
     constructor (target: Label) { super(OpCode.GOTO, target, null); }
     toString(): string {
         return `${oc2s(this.op)} ${this.label1}`;
     }
 }
-class BeginTryOp extends JumpInstruction {
+export class BeginTryOp extends JumpInstruction {
     constructor (public tryId: number, onNormal: Label, onException: Label)
     {
         super(OpCode.BEGIN_TRY, onNormal, onException);
@@ -561,13 +560,13 @@ class BeginTryOp extends JumpInstruction {
         return `${oc2s(this.op)}(${this.tryId}) then ${this.label1} exc ${this.label2}`;
     }
 }
-class EndTryOp extends Instruction {
+export class EndTryOp extends Instruction {
     constructor (public tryId: number) { super(OpCode.END_TRY); }
     toString (): string {
         return `${oc2s(this.op)}(${this.tryId})`;
     }
 }
-class SwitchOp extends JumpInstruction {
+export class SwitchOp extends JumpInstruction {
     constructor (public selector: RValue, defaultLab: Label, public values: number[], public targets: Label[])
     {
         super(OpCode.SWITCH, null, defaultLab);
@@ -579,7 +578,7 @@ class SwitchOp extends JumpInstruction {
         return res + ",[" + this.values.toString() + "],[" + this.targets.toString() +"]";
     }
 }
-class IfOp extends JumpInstruction {
+export class IfOp extends JumpInstruction {
     constructor (op: OpCode, public src1: RValue, public src2: RValue, onTrue: Label, onFalse: Label)
     {
         super(op, onTrue, onFalse);
@@ -594,7 +593,7 @@ class IfOp extends JumpInstruction {
 
 export type AsmPattern = Array<string|number>;
 
-class AsmOp extends Instruction {
+export class AsmOp extends Instruction {
     constructor (public dest: LValue, public bindings: RValue[], public pat: AsmPattern)
     {
         super(OpCode.ASM);
@@ -674,8 +673,8 @@ export function foldBinary (op: OpCode, v1: RValue, v2: RValue): RValue
 {
     if (!isImmediate(v1) || !isImmediate(v2))
         return null;
-    var a1: any = unwrapImmedate(v1);
-    var a2: any = unwrapImmedate(v2);
+    var a1: any = unwrapImmediate(v1);
+    var a2: any = unwrapImmediate(v2);
     var r: any;
     switch (op) {
         case OpCode.STRICT_EQ: r = a1 === a2; break;
@@ -710,12 +709,12 @@ export function foldBinary (op: OpCode, v1: RValue, v2: RValue): RValue
 export function isImmediateTrue (v: RValue): boolean
 {
     assert(isImmediate(v));
-    return !!unwrapImmedate(v);
+    return !!unwrapImmediate(v);
 }
 
 export function isImmediateInteger (v: RValue): boolean
 {
-    var tmp = unwrapImmedate(v);
+    var tmp = unwrapImmediate(v);
     return typeof tmp === "number" && (tmp | 0) === tmp;
 }
 
@@ -735,7 +734,7 @@ export function foldUnary (op: OpCode, v: RValue): RValue
 {
     if (!isImmediate(v))
         return null;
-    var a: any = unwrapImmedate(v);
+    var a: any = unwrapImmediate(v);
     var r: any;
     switch (op) {
         case OpCode.NEG_N:     r = -a; break;
@@ -899,6 +898,43 @@ export class FunctionBuilder
 
         this.entryBB = this.getBB();
         this.exitLabel = this.newLabel();
+    }
+
+    public getEnvLevel (): number
+    {
+        return this.envLevel;
+    }
+    public getEnvSize (): number
+    {
+        return this.envSize;
+    }
+    public getLocalsLength (): number
+    {
+        return this.locals.length;
+    }
+    public getParamsLength (): number
+    {
+        return this.params.length;
+    }
+    public getParamSlotsCount (): number
+    {
+        return this.paramSlotsCount;
+    }
+    public getTryRecordCount (): number
+    {
+        return this.tryRecordCount;
+    }
+    public getBlockListLength (): number
+    {
+        return this.blockList.length;
+    }
+    public getBlock (n: number): BasicBlock
+    {
+        return this.blockList[n];
+    }
+    public getLowestEnvAccessed (): number
+    {
+        return this.lowestEnvAccessed;
     }
 
     toString() { return `Function(${this.id}/*${this.mangledName}*/)`; }
@@ -1369,883 +1405,6 @@ export class FunctionBuilder
             });
         }
     }
-
-    private obuf: OutputSegment = null;
-
-    private gen (...params: any[])
-    {
-        this.obuf.push(util.format.apply(null, arguments));
-    }
-
-    private strEnvAccess (envLevel: number): string
-    {
-        if (envLevel < 0)
-            return "NULL";
-
-        if (envLevel === this.envLevel)
-            return "frame.escaped";
-
-        var path = "env";
-        for ( var fb: FunctionBuilder = this; fb = fb.parentBuilder; ) {
-            if (fb.envLevel === envLevel) {
-                return path;
-            } else if (fb.envSize > 0) {
-                path += "->parent";
-            }
-        }
-        assert(false, util.format("cannot access envLevel %d from envLevel %d (%s)", envLevel, this.envLevel, this.name));
-    }
-
-    private strEscapingVar (v: Var): string
-    {
-        assert(v.escapes, `variable ${v.name} is not marked as escaping`);
-        return util.format("%s->vars[%d]", this.strEnvAccess(v.envLevel), v.envIndex);
-    }
-
-    private strMemValue (lv: MemValue): string
-    {
-        if (lv instanceof Var) {
-            if (lv.local)
-                return this.strMemValue(lv.local);
-            else if (lv.param)
-                return this.strMemValue(lv.param);
-            else
-                return this.strEscapingVar(lv);
-        }
-        else if (lv instanceof Param) {
-            if (lv.index === 0)
-                return `argv[${lv.index}]`; // "this" is always available
-            else
-                return `(argc > ${lv.index} ? argv[${lv.index}] : JS_UNDEFINED_VALUE)`;
-        }
-        else if (lv instanceof ArgSlot) {
-            return this.strMemValue(lv.local);
-        }
-        else if (lv instanceof Local) {
-            return `frame.locals[${lv.index}]`;
-        }
-        else if (lv instanceof SystemReg) {
-            switch (lv) {
-                case frameReg: return "&frame";
-                case argcReg:  return "argc";
-                case argvReg:  return "argv";
-                case lastThrownValueReg: return "JS_GET_RUNTIME(&frame)->thrownObject";
-            }
-        }
-
-        assert(false, "unsupported LValue "+ lv);
-        return "???";
-    }
-
-    private strStringPrim(s: string): string
-    {
-        var res = "s_strings["+this.module.addString(s)+"]";
-        if (s.length <= 64)
-            res += "/*\"" + escapeCString(s, true) + "\"*/";
-        return res;
-    }
-
-    private strNumberImmediate (n: number): string
-    {
-        if (isNaN(n))
-            return "NAN";
-        else if (!isFinite(n))
-            return n > 0 ? "INFINITY" : "-INFINITY";
-        else {
-            var res = String(n);
-
-            if ((n | 0) === n || (n >>> 0) === n) // is it an integer?
-                return res;
-
-            if (res.indexOf(".") < 0) // If there is no decimal point, we must add it
-                return res + ".0";
-            else
-                return res;
-        }
-    }
-
-    private strRValue (rv: RValue): string
-    {
-        if (<any>rv instanceof MemValue)
-            return this.strMemValue(<MemValue>rv);
-        else if (rv === undefinedValue)
-            return "JS_UNDEFINED_VALUE";
-        else if (rv === nullValue)
-            return "JS_NULL_VALUE";
-        else if (typeof rv === "number")
-            return util.format("js::makeNumberValue(%s)", this.strNumberImmediate(rv));
-        else if (typeof rv === "boolean")
-            return `js::makeBooleanValue(${rv ? "true":"false"})`;
-        else if (typeof rv === "string")
-            return `js::makeStringValue(${this.strStringPrim(rv)})`;
-        else
-            return rv2s(rv);
-    }
-
-    private strBlock (bb: BasicBlock): string
-    {
-        return `b${bb.id}`;
-    }
-
-    private strDest (v: LValue): string
-    {
-        if (v !== nullReg)
-            return util.format("%s = ", this.strMemValue(v));
-        else
-            return "";
-    }
-
-    private outCreate (createOp: UnOp): void
-    {
-        var callerStr: string = "&frame, ";
-        this.gen("  %sjs::makeObjectValue(js::objectCreate(%s%s));\n",
-            this.strDest(createOp.dest), callerStr, this.strRValue(createOp.src1)
-        );
-    }
-
-    private outCreateArguments (createOp: UnOp): void
-    {
-        var frameStr = "&frame";
-        if (createOp.dest === nullReg)
-            return;
-        this.gen("  %s = js::makeObjectValue(new (%s) js::Arguments(JS_GET_RUNTIME(%s)->objectPrototype));\n",
-            this.strMemValue(createOp.dest), frameStr, frameStr
-        );
-        this.gen("  ((js::Arguments*)%s.raw.oval)->init(%s, argc-1, argv+1);\n",
-            this.strRValue(createOp.dest), frameStr
-        );
-    }
-
-    private outLoadSC (loadsc: LoadSCOp): void
-    {
-        var src: string;
-        switch (loadsc.sc) {
-            case SysConst.RUNTIME_VAR:
-                src = util.format("js::makeObjectValue(JS_GET_RUNTIME(&frame)->%s)", loadsc.arg);
-                break;
-            case SysConst.ARGUMENTS_LEN:
-                src = "js::makeNumberValue(argc)";
-                break;
-            default:
-                assert(false, "Usupported sysconst "+ loadsc.sc);
-                return;
-        }
-        this.gen("  %s%s;\n", this.strDest(loadsc.dest), src);
-    }
-
-    private generateAsm (asm: AsmOp): void
-    {
-        this.gen("{");
-        for ( var i = 0, e = asm.pat.length; i < e; ++i )
-        {
-            var pe = asm.pat[i];
-            if (typeof pe === "string") {
-                this.gen(<string>pe);
-            } else if (typeof pe === "number") {
-                this.gen("(%s)", this.strRValue(asm.bindings[<number>pe]));
-            } else
-                assert(false, "unsupported pattern value "+ pe);
-        }
-        this.gen(";}\n");
-    }
-
-    private generateBinopOutofline (binop: BinOp): void
-    {
-        var callerStr: string = "&frame, ";
-        this.gen("  %sjs::operator_%s(%s%s, %s);\n",
-            this.strDest(binop.dest),
-            oc2s(binop.op),
-            callerStr,
-            this.strRValue(binop.src1), this.strRValue(binop.src2)
-        );
-    }
-
-    private strToNumber (rv: RValue): string
-    {
-        if (isImmediate(rv)) {
-            var folded = foldUnary(OpCode.TO_NUMBER, rv);
-            if (folded !== null)
-                return this.strNumberImmediate(<number>folded);
-        }
-
-        var callerStr: string = "&frame, ";
-        return util.format("js::toNumber(%s%s)", callerStr, this.strRValue(rv));
-    }
-    private strToInt32 (rv: RValue): string
-    {
-        var callerStr: string = "&frame, ";
-        return isImmediate(rv) ?
-            util.format("%d", unwrapImmedate(rv)|0) :
-            util.format("js::toInt32(%s%s)", callerStr, this.strRValue(rv));
-    }
-    private strToUint32 (rv: RValue): string
-    {
-        var callerStr: string = "&frame, ";
-        return isImmediate(rv) ?
-            util.format("%d", unwrapImmedate(rv)|0) :
-            util.format("js::toUint32(%s%s)", callerStr, this.strRValue(rv));
-    }
-
-    private strToString (rv: RValue): string
-    {
-        if (isImmediate(rv)) {
-            var folded = foldUnary(OpCode.TO_STRING, rv);
-            if (folded !== null)
-                return this.strRValue(rv);
-        }
-
-        var callerStr: string = "&frame, ";
-        return util.format("js::toString(%s%s)", callerStr, this.strRValue(rv));
-    }
-
-    /**
-     * Unwrap a value which we know is numeric
-     * @param rv
-     */
-    private strUnwrapN (rv: RValue): string
-    {
-        return isImmediate(rv) ? String(unwrapImmedate(rv)) : util.format("%s.raw.nval", this.strRValue(rv));
-    }
-
-    private outNumericBinop (binop: BinOp, coper: string): void
-    {
-        this.gen("  %sjs::makeNumberValue(%s %s %s);\n", this.strDest(binop.dest),
-            this.strToNumber(binop.src1), coper, this.strToNumber(binop.src2));
-    }
-
-    private outIntegerBinop (binop: BinOp, coper: string, lsigned: boolean, rsigned: boolean): void
-    {
-        var l = lsigned ? this.strToInt32(binop.src1): this.strToUint32(binop.src1);
-        var r = rsigned ? this.strToInt32(binop.src2): this.strToUint32(binop.src2);
-
-        this.gen("  %sjs::makeNumberValue(%s %s %s);\n", this.strDest(binop.dest), l, coper, r);
-    }
-
-    /**
-     * A binary operator where we know the operands are numbers
-     * @param binop
-     * @param coper
-     */
-    private outBinop_N (binop: BinOp, coper: string): void
-    {
-        this.gen("  %sjs::makeNumberValue(%s %s %s);\n", this.strDest(binop.dest),
-            this.strUnwrapN(binop.src1), coper, this.strUnwrapN(binop.src2));
-    }
-
-    private outNumericUnop (unop: UnOp, coper: string): void
-    {
-        this.gen("  %sjs::makeNumberValue(%s%s);\n", this.strDest(unop.dest),
-            coper, this.strToNumber(unop.src1));
-    }
-
-    private outIntegerUnop (unop: UnOp, coper: string): void
-    {
-        this.gen("  %sjs::makeNumberValue(%s%s);\n", this.strDest(unop.dest),
-            coper, this.strToInt32(unop.src1));
-    }
-
-    private outDelete (binop: BinOp): void
-    {
-        var callerStr = "&frame, ";
-        var expr: string = null;
-
-        if (isString(binop.src2)) {
-            var strName: string = <string>unwrapImmedate(binop.src2);
-
-            // IMPORTANT: string property names looking like integer numbers must be treated as
-            // computed properties
-            if (!isValidArrayIndex(strName)) {
-                expr = util.format("%s.raw.oval->deleteProperty(%s%s)",
-                    this.strRValue(binop.src1), callerStr, this.strStringPrim(strName)
-                );
-            }
-        }
-
-        if (expr === null)
-            expr = util.format("%s.raw.oval->deleteComputed(%s%s)",
-                this.strRValue(binop.src1), callerStr, this.strRValue(binop.src2)
-            );
-
-        this.gen("  %s%s;\n", this.strDest(binop.dest), expr);
-    }
-
-    private generateBinop (binop: BinOp): void
-    {
-        var callerStr = "&frame, ";
-
-        switch (binop.op) {
-            case OpCode.ADD:   this.generateBinopOutofline(binop); break;
-            case OpCode.ADD_N: this.outNumericBinop(binop, "+"); break;
-            case OpCode.SUB_N: this.outNumericBinop(binop, "-"); break;
-            case OpCode.MUL_N: this.outNumericBinop(binop, "*"); break;
-            case OpCode.DIV_N: this.outNumericBinop(binop, "/"); break;
-            case OpCode.MOD_N:
-                this.gen("  %sjs::makeNumberValue(fmod(%s, %s));\n", this.strDest(binop.dest),
-                    this.strToNumber(binop.src1), this.strToNumber(binop.src2));
-                break;
-            case OpCode.SHL_N: this.outIntegerBinop(binop, "<<", true, false); break;
-            case OpCode.SHR_N: this.outIntegerBinop(binop, ">>", false, false); break;
-            case OpCode.ASR_N: this.outIntegerBinop(binop, ">>", true, false); break;
-            case OpCode.OR_N: this.outIntegerBinop(binop, "|", true, true); break;
-            case OpCode.XOR_N: this.outIntegerBinop(binop, "^", true, true); break;
-            case OpCode.AND_N: this.outIntegerBinop(binop, "&", true, true); break;
-
-            case OpCode.ASSERT_OBJECT:
-                this.gen("  if (!js::isValueTagObject(%s.tag)) js::throwTypeError(%s\"%%s\", %s.raw.sval->getStr());\n",
-                    this.strRValue(binop.src1),
-                    callerStr,
-                    this.strToString(binop.src2)
-                );
-                if (binop.dest !== binop.src1 && binop.dest !== nullReg)
-                    this.gen("  %s%s;\n", this.strDest(binop.dest), this.strRValue(binop.src1));
-                break;
-            case OpCode.ASSERT_FUNC:
-                this.gen("  if (!js::isFunction(%s)) js::throwTypeError(%s\"%%s\", %s.raw.sval->getStr());\n",
-                    this.strRValue(binop.src1),
-                    callerStr,
-                    this.strToString(binop.src2)
-                );
-                if (binop.dest !== binop.src1 && binop.dest !== nullReg)
-                    this.gen("  %s%s;\n", this.strDest(binop.dest), this.strRValue(binop.src1));
-                break;
-
-            case OpCode.DELETE:
-                this.outDelete(binop);
-                break;
-
-            default:
-                if (isBinopConditional(binop.op)) {
-                    this.gen("  %sjs::makeBooleanValue(%s);\n",
-                        this.strDest(binop.dest),
-                        this.strIfOpCond(binopToBincond(binop.op), binop.src1, binop.src2)
-                    );
-                } else {
-                    this.generateBinopOutofline(binop);
-                }
-                break;
-        }
-    }
-
-    private generateUnop (unop: UnOp): void
-    {
-        var callerStr = "&frame, ";
-        switch (unop.op) {
-            case OpCode.NEG_N: this.outNumericUnop(unop, "-"); break;
-            case OpCode.LOG_NOT:
-                this.gen("  %sjs::makeBooleanValue(!js::toBoolean(%s));\n", this.strDest(unop.dest), this.strRValue(unop.src1));
-                break;
-            case OpCode.BIN_NOT_N: this.outIntegerUnop(unop, "~"); break;
-            case OpCode.TYPEOF:
-                this.gen("  %sjs::makeStringValue(js::operator_TYPEOF(%s%s));\n",
-                    this.strDest(unop.dest), callerStr, this.strRValue(unop.src1)
-                );
-                break;
-            case OpCode.TO_NUMBER:
-                this.gen("  %sjs::makeNumberValue(%s);\n", this.strDest(unop.dest), this.strToNumber(unop.src1));
-                break;
-            case OpCode.TO_STRING:
-                this.gen("  %s%s;\n", this.strDest(unop.dest), this.strToString(unop.src1));
-                break;
-            case OpCode.TO_OBJECT:
-                this.gen("  %sjs::makeObjectValue(js::toObject(%s%s));\n",
-                    this.strDest(unop.dest), callerStr, this.strRValue(unop.src1)
-                );
-                break;
-            default:
-                assert(false, "Unsupported instruction "+ unop);
-                break;
-        }
-    }
-
-    private generateGet (getop: BinOp): void
-    {
-        var callerStr = "&frame, ";
-
-        if (isString(getop.src2)) {
-            var strName: string = <string>unwrapImmedate(getop.src2);
-
-            // IMPORTANT: string property names looking like integer numbers must be treated as
-            // computed properties
-            if (!isValidArrayIndex(strName)) {
-                this.gen("  %sjs::get(%s%s, %s);\n",
-                    this.strDest(getop.dest),
-                    callerStr,
-                    this.strRValue(getop.src1), this.strStringPrim(strName)
-                );
-                return;
-            }
-        }
-
-        this.gen("  %sjs::getComputed(%s%s, %s);\n",
-            this.strDest(getop.dest),
-            callerStr,
-            this.strRValue(getop.src1), this.strRValue(getop.src2)
-        );
-    }
-
-    private generatePut (putop: PutOp): void
-    {
-        var callerStr = "&frame, ";
-
-        if (isString(putop.propName)) {
-            var strName: string = <string>unwrapImmedate(putop.propName);
-
-            // IMPORTANT: string property names looking like integer numbers must be treated as
-            // computed properties
-            if (!isValidArrayIndex(strName)) {
-                this.gen("  js::put(%s%s, %s, %s);\n",
-                    callerStr,
-                    this.strRValue(putop.obj), this.strStringPrim(strName), this.strRValue(putop.src)
-                );
-                return;
-            }
-        }
-
-        this.gen("  js::putComputed(%s%s, %s, %s);\n",
-            callerStr,
-            this.strRValue(putop.obj), this.strRValue(putop.propName), this.strRValue(putop.src)
-        );
-    }
-
-    private outCallerLine(loc: SourceLocation): void
-    {
-        if (this.module.debugMode)
-            this.gen("  frame.setLine(%d);\n", loc.line);
-    }
-
-    private generateInst(inst: Instruction): void
-    {
-        switch (inst.op) {
-            case OpCode.CLOSURE:
-                var closureop = <ClosureOp>inst;
-                //this.outCallerLine();
-                this.gen("  %sjs::newFunction(&frame, %s, %s, %d, %s);\n",
-                    this.strDest(closureop.dest),
-                    this.strEnvAccess(closureop.funcRef.lowestEnvAccessed),
-                    closureop.funcRef.name ? this.strStringPrim(closureop.funcRef.name) : "NULL",
-                    closureop.funcRef.params.length-1,
-                    this.module.strFunc(closureop.funcRef)
-                );
-                break;
-            case OpCode.CREATE: this.outCreate(<UnOp>inst); break;
-            case OpCode.CREATE_ARGUMENTS: this.outCreateArguments(<UnOp>inst); break;
-            case OpCode.LOAD_SC: this.outLoadSC(<LoadSCOp>inst); break;
-            case OpCode.END_TRY:
-                var endTryOp = <EndTryOp>inst;
-                this.gen("  JS_GET_RUNTIME(&frame)->popTry(&tryRec%d);\n", endTryOp.tryId);
-                break;
-            case OpCode.ASM:    this.generateAsm(<AsmOp>inst); break;
-
-            case OpCode.ASSIGN:
-                var assignop = <AssignOp>inst;
-                this.gen("  %s%s;\n", this.strDest(assignop.dest), this.strRValue(assignop.src1));
-                break;
-            case OpCode.GET: this.generateGet(<BinOp>inst); break;
-            case OpCode.PUT: this.generatePut(<PutOp>inst); break;
-            case OpCode.CALL:
-                // TODO: self tail-recursion optimization
-                var callop = <CallOp>inst;
-                this.outCallerLine(callop);
-                this.gen("  %s%s(&frame, %s, %d, &%s);\n",
-                    this.strDest(callop.dest),
-                    this.module.strFunc(callop.fref),
-                    this.strEnvAccess(callop.fref.lowestEnvAccessed),
-                    callop.args.length,
-                    this.strMemValue(callop.args[0])
-                );
-                break;
-            case OpCode.CALLIND:
-                var callop = <CallOp>inst;
-                this.outCallerLine(callop);
-                this.gen("  %sjs::call(&frame, %s, %d, &%s);\n",
-                    this.strDest(callop.dest),
-                    this.strRValue(callop.closure),
-                    callop.args.length,
-                    this.strMemValue(callop.args[0])
-                );
-                break;
-            case OpCode.CALLCONS:
-                var callop = <CallOp>inst;
-                this.outCallerLine(callop);
-                this.gen("  %sjs::callCons(&frame, %s, %d, &%s);\n",
-                    this.strDest(callop.dest),
-                    this.strRValue(callop.closure),
-                    callop.args.length,
-                    this.strMemValue(callop.args[0])
-                );
-                break;
-            default:
-                if (inst.op >= OpCode._BINOP_FIRST && inst.op <= OpCode._BINOP_LAST) {
-                    this.generateBinop(<BinOp>inst);
-                } else if (inst.op >= OpCode._UNOP_FIRST && inst.op <= OpCode._UNOP_LAST) {
-                    this.generateUnop(<UnOp>inst);
-                }
-                else {
-                    assert(false, "Unsupported instruction "+ inst);
-                }
-                break;
-        }
-    }
-
-    private strIfIn (src1: RValue, src2: RValue): string
-    {
-        var callerStr = "&frame, ";
-
-        if (isString(src1)) {
-            var strName: string = <string>unwrapImmedate(src1);
-
-            // IMPORTANT: string property names looking like integer numbers must be treated as
-            // computed properties, but if not, we can go the faster way
-            if (!isValidArrayIndex(strName)) {
-                return util.format("%s.raw.oval->hasProperty(%s)",
-                    this.strRValue(src2), this.strStringPrim(strName)
-                );
-            }
-        }
-
-        return util.format("(%s.raw.oval->hasComputed(%s%s) != 0)",
-            this.strRValue(src2), callerStr, this.strRValue(src1)
-        );
-    }
-
-    private strIfOpCond (op: OpCode, src1: RValue, src2: RValue): string
-    {
-        var callerStr: string = "&frame, ";
-        var cond: string;
-
-        assert(op >= OpCode._IF_FIRST && op <= OpCode._IF_LAST);
-
-        switch (op) {
-            case OpCode.IF_TRUE:
-                cond = util.format("js::toBoolean(%s)", this.strRValue(src1));
-                break;
-            case OpCode.IF_IS_OBJECT:
-                cond = util.format("js::isValueTagObject(%s.tag)", this.strRValue(src1));
-                break;
-            case OpCode.IF_STRICT_EQ:
-                cond = util.format("operator_%s(%s, %s)",
-                    oc2s(op), this.strRValue(src1), this.strRValue(src2)
-                );
-                break;
-            case OpCode.IF_STRICT_NE:
-                cond = util.format("!operator_%s(%s, %s)",
-                    oc2s(OpCode.IF_STRICT_EQ), this.strRValue(src1), this.strRValue(src2)
-                );
-                break;
-            case OpCode.IF_LOOSE_EQ:
-                cond = util.format("operator_%s(%s%s, %s)",
-                    oc2s(op), callerStr, this.strRValue(src1), this.strRValue(src2)
-                );
-                break;
-            case OpCode.IF_LOOSE_NE:
-                cond = util.format("!operator_%s(%s%s, %s)",
-                    oc2s(OpCode.IF_LOOSE_EQ), callerStr, this.strRValue(src1), this.strRValue(src2)
-                );
-                break;
-
-            case OpCode.IF_IN:
-                cond = this.strIfIn(src1, src2);
-                break;
-            case OpCode.IF_INSTANCEOF:
-                cond = util.format("operator_IF_INSTANCEOF(%s%s, %s.raw.fval)",
-                    callerStr, this.strRValue(src1), this.strRValue(src2)
-                );
-                break;
-
-            default:
-                if (op >= OpCode._BINCOND_FIRST && op <= OpCode._BINCOND_LAST) {
-                    cond = util.format("operator_%s(%s%s, %s)",
-                        oc2s(op), callerStr, this.strRValue(src1), this.strRValue(src2)
-                    );
-                } else {
-                    cond = util.format("operator_%s(%s)", oc2s(op), this.strRValue(src1));
-                }
-                break;
-        }
-        return cond;
-    }
-
-    /**
-     * Generate a jump instruction, taking care of the fall-through case.
-     * @param inst
-     * @param nextBB
-     */
-    private generateJump (inst: Instruction, nextBB: BasicBlock): void
-    {
-        var callerStr: string = "&frame, ";
-        assert(inst instanceof JumpInstruction);
-        var jump = <JumpInstruction>inst;
-
-        var bb1 = jump.label1 && jump.label1.bb;
-        var bb2 = jump.label2 && jump.label2.bb;
-
-        switch (jump.op) {
-            case OpCode.RET:
-                var retop = <RetOp>jump;
-                this.gen("  return %s;\n", this.strRValue(retop.src));
-                break;
-            case OpCode.THROW:
-                var throwOp = <ThrowOp>jump;
-                this.gen("  js::throwValue(%s%s);\n", callerStr, this.strRValue(throwOp.src));
-                break;
-            case OpCode.GOTO:
-                if (bb1 !== nextBB)
-                    this.gen("  goto %s;\n", this.strBlock(bb1));
-                break;
-            case OpCode.BEGIN_TRY:
-                var beginTryOp = <BeginTryOp>jump;
-                this.gen("  JS_GET_RUNTIME(&frame)->pushTry(&tryRec%d);\n", beginTryOp.tryId);
-                this.gen("  if (::setjmp(tryRec%d.jbuf) == 0) goto %s; else goto %s;\n",
-                    beginTryOp.tryId, this.strBlock(bb1), this.strBlock(bb2)
-                );
-                break;
-            case OpCode.SWITCH:
-                var switchOp = <SwitchOp>jump;
-                this.gen("  switch ((int32_t)%s.raw.nval) {", this.strRValue(switchOp.selector));
-                for ( var i = 0; i < switchOp.values.length; ++i )
-                    this.gen(" case %d: goto %s;", switchOp.values[i], this.strBlock(switchOp.targets[i].bb));
-                if (switchOp.label2)
-                    if (bb2 !== nextBB)
-                        this.gen(" default: goto %s;", this.strBlock(bb2));
-                this.gen(" };\n");
-                break;
-            default:
-                if (jump.op >= OpCode._IF_FIRST && jump.op <= OpCode._IF_LAST) {
-                    var ifop = <IfOp>jump;
-                    var cond = this.strIfOpCond(ifop.op, ifop.src1, ifop.src2);
-
-                    if (bb2 === nextBB)
-                        this.gen("  if (%s) goto %s;\n", cond, this.strBlock(bb1));
-                    else if (bb1 === nextBB)
-                        this.gen("  if (!%s) goto %s;\n", cond, this.strBlock(bb2));
-                    else
-                        this.gen("  if (%s) goto %s; else goto %s;\n", cond, this.strBlock(bb1), this.strBlock(bb2));
-                } else {
-                    assert(false, "unknown instructiopn "+ jump);
-                }
-        }
-
-    }
-
-    private _generateC (): void
-    {
-        var gen = this.gen.bind(this);
-        gen("\n// %s\nstatic js::TaggedValue %s (js::StackFrame * caller, js::Env * env, unsigned argc, const js::TaggedValue * argv)\n{\n",
-            this.name || "<unnamed>", this.module.strFunc(this)
-        );
-
-        var sourceFile: string = "NULL";
-        var sourceLine: number = 0;
-
-        if (hasSourceLocation(this)) {
-            sourceFile = '"'+ escapeCString(this.fileName + ":" + (this.name || "<unnamed>"), false) + '"';
-            sourceLine = this.line;
-        }
-
-        gen("  js::StackFrameN<%d,%d,%d> frame(caller, env, %s, %d);\n",
-            this.envSize, this.locals.length, this.paramSlotsCount,
-            sourceFile, sourceLine
-        );
-        for ( var i = 0; i < this.tryRecordCount; ++i )
-            this.gen("  js::TryRecord tryRec%d;\n", i );
-        this.gen("\n");
-
-        // Keep track if the very last thing we generated was a label, so we can add a ';' after i
-        // at the end
-        var labelWasLast = false;
-        for ( var bi = 0, be = this.blockList.length; bi < be; ++bi ) {
-            var bb = this.blockList[bi];
-            labelWasLast = bb.body.length === 0;
-            gen("%s:\n", this.strBlock(bb));
-            for ( var ii = 0, ie = bb.body.length-1; ii < ie; ++ii )
-                this.generateInst(bb.body[ii]);
-
-            if (ie >= 0)
-                this.generateJump(bb.body[ii], bi < be - 1 ? this.blockList[bi+1] : null);
-        }
-        if (labelWasLast)
-            gen("  ;\n");
-
-        gen("}\n");
-    }
-
-    generateC (obuf: OutputSegment): void
-    {
-        if (this.isBuiltIn)
-            return;
-        this.obuf = obuf;
-        try
-        {
-            this._generateC();
-        }
-        finally
-        {
-            this.obuf = null;
-        }
-    }
-}
-
-export class OutputSegment
-{
-    private obuf: string[] = [];
-
-    public format (...params: any[]): void
-    {
-        this.obuf.push(util.format.apply(null, arguments));
-    }
-    public push (x: string): void
-    {
-        this.obuf.push(x);
-    }
-
-    public dump (out: NodeJS.WritableStream): void
-    {
-        for ( var i = 0, e = this.obuf.length; i < e; ++i )
-            out.write(this.obuf[i]);
-    }
-}
-
-export function escapeCString (s: string, inComment: boolean): string
-{
-    return escapeCStringBuffer(new Buffer(s, "utf8"),inComment).toString("ascii");
-}
-
-function max (a: number, b: number): number
-{
-    return a > b ? a : b;
-}
-
-function min (a: number, b: number): number
-{
-    return a < b ? a : b;
-}
-
-class DynBuffer
-{
-    buf: Buffer;
-    length: number = 0;
-
-    constructor (hint: number)
-    {
-        this.buf = new Buffer(hint);
-    }
-
-    reserve (extra: number, exactly: boolean): void
-    {
-        var rlen = this.length + extra;
-        var newLength: number;
-
-        if (!exactly) {
-            if (rlen <= this.buf.length)
-                return;
-            newLength = max(this.buf.length * 2, rlen);
-        } else {
-            if (rlen === this.buf.length)
-                return;
-            newLength = rlen;
-        }
-
-        var old = this.buf;
-        this.buf = new Buffer(newLength);
-        old.copy(this.buf, 0, 0, this.length);
-    }
-
-    addBuffer (s: Buffer, from: number, to: number): void
-    {
-        this.reserve(to - from, false);
-        s.copy(this.buf, this.length, from, to);
-        this.length += to - from;
-    }
-
-    addASCIIString (s: string): void
-    {
-        this.reserve(s.length, false);
-
-        var length = this.length;
-        for ( var i = 0, e = s.length; i < e; ++i )
-            this.buf[length++] = s.charCodeAt(i);
-        this.length = length;
-    }
-}
-
-/**
- *
- * @param s
- * @param inComment tells us that we are in a C-style comment, so ["*","/"] must be escaped too
- * @param from
- * @param to
- * @returns {Buffer}
- */
-export function escapeCStringBuffer (s: Buffer, inComment: boolean, from?: number, to?: number): Buffer
-{
-    if (from === void 0)
-        from = 0;
-    if (to === void 0)
-        to = s.length;
-
-    var res: DynBuffer = null;
-    var lastIndex = from;
-    var lastByte: number = 0;
-
-    for ( var i = from; i < to; ++i ) {
-        var byte = s[i];
-        if (byte < 32 || byte > 127 || byte === 34 /*"*/ || byte === 92 /*backslash*/ ||
-            (byte === 63 /*?*/ && lastByte === 63 /*?*/) || // Trigraphs
-            (byte === 47 /*/*/ && lastByte === 42 /***/ && inComment) ||
-            (byte === 42 /***/ && lastByte === 47 /*/*/ && inComment))
-        {
-            if (!res)
-                res = new DynBuffer(to - from + 16);
-            if (lastIndex < i)
-                res.addBuffer(s, lastIndex, i);
-            lastIndex = i + 1;
-            switch (byte) { // TODO: more escapes
-                case 9:  res.addASCIIString("\\t"); break;
-                case 10: res.addASCIIString("\\n"); break;
-                case 13: res.addASCIIString("\\r"); break;
-                case 34: res.addASCIIString('\\"'); break;
-                case 63: res.addASCIIString("\\?"); break;
-                case 92: res.addASCIIString("\\\\"); break;
-                case 42: res.addASCIIString("\\*"); break;
-                case 47: res.addASCIIString("\\/"); break;
-                default: res.addASCIIString(util.format("\\%d%d%d", byte/64&7, byte/8&7, byte&7)); break;
-            }
-        }
-        lastByte = byte;
-    }
-    if (res !== null) {
-        res.reserve(i - lastIndex, true)
-        if (lastIndex < i)
-            res.addBuffer(s, lastIndex, i);
-        return res.buf;
-    }
-    else {
-        if (from !== 0 || to !== s.length)
-            return s.slice(from, to);
-        else
-            return s;
-    }
-}
-
-
-function bufferIndexOf (haystack: Buffer, haystackLen: number, needle: Buffer, startIndex: number = 0): number
-{
-    // TODO: full Boyer-Moore, etc
-    // see http://stackoverflow.com/questions/3183582/what-is-the-fastest-substring-search-algorithm
-    var needleLen = needle.length;
-
-    // Utilize Boyer-Moore-Harspool for needles much smaller than the haystack
-    if (needleLen >= 8 && haystackLen - startIndex - needleLen > 1000)
-        return bmh.search(haystack, startIndex, haystackLen, needle);
-
-    for ( var i = 0, e = haystackLen - needleLen + 1; i < e; ++i ) {
-        var j: number;
-        for ( j = 0; j < needleLen && haystack[i+j] === needle[j]; ++j )
-        {}
-        if (j === needleLen)
-            return i;
-    }
-    return -1;
 }
 
 export class ModuleBuilder
@@ -2256,9 +1415,6 @@ export class ModuleBuilder
     /** Headers added with the __asmh__ compiler extension */
     private asmHeaders : string[] = [];
     private asmHeadersSet = new StringMap<Object>();
-    private strings : string[] = [];
-    private stringMap = new StringMap<number>();
-    private codeSeg = new OutputSegment();
 
     public debugMode: boolean = false;
 
@@ -2267,21 +1423,27 @@ export class ModuleBuilder
         this.debugMode = debugMode;
     }
 
-    addAsmHeader (h: string) {
+    getTopLevel (): FunctionBuilder
+    {
+        return this.topLevel;
+    }
+
+    getAsmHeaders (): string[]
+    {
+        return this.asmHeaders;
+    }
+
+    isDebugMode (): boolean
+    {
+        return this.debugMode;
+    }
+
+    addAsmHeader (h: string)
+    {
         if (!this.asmHeadersSet.has(h)) {
             this.asmHeadersSet.set(h, null);
             this.asmHeaders.push(h);
         }
-    }
-
-    addString (s: string): number {
-        var n: number;
-        if ( (n = this.stringMap.get(s)) === void 0) {
-            n = this.strings.length;
-            this.strings.push(s);
-            this.stringMap.set(s, n);
-        }
-        return n;
     }
 
     newFunctionId (): number
@@ -2300,148 +1462,5 @@ export class ModuleBuilder
     prepareForCodegen (): void
     {
         this.topLevel.prepareForCodegen();
-    }
-
-    strFunc (fref: FunctionBuilder): string
-    {
-        return fref.mangledName;
-    }
-
-    private gen (...params: any[])
-    {
-        this.codeSeg.push(util.format.apply(null, arguments));
-    }
-
-    private outputStringStorage (out: NodeJS.WritableStream): void
-    {
-        if (!this.strings.length)
-            return;
-        /* TODO: to generalized suffix tree mapping.
-          Something like this?
-          - sort strings in decreasing length
-          - start with an empty string buffer
-          - for each string
-             - if found in the string buffer use that position
-             - append to the string buffer
-        */
-        var index: number[] = new Array<number>(this.strings.length);
-        var offsets: number[] = new Array<number>(this.strings.length);
-        var lengths: number[] = new Array<number>(this.strings.length);
-
-        // Sort the strings in decreasing length
-        var e = this.strings.length;
-        var i : number;
-        var totalLength = 0; // the combined length of all strings as initial guess for our buffer
-        for ( i = 0; i < e; ++i ) {
-            index[i] = i;
-            totalLength += this.strings[i].length;
-        }
-
-        index.sort( (a: number, b:number) => this.strings[b].length - this.strings[a].length);
-
-        var buf = new DynBuffer(totalLength);
-
-        for ( i = 0; i < e; ++i ) {
-            var ii = index[i];
-            var s = this.strings[ii];
-            var encoded = new Buffer(s, "utf8");
-            var pos: number = bufferIndexOf(buf.buf, buf.length, encoded);
-
-            if (pos < 0) { // Append to the buffer
-                pos = buf.length;
-                buf.addBuffer(encoded, 0, encoded.length);
-            }
-
-            offsets[ii] = pos;
-            lengths[ii] = encoded.length;
-        }
-
-        out.write(util.format("static const js::StringPrim * s_strings[%d];\n", this.strings.length));
-        out.write("static const char s_strconst[] =\n");
-        var line: string;
-        var margin = 72;
-
-        for ( var ofs = 0; ofs < buf.length; )
-        {
-            var to = min(buf.length, ofs + margin);
-            line = "  \"" + escapeCStringBuffer(buf.buf, false, ofs, to) + "\"";
-            if (to === buf.length)
-                line += ";";
-            line += "\n";
-            out.write(line);
-            ofs = to;
-        }
-
-        line = util.format("static const unsigned s_strofs[%d] = {", this.strings.length*2);
-
-        for ( var i = 0; i < this.strings.length; ++i ) {
-            var t = util.format("%d,%d", offsets[i], lengths[i]);
-            if (line.length + t.length + 1 > margin) {
-                out.write(line += i > 0 ? ",\n" : "\n");
-                line = "  "+t;
-            } else {
-                line += i > 0 ? "," + t : t;
-            }
-        }
-        line += "};\n\n";
-        out.write(line);
-    }
-
-    generateC (out: NodeJS.WritableStream, strictMode: boolean): void
-    {
-        var moduleFunc = this.topLevel.closures[0];
-
-        var forEachFunc = (fb: FunctionBuilder, cb: (fb: FunctionBuilder)=>void) => {
-            if (fb !== this.topLevel)
-                cb(fb);
-            fb.closures.forEach((fb) => forEachFunc(fb, cb));
-        };
-
-        forEachFunc(this.topLevel, (fb) => {
-            if (!fb.isBuiltIn)
-                this.gen("static js::TaggedValue %s (js::StackFrame*, js::Env*, unsigned, const js::TaggedValue*); // %s\n",
-                    this.strFunc(fb), fb.name || "<unnamed>"
-                );
-        });
-        this.gen("\n");
-        forEachFunc(this.topLevel, (fb) => fb.generateC(this.codeSeg));
-
-        this.gen(
-`
-int main(int argc, const char ** argv)
-{
-    js::g_runtime = new js::Runtime(${strictMode}, argc, argv);
-    js::StackFrameN<0, 1, 0> frame(NULL, NULL, __FILE__ ":main", __LINE__);
-`
-        );
-        if (this.strings.length > 0) {
-            this.gen(util.format(
-                "    JS_GET_RUNTIME(&frame)->initStrings(&frame, s_strings, s_strconst, s_strofs, %d);",
-                this.strings.length
-            ));
-        }
-
-        this.gen(
-`
-    frame.setLine(__LINE__+1);
-    frame.locals[0] = js::makeObjectValue(new(&frame) js::Object(JS_GET_RUNTIME(&frame)->objectPrototype));
-    frame.setLine(__LINE__+1);
-    ${this.topLevel.closures[0].mangledName}(&frame, JS_GET_RUNTIME(&frame)->env, 1, frame.locals);
-
-    if (JS_GET_RUNTIME(&frame)->diagFlags & (js::Runtime::DIAG_HEAP_GC | js::Runtime::DIAG_FORCE_GC))
-        js::forceGC(&frame);
-
-    return 0;
-}`
-        );
-
-        out.write(util.format("#include <jsc/jsruntime.h>\n"));
-        // Generate the headers added with __asmh__
-        this.asmHeaders.forEach((h: string) => out.write(util.format("%s\n", h)));
-        out.write("\n");
-
-        this.outputStringStorage(out);
-
-        this.codeSeg.dump(out);
     }
 }

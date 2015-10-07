@@ -16,6 +16,7 @@ import acorn = require("../js/acorn/acorn_csp");
 import StringMap = require("../lib/StringMap");
 
 import hir = require("./hir");
+import cxxbackend = require("./cxxbackend");
 
 export interface IErrorReporter
 {
@@ -1344,7 +1345,7 @@ function compileSource (
             var rv = tryFoldExpression(scope, stmt.cases[i].test);
             if (rv !== null  && hir.isImmediateInteger(rv)) {
                 intCase[i] = true;
-                var nv = hir.unwrapImmedate(rv) | 0;
+                var nv = hir.unwrapImmediate(rv) | 0;
                 var snv = String(nv);
                 if (!(snv in intValueSet)) {
                     intValueSet[snv] = nv;
@@ -3634,10 +3635,18 @@ export function compile (
         return fn;
     }
 
+    function generateC (out: NodeJS.WritableStream): void
+    {
+        var backend = new cxxbackend.CXXBackend(
+            m_moduleBuilder.getTopLevel(), m_moduleBuilder.getAsmHeaders(), m_moduleBuilder.isDebugMode()
+        );
+        backend.generateC(out, m_options.strictMode);
+    }
+
     function produceOutput () {
         if (m_options.sourceOnly) {
             if (m_options.outputName === "-") { // output to pipe?
-                m_moduleBuilder.generateC(process.stdout, m_options.strictMode);
+                generateC(process.stdout);
             } else {
                 var ext = ".cxx";
                 var outName: string = null;
@@ -3653,7 +3662,7 @@ export function compile (
                 try {
                     var fd = fs.openSync(outName, "w");
                     var out = fs.createWriteStream(null, {fd: fd});
-                    m_moduleBuilder.generateC(out, m_options.strictMode);
+                    generateC(out);
                     out.end();
                     out.once("error", (e: any) => {
                         error(null, e.message);
@@ -3722,7 +3731,7 @@ export function compile (
                 error(null, e.message);
             });
             child.stdin.write(util.format("#line 1 \"%s\"\n", m_fileName));
-            m_moduleBuilder.generateC(child.stdin, m_options.strictMode);
+            generateC(child.stdin);
             child.stdin.end();
             child.once("error", (e: any) => {
                 error(null, e.message);
