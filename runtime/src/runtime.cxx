@@ -524,7 +524,9 @@ InternalClass NativeObject::getInternalClass () const
 
 Object * NativeObject::createDescendant (StackFrame * caller)
 {
-    return NativeObject::make(caller, this, this->internalCount);
+    NativeObject * obj = NativeObject::make(caller, this, this->internalCount);
+    obj->icls = this->icls;
+    return obj;
 }
 
 bool NativeObject::mark (IMark * marker, unsigned markBit) const
