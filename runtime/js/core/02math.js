@@ -2,8 +2,7 @@
 // Licensed under the Apache License v2.0. See LICENSE in the project
 // root for complete license information.
 
-Math = createNative(0);
-setInternalClass(Math, ICLS_MATH);
+Math = createNative(0, ICLS_MATH);
 
 constProp(Math, "E",      2.718281828459045);
 constProp(Math, "LN10",   2.302585092994046);

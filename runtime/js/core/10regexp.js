@@ -35,11 +35,6 @@ var $RegExp = RegExp = function RegExp (pattern, flags)
     if (!(this instanceof RegExp))
         return new RegExp(pattern, flags);
 
-    // Set the internal class
-    __asm__({},[],[["this", this]],[],
-        "((js::NativeObject *)%[this].raw.oval)->setInternalClass(js::ICLS_REGEXP);"
-    );
-
     // Set the finalizer
     __asmh__({},
         "static void regexp_finalizer (js::StackFrame *, js::NativeObject * obj)\n" +
@@ -123,7 +118,7 @@ var $RegExp = RegExp = function RegExp (pattern, flags)
     setInitTag(this, regExpTag);
 };
 
-sealPrototype(RegExp, createNative(2));
+sealPrototype(RegExp, createNative(2, ICLS_REGEXP));
 
 Object.defineProperties(RegExp.prototype, {
     source: {value: ""},
