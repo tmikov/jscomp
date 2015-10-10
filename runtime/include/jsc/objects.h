@@ -393,7 +393,8 @@ public:
 
     void setInternalClass (InternalClass icls)
     {
-        this->icls = icls;
+        if (icls != ICLS_OBJECT && this->icls == ICLS_OBJECT)
+            this->icls = icls;
     }
 
     void setNativeFinalizer (NativeFinalizerFn finalizer)
