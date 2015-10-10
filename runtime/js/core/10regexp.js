@@ -163,7 +163,7 @@ function getSubstringIndexByNumber (obj, str, num, which)
 
 function domatch (obj, str)
 {
-    $jsc.assertInitTag(obj, regExpTag);
+    assertInitTag(obj, regExpTag);
 
     str = String(str);
 
@@ -232,6 +232,6 @@ hidden(RegExp.prototype, "test", function regexp_test (str)
 
 hidden(RegExp.prototype, "toString", function regexp_toString()
 {
-    $jsc.assertInitTag(this, regExpTag);
+    assertInitTag(this, regExpTag);
     return "/" + this.source + "/" + this.flags;
 });
