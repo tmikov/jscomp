@@ -2,11 +2,14 @@
 // Licensed under the Apache License v2.0. See LICENSE in the project
 // root for complete license information.
 
-function createNative (propCount)
+function createNative (propCount, icls)
 {
-    return __asm__({},["result"],[["propCount",propCount >>> 0]],[],
+    var obj = __asm__({},["result"],[["propCount",propCount >>> 0]],[],
         "%[result] = js::makeObjectValue(js::NativeObject::make(%[%frame], (unsigned)%[propCount].raw.nval));"
     );
+    if (icls !== undefined)
+        setInternalClass(obj, icls);
+    return obj;
 }
 
 var ICLS_MEMORY      =  0;
