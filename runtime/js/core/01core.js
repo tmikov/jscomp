@@ -100,6 +100,28 @@ function _defineAccessor (obj, prop, getter, setter)
     );
 }
 
+function toInteger (v)
+{
+    return __asm__({},["res"],[["v",v]],[],
+        "%[res] = js::makeNumberValue(js::toInteger(%[%frame], %[v]));"
+    );
+}
+
+function toPrimitive (v, preferredType)
+{
+    var pt = 0;
+    if (preferredType === "number")
+        pt = 1;
+    else if (preferredType === "string")
+        pt = 2;
+
+    return __asm__({},["res"],[["v",v], ["pt", pt]],[],
+        "js::ValueTag pt = %[pt].raw.nval == 1 ?\n" +
+        "   js::VT_NUMBER : (%[pt].raw.nval == 2 ? js::VT_STRINGPRIM : js::VT_UNDEFINED);\n"+
+        "%[res] = js::toPrimitive(%[%frame], %[v], pt);"
+    );
+}
+
 function toObject (x)
 {
     return __asm__({},["res"], [["x", x]], [],
