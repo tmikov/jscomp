@@ -1972,7 +1972,7 @@ function compileSource (
     function compileLiteral (scope: Scope, literal: ESTree.Literal, need: boolean): hir.RValue
     {
         if (literal.regex)
-            return compileRegexLiteral(scope, <ESTree.RegexLiteral>literal, need);
+            return compileRegexLiteral(scope, <ESTree.RegExpLiteral>literal, need);
 
         if (need) {
             return hir.wrapImmediate(literal.value);
@@ -1981,7 +1981,7 @@ function compileSource (
         }
     }
 
-    function compileRegexLiteral (scope: Scope, regexLit: ESTree.RegexLiteral, need: boolean): hir.RValue
+    function compileRegexLiteral (scope: Scope, regexLit: ESTree.RegExpLiteral, need: boolean): hir.RValue
     {
         if (!m_specVars.regExp) {
             error(location(regexLit), "RegExp not initialized yet");
