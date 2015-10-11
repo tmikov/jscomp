@@ -1,4 +1,6 @@
-TSC=tsc
+NPM_BIN:=$(shell npm bin)
+
+TSC=$(NPM_BIN)/tsc
 TSFLAGS=--module commonjs --target ES5 --sourceMap --noImplicitAny --noEmitOnError
 
 JOBS?=2

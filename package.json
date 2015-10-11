@@ -16,5 +16,7 @@
     "url": "https://github.com/tmikov/jscomp/issues"
   },
   "homepage": "https://github.com/tmikov/jscomp",
-  "devDependencies": {}
+  "devDependencies": {
+    "typescript": "^1.6.2"
+  }
 }
