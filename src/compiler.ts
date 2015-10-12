@@ -1497,8 +1497,6 @@ function compileSource (
             }
 
             var catchIdent: ESTree.Identifier = NT.Identifier.cast(stmt.handler.param);
-            if (stmt.handler.guard)
-                error(location(stmt.handler.guard), "catch guards not supported in ES5");
 
             var catchScope = new Scope(scope.ctx, false, scope);
             var catchVar = catchScope.newVariable(catchIdent.name);
