@@ -233,7 +233,7 @@ class Scope
     lookup (name: string, lastScope?: Scope): Variable
     {
         var v: Variable;
-        var scope = this;
+        var scope: Scope = this;
         do {
             if (v = scope.vars.get(name))
                 return v;
@@ -987,7 +987,6 @@ function compileSource (
                 blockStatement.body.forEach((s: ESTree.Statement) => {
                     scanStatementForDeclarations(scope, s);
                 });
-                break;
                 break;
             case "IfStatement":
                 var ifStatement: ESTree.IfStatement = NT.IfStatement.cast(stmt);
