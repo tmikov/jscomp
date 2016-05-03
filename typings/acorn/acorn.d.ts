@@ -9,7 +9,7 @@ declare module acorn {
     var version: string;
     function parse(input: string, options?: Options): ESTree.Program;
     function parseExpressionAt(input: string, pos: number, options?: Options): ESTree.Expression;
-    function getLineInfo(input: string, pos: number): ESTree.Position;
+    function getLineInfo(input: string, offset: number): ESTree.Position;
     var defaultOptions: Options;
 
     interface TokenType {
@@ -43,7 +43,6 @@ declare module acorn {
     }
 
     interface Options {
-        strict?: boolean;
         ecmaVersion?: number;
         sourceType?: string;
         onInsertedSemicolon?: (lastTokEnd: number, lastTokEndLoc?: ESTree.Position) => any;
